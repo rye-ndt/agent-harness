@@ -1,0 +1,8 @@
+# Application configuration. Fields go here as Config grows.
+app:
+  name: master_harness
+  w: 1024
+  h: 768
+  bg: "#1B2636"
+version: 0.0.1
+log_level: info # debug | info | warn | error
