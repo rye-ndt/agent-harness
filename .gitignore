@@ -1,3 +1,5 @@
-/runs/
-/harness
-CLAUDE.md
+/bin/
+*.test
+build/bin
+node_modules
+frontend/dist
