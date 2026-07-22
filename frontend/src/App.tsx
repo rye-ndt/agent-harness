@@ -1,17 +1,23 @@
-import {useState} from 'react'
-import {Button} from '@/components/ui/button'
-import {Input} from '@/components/ui/input'
+import {useEffect, useState} from 'react'
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card'
-import {Greet} from '../wailsjs/go/wailsapi/API'
+import {SupportedAgents} from '../wailsjs/go/wailsapi/API'
+
+function formatAgentName(name: string) {
+    return name
+        .split('_')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ')
+}
 
 function App() {
-    const [name, setName] = useState('')
-    const [result, setResult] = useState('')
+    const [agents, setAgents] = useState<string[]>([])
+    const [error, setError] = useState('')
 
-    async function greet() {
-        if (!name) return
-        setResult(await Greet(name))
-    }
+    useEffect(() => {
+        SupportedAgents()
+            .then(setAgents)
+            .catch((err) => setError(String(err)))
+    }, [])
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-background">
@@ -19,17 +25,21 @@ function App() {
                 <CardHeader>
                     <CardTitle>master_harness</CardTitle>
                     <CardDescription>
-                        {result || 'Enter your name and say hello to Go.'}
+                        {error || 'Supported agent harness tools'}
                     </CardDescription>
                 </CardHeader>
-                <CardContent className="flex gap-2">
-                    <Input
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && greet()}
-                        placeholder="Your name"
-                    />
-                    <Button onClick={greet}>Greet</Button>
+                <CardContent className="flex flex-col gap-2">
+                    {agents.map((agent) => (
+                        <div
+                            key={agent}
+                            className="rounded-md border px-3 py-2 text-sm font-medium"
+                        >
+                            {formatAgentName(agent)}
+                        </div>
+                    ))}
+                    {!error && agents.length === 0 && (
+                        <p className="text-sm text-muted-foreground">No agents configured.</p>
+                    )}
                 </CardContent>
             </Card>
         </div>

@@ -1,6 +1,6 @@
 package input_itf
 
-import "time"
+import "hexago/internal/implementation/helpers/enums"
 
 type AppConfig struct {
 	Name string `mapstructure:"name"`
@@ -9,29 +9,11 @@ type AppConfig struct {
 	Bg   string `mapstructure:"bg"`
 }
 
-type HarnessConfig struct {
-	Name         string        `mapstructure:"name"`
-	BinName      string        `mapstructure:"bin_name"`
-	ReleaseBase  string        `mapstructure:"release_base"`
-	LoginTimeout time.Duration `mapstructure:"login_timeout"`
-	TokenRegex   string        `mapstructure:"token_regex"`
-	AnsiRegex    string        `mapstructure:"ansi_regex"`
-}
-
 type ConfigStruct struct {
-	App          *AppConfig       `mapstructure:"app"`
-	Version      string           `mapstructure:"version"`
-	LogLevel     string           `mapstructure:"log_level"`
-	AgentHarness []*HarnessConfig `mapstructure:"agent_harness"`
-}
-
-func (c *ConfigStruct) Harness(name string) *HarnessConfig {
-	for _, h := range c.AgentHarness {
-		if h.Name == name {
-			return h
-		}
-	}
-	return nil
+	App          *AppConfig                            `mapstructure:"app"`
+	Version      string                                `mapstructure:"version"`
+	LogLevel     string                                `mapstructure:"log_level"`
+	AgentHarness map[enums.AgentHarness]map[string]any `mapstructure:"agent_harness"`
 }
 
 type Config interface {

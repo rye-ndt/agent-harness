@@ -1,7 +1,8 @@
 package input_itf
 
 type DownloadParams struct {
-	Checksum string
+	Checksum   string
+	OnProgress func(downloaded, total int64)
 }
 
 type HttpCli interface {

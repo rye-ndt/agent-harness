@@ -1,8 +1,10 @@
 package harness
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -33,46 +35,58 @@ type agentProc struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
+	out    chan string
+}
+
+type ClaudeCodeCfg struct {
+	Name         string        `mapstructure:"name"`
+	BinName      string        `mapstructure:"bin_name"`
+	ReleaseBase  string        `mapstructure:"release_base"`
+	LoginTimeout time.Duration `mapstructure:"login_timeout"`
+	TokenRegex   string        `mapstructure:"token_regex"`
+	AnsiRegex    string        `mapstructure:"ansi_regex"`
 }
 
 type claudeCode struct {
 	dir     string
 	mu      sync.Mutex
 	agents  map[string]*agentProc
-	cfg     *input_itf.HarnessConfig
+	cfg     *ClaudeCodeCfg
 	httpCli input_itf.HttpCli
 	storage output_itf.HarnessStorage
 	tokenRe *regexp.Regexp
 	ansiRe  *regexp.Regexp
 }
 
-func New(
-	globalCfg input_itf.Config,
-	claudeCodeCfg *input_itf.HarnessConfig,
-	httpCli input_itf.HttpCli,
-	storage output_itf.HarnessStorage,
-) (input_itf.HarnessAgent, error) {
+type ClaudeManagerParams struct {
+	GlobalCfg     input_itf.Config
+	ClaudeCodeCfg *ClaudeCodeCfg
+	HttpCli       input_itf.HttpCli
+	Storage       output_itf.HarnessStorage
+}
+
+func NewClaudeCode(p *ClaudeManagerParams) (input_itf.AgentHarness, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return nil, custom_error.Critical("%v", err)
 	}
 
-	tokenRe, err := regexp.Compile(claudeCodeCfg.TokenRegex)
+	tokenRe, err := regexp.Compile(p.ClaudeCodeCfg.TokenRegex)
 	if err != nil {
 		return nil, custom_error.Critical("compile token_regex: %v", err)
 	}
 
-	ansiRe, err := regexp.Compile(claudeCodeCfg.AnsiRegex)
+	ansiRe, err := regexp.Compile(p.ClaudeCodeCfg.AnsiRegex)
 	if err != nil {
 		return nil, custom_error.Critical("compile ansi_regex: %v", err)
 	}
 
 	return &claudeCode{
-		dir:     filepath.Join(base, globalCfg.Read().App.Name, "harness", harnessName),
+		dir:     filepath.Join(base, p.GlobalCfg.Read().App.Name, "harness", harnessName),
 		agents:  map[string]*agentProc{},
-		cfg:     claudeCodeCfg,
-		httpCli: httpCli,
-		storage: storage,
+		cfg:     p.ClaudeCodeCfg,
+		httpCli: p.HttpCli,
+		storage: p.Storage,
 		tokenRe: tokenRe,
 		ansiRe:  ansiRe,
 	}, nil
@@ -96,10 +110,17 @@ func (c *claudeCode) tokenPath() string {
 	return filepath.Join(c.dir, "credentials")
 }
 
-func (c *claudeCode) Install() error {
+func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
+	if onProgress == nil {
+		onProgress = func(input_itf.InstallProgress) {}
+	}
+
 	if _, err := os.Stat(c.binPath()); err == nil {
+		onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageDone})
 		return nil
 	}
+
+	onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageResolve})
 
 	platform, err := platformString()
 	if err != nil {
@@ -128,8 +149,19 @@ func (c *claudeCode) Install() error {
 
 	tmp := c.binPath() + ".download"
 
+	onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageDownload})
+
 	url := c.cfg.ReleaseBase + "/" + version + "/" + platform + "/" + entry.Binary
-	if err := c.httpCli.Download(url, tmp, &input_itf.DownloadParams{Checksum: entry.Checksum}); err != nil {
+	if err := c.httpCli.Download(url, tmp, &input_itf.DownloadParams{
+		Checksum: entry.Checksum,
+		OnProgress: func(downloaded, total int64) {
+			onProgress(input_itf.InstallProgress{
+				Stage:      input_itf.InstallStageDownload,
+				Downloaded: downloaded,
+				Total:      total,
+			})
+		},
+	}); err != nil {
 		return custom_error.Critical("download binary: %v", err)
 	}
 	if err := os.Chmod(tmp, 0o755); err != nil {
@@ -147,6 +179,8 @@ func (c *claudeCode) Install() error {
 	}); err != nil {
 		return custom_error.Critical("save install info: %v", err)
 	}
+
+	onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageDone})
 
 	return nil
 }
@@ -244,22 +278,75 @@ func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 	if err != nil {
 		return nil, custom_error.Critical("%v", err)
 	}
+	stderr, err := os.Create(filepath.Join(workdir, "stderr.log"))
+	if err != nil {
+		return nil, custom_error.Critical("%v", err)
+	}
+	cmd.Stderr = stderr
+
 	if err := cmd.Start(); err != nil {
+		stderr.Close()
 		return nil, custom_error.Critical("start claude code: %v", err)
 	}
 
+	out := make(chan string, 64)
+
 	c.mu.Lock()
-	c.agents[id] = &agentProc{cmd: cmd, stdin: stdin, stdout: stdout}
+	c.agents[id] = &agentProc{cmd: cmd, stdin: stdin, stdout: stdout, out: out}
 	c.mu.Unlock()
 
 	go func() {
+		sc := bufio.NewScanner(stdout)
+		sc.Buffer(make([]byte, 64*1024), 8*1024*1024)
+		for sc.Scan() {
+			out <- sc.Text()
+		}
+		close(out)
 		cmd.Wait()
+		stderr.Close()
 		c.mu.Lock()
 		delete(c.agents, id)
 		c.mu.Unlock()
 	}()
 
 	return &input_itf.Agent{ID: id}, nil
+}
+
+func (c *claudeCode) Send(id string, message string) error {
+	c.mu.Lock()
+	a, ok := c.agents[id]
+	c.mu.Unlock()
+	if !ok {
+		return custom_error.Critical("no running agent with id %s", id)
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role": "user",
+			"content": []map[string]string{
+				{"type": "text", "text": message},
+			},
+		},
+	})
+	if err != nil {
+		return custom_error.Critical("%v", err)
+	}
+
+	if _, err := a.stdin.Write(append(payload, '\n')); err != nil {
+		return custom_error.Critical("write to agent %s: %v", id, err)
+	}
+	return nil
+}
+
+func (c *claudeCode) Listen(id string) (<-chan string, error) {
+	c.mu.Lock()
+	a, ok := c.agents[id]
+	c.mu.Unlock()
+	if !ok {
+		return nil, custom_error.Critical("no running agent with id %s", id)
+	}
+	return a.out, nil
 }
 
 func (c *claudeCode) Uninstall() error {
@@ -302,12 +389,12 @@ func platformString() (string, error) {
 	return goos + "-" + arch, nil
 }
 
-func cleanEnv() []string {
-	drop := []string{
+func cleanEnv(extra ...string) []string {
+	drop := append([]string{
 		"ANTHROPIC_API_KEY=", "ANTHROPIC_AUTH_TOKEN=",
 		"CLAUDE_CODE_OAUTH_TOKEN=", "CLAUDE_CONFIG_DIR=",
 		"CLAUDE_CODE_USE_BEDROCK=", "CLAUDE_CODE_USE_VERTEX=",
-	}
+	}, extra...)
 	var env []string
 outer:
 	for _, kv := range os.Environ() {
