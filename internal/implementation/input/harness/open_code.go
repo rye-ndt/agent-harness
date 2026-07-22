@@ -104,11 +104,17 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 	}
 
 	if _, err := os.Stat(o.binPath()); err == nil {
-		onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageDone})
-		return nil
+		info, err := o.storage.Find(openCodeName)
+		if err != nil {
+			return custom_error.Critical("find harness info: %v", err)
+		}
+		if info != nil {
+			onProgress(input_itf.InstallProgress{Stage: enums.InstallStageDone})
+			return nil
+		}
 	}
 
-	onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageResolve})
+	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageResolve})
 
 	platform, err := openCodePlatform()
 	if err != nil {
@@ -141,13 +147,13 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 
 	archive := o.binPath() + ".zip"
 
-	onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageDownload})
+	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageDownload})
 
 	if err := o.httpCli.Download(url, archive, &input_itf.DownloadParams{
 		Checksum: checksum,
 		OnProgress: func(downloaded, total int64) {
 			onProgress(input_itf.InstallProgress{
-				Stage:      input_itf.InstallStageDownload,
+				Stage:      enums.InstallStageDownload,
 				Downloaded: downloaded,
 				Total:      total,
 			})
@@ -157,7 +163,7 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 	}
 	defer os.Remove(archive)
 
-	onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageExtract})
+	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageExtract})
 
 	if err := extractBinary(archive, filepath.Base(o.binPath()), o.binPath()); err != nil {
 		return err
@@ -175,7 +181,7 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		return custom_error.Critical("save install info: %v", err)
 	}
 
-	onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageDone})
+	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageDone})
 
 	return nil
 }
@@ -221,6 +227,28 @@ func (o *openCode) Auth() error {
 	}
 
 	return custom_error.Critical("login timed out after %s", o.cfg.LoginTimeout)
+}
+
+func (o *openCode) Status() (*input_itf.AgentStatus, error) {
+	status := &input_itf.AgentStatus{Name: o.cfg.Name}
+
+	info, err := o.storage.Find(openCodeName)
+	if err != nil {
+		return nil, custom_error.Critical("find harness info: %v", err)
+	}
+
+	if info != nil {
+		if _, err := os.Stat(info.Path); err == nil {
+			status.Installed = true
+			status.Version = info.Version
+		}
+	}
+
+	o.mu.Lock()
+	status.InstanceCount = len(o.agents)
+	o.mu.Unlock()
+
+	return status, nil
 }
 
 func (o *openCode) Spawn() (*input_itf.Agent, error) {
@@ -453,7 +481,8 @@ func extractBinary(archive, member, dest string) error {
 		if err != nil {
 			return custom_error.Critical("%v", err)
 		}
-		out, err := os.Create(dest)
+		tmp := dest + ".tmp"
+		out, err := os.Create(tmp)
 		if err != nil {
 			rc.Close()
 			return custom_error.Critical("%v", err)
@@ -463,8 +492,11 @@ func extractBinary(archive, member, dest string) error {
 		if cerr := out.Close(); err == nil {
 			err = cerr
 		}
+		if err == nil {
+			err = os.Rename(tmp, dest)
+		}
 		if err != nil {
-			os.Remove(dest)
+			os.Remove(tmp)
 			return custom_error.Critical("%v", err)
 		}
 		return nil

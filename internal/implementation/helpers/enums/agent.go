@@ -11,3 +11,16 @@ const (
 func (a AgentHarness) String() string {
 	return string(a)
 }
+
+type InstallationStage string
+
+const (
+	InstallStageResolve  InstallationStage = "resolve"
+	InstallStageDownload InstallationStage = "download"
+	InstallStageExtract  InstallationStage = "extract"
+	InstallStageDone     InstallationStage = "done"
+)
+
+func (s InstallationStage) String() string {
+	return string(s)
+}
