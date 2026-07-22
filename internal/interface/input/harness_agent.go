@@ -7,6 +7,7 @@ type Agent struct {
 type HarnessAgent interface {
 	Auth() error
 	Install() error
+	Uninstall() error
 	Spawn() (*Agent, error)
 	Kill(id string) error
 }

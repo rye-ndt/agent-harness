@@ -4,7 +4,7 @@ type OS string
 
 const (
 	Windows OS = "windows"
-	Mac     OS = "mac"
+	Mac     OS = "darwin"
 	Linux   OS = "linux"
 )
 

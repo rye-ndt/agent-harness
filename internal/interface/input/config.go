@@ -9,7 +9,8 @@ type AppConfig struct {
 	Bg   string `mapstructure:"bg"`
 }
 
-type ClaudeCodeConfig struct {
+type HarnessConfig struct {
+	Name         string        `mapstructure:"name"`
 	BinName      string        `mapstructure:"bin_name"`
 	ReleaseBase  string        `mapstructure:"release_base"`
 	LoginTimeout time.Duration `mapstructure:"login_timeout"`
@@ -17,15 +18,20 @@ type ClaudeCodeConfig struct {
 	AnsiRegex    string        `mapstructure:"ansi_regex"`
 }
 
-type AgentHarnessConfig struct {
-	ClaudeCode *ClaudeCodeConfig `mapstructure:"claude_code"`
+type ConfigStruct struct {
+	App          *AppConfig       `mapstructure:"app"`
+	Version      string           `mapstructure:"version"`
+	LogLevel     string           `mapstructure:"log_level"`
+	AgentHarness []*HarnessConfig `mapstructure:"agent_harness"`
 }
 
-type ConfigStruct struct {
-	App          *AppConfig          `mapstructure:"app"`
-	Version      string              `mapstructure:"version"`
-	LogLevel     string              `mapstructure:"log_level"`
-	AgentHarness *AgentHarnessConfig `mapstructure:"agent_harness"`
+func (c *ConfigStruct) Harness(name string) *HarnessConfig {
+	for _, h := range c.AgentHarness {
+		if h.Name == name {
+			return h
+		}
+	}
+	return nil
 }
 
 type Config interface {

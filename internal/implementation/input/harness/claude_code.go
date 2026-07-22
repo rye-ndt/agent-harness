@@ -14,10 +14,13 @@ import (
 	"sync"
 	"time"
 
+	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/helpers/enums"
 	input_itf "hexago/internal/interface/input"
 	output_itf "hexago/internal/interface/output"
 )
+
+const harnessName = "claude-code"
 
 type claudeManifest struct {
 	Platforms map[string]struct {
@@ -33,42 +36,43 @@ type agentProc struct {
 }
 
 type claudeCode struct {
-	log     output_itf.Logger
 	dir     string
 	mu      sync.Mutex
 	agents  map[string]*agentProc
-	cfg     *input_itf.ClaudeCodeConfig
+	cfg     *input_itf.HarnessConfig
 	httpCli input_itf.HttpCli
+	storage output_itf.HarnessStorage
 	tokenRe *regexp.Regexp
 	ansiRe  *regexp.Regexp
 }
 
 func New(
 	globalCfg input_itf.Config,
-	claudeCodeCfg *input_itf.ClaudeCodeConfig,
-	logger output_itf.Logger,
+	claudeCodeCfg *input_itf.HarnessConfig,
 	httpCli input_itf.HttpCli,
+	storage output_itf.HarnessStorage,
 ) (input_itf.HarnessAgent, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
-		return nil, err
+		return nil, custom_error.Critical("%v", err)
 	}
 
 	tokenRe, err := regexp.Compile(claudeCodeCfg.TokenRegex)
 	if err != nil {
-		return nil, fmt.Errorf("compile token_regex: %w", err)
+		return nil, custom_error.Critical("compile token_regex: %v", err)
 	}
+
 	ansiRe, err := regexp.Compile(claudeCodeCfg.AnsiRegex)
 	if err != nil {
-		return nil, fmt.Errorf("compile ansi_regex: %w", err)
+		return nil, custom_error.Critical("compile ansi_regex: %v", err)
 	}
 
 	return &claudeCode{
-		log:     logger,
-		dir:     filepath.Join(base, globalCfg.Read().App.Name, "harness", "claude-code"),
+		dir:     filepath.Join(base, globalCfg.Read().App.Name, "harness", harnessName),
 		agents:  map[string]*agentProc{},
 		cfg:     claudeCodeCfg,
 		httpCli: httpCli,
+		storage: storage,
 		tokenRe: tokenRe,
 		ansiRe:  ansiRe,
 	}, nil
@@ -104,80 +108,83 @@ func (c *claudeCode) Install() error {
 
 	version, err := c.httpCli.GetString(c.cfg.ReleaseBase + "/stable")
 	if err != nil {
-		return fmt.Errorf("resolve stable version: %w", err)
+		return custom_error.Critical("resolve stable version: %v", err)
 	}
 
 	manifest := &claudeManifest{}
 
 	if err := c.httpCli.GetJSON(c.cfg.ReleaseBase+"/"+version+"/manifest.json", manifest); err != nil {
-		return fmt.Errorf("fetch manifest: %w", err)
+		return custom_error.Critical("fetch manifest: %v", err)
 	}
 
 	entry, ok := manifest.Platforms[platform]
 	if !ok {
-		return fmt.Errorf("no claude code build for platform %s", platform)
+		return custom_error.Critical("no claude code build for platform %s", platform)
 	}
 
-	c.log.Info("installing claude code", "version", version, "platform", platform)
-
 	if err := os.MkdirAll(filepath.Dir(c.binPath()), 0o755); err != nil {
-		return err
+		return custom_error.Critical("%v", err)
 	}
 
 	tmp := c.binPath() + ".download"
 
 	url := c.cfg.ReleaseBase + "/" + version + "/" + platform + "/" + entry.Binary
 	if err := c.httpCli.Download(url, tmp, &input_itf.DownloadParams{Checksum: entry.Checksum}); err != nil {
-		return fmt.Errorf("download binary: %w", err)
+		return custom_error.Critical("download binary: %v", err)
 	}
 	if err := os.Chmod(tmp, 0o755); err != nil {
-		return err
+		return custom_error.Critical("%v", err)
 	}
 	if err := os.Rename(tmp, c.binPath()); err != nil {
-		return err
+		return custom_error.Critical("%v", err)
 	}
 
-	c.log.Info("claude code installed", "version", version, "path", c.binPath())
+	if err := c.storage.Save(&output_itf.HarnessInfo{
+		Name:     harnessName,
+		Version:  version,
+		Platform: enums.OS(platform),
+		Path:     c.binPath(),
+	}); err != nil {
+		return custom_error.Critical("save install info: %v", err)
+	}
+
 	return nil
 }
 
-// Auth runs the interactive OAuth login for the managed install. The flow
-// needs a real terminal (browser hand-off plus a pasted code), so it is
-// launched in Terminal.app under `script`, which records the terminal output;
-// the token printed by `claude setup-token` is captured from that recording
-// into the credentials file. Spawn injects it as CLAUDE_CODE_OAUTH_TOKEN, so
-// credentials never touch the user's Keychain or their own ~/.claude login.
 func (c *claudeCode) Auth() error {
 	if _, err := os.Stat(c.tokenPath()); err == nil {
 		return nil
 	}
+
 	if _, err := os.Stat(c.binPath()); err != nil {
-		return fmt.Errorf("claude code is not installed, run Install first")
+		return custom_error.Critical("claude code is not installed, run Install first")
 	}
-	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("interactive login is only implemented for macOS")
+
+	if runtime.GOOS != enums.Mac.String() {
+		return custom_error.Critical("interactive login is only implemented for macOS")
 	}
+
 	if err := os.MkdirAll(c.configDir(), 0o755); err != nil {
-		return err
+		return custom_error.Critical("%v", err)
 	}
 
 	logPath := filepath.Join(c.dir, "login.log")
 	os.Remove(logPath)
 
 	scriptPath := filepath.Join(c.dir, "login.sh")
+
 	sh := fmt.Sprintf("#!/bin/sh\nexport CLAUDE_CONFIG_DIR='%s'\nexec script -q '%s' '%s' setup-token\n",
 		c.configDir(), logPath, c.binPath())
 	if err := os.WriteFile(scriptPath, []byte(sh), 0o700); err != nil {
-		return err
+		return custom_error.Critical("%v", err)
 	}
 
 	if err := exec.Command("osascript",
 		"-e", `tell application "Terminal" to activate`,
 		"-e", fmt.Sprintf(`tell application "Terminal" to do script "sh '%s'"`, scriptPath),
 	).Run(); err != nil {
-		return fmt.Errorf("open Terminal for login: %w", err)
+		return custom_error.Critical("open Terminal for login: %v", err)
 	}
-	c.log.Info("claude code login started in Terminal, waiting for token")
 
 	deadline := time.Now().Add(c.cfg.LoginTimeout)
 	for time.Now().Before(deadline) {
@@ -189,35 +196,34 @@ func (c *claudeCode) Auth() error {
 		clean := c.ansiRe.ReplaceAllString(strings.ReplaceAll(string(raw), "\r", ""), "")
 		if tok := c.tokenRe.FindString(clean); tok != "" {
 			if err := os.WriteFile(c.tokenPath(), []byte(tok), 0o600); err != nil {
-				return err
+				return custom_error.Critical("%v", err)
 			}
 			os.Remove(logPath)
-			c.log.Info("claude code login complete")
 			return nil
 		}
 	}
-	return fmt.Errorf("login timed out after %s", c.cfg.LoginTimeout)
+
+	return custom_error.Critical("login timed out after %s", c.cfg.LoginTimeout)
 }
 
-// Spawn starts a long-lived headless Claude Code session speaking
-// newline-delimited JSON on stdin/stdout, in its own workspace directory and
-// with only the managed credentials in its environment.
 func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 	if _, err := os.Stat(c.binPath()); err != nil {
-		return nil, fmt.Errorf("claude code is not installed, run Install first")
+		return nil, custom_error.Critical("claude code is not installed, run Install first")
 	}
+
 	token, err := os.ReadFile(c.tokenPath())
 	if err != nil {
-		return nil, fmt.Errorf("not authenticated, run Auth first")
+		return nil, custom_error.Critical("not authenticated, run Auth first")
 	}
 
 	id, err := newID()
 	if err != nil {
 		return nil, err
 	}
+
 	workdir := filepath.Join(c.dir, "workspaces", id)
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
-		return nil, err
+		return nil, custom_error.Critical("%v", err)
 	}
 
 	cmd := exec.Command(c.binPath(), "-p",
@@ -232,31 +238,45 @@ func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 	)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, err
+		return nil, custom_error.Critical("%v", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, custom_error.Critical("%v", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start claude code: %w", err)
+		return nil, custom_error.Critical("start claude code: %v", err)
 	}
 
 	c.mu.Lock()
 	c.agents[id] = &agentProc{cmd: cmd, stdin: stdin, stdout: stdout}
 	c.mu.Unlock()
 
-	// Reap the process so the map never holds exited agents.
 	go func() {
-		err := cmd.Wait()
+		cmd.Wait()
 		c.mu.Lock()
 		delete(c.agents, id)
 		c.mu.Unlock()
-		c.log.Info("agent exited", "id", id, "err", err)
 	}()
 
-	c.log.Info("agent spawned", "id", id, "pid", cmd.Process.Pid)
 	return &input_itf.Agent{ID: id}, nil
+}
+
+func (c *claudeCode) Uninstall() error {
+	c.mu.Lock()
+
+	for _, a := range c.agents {
+		a.stdin.Close()
+		a.cmd.Process.Kill()
+	}
+
+	c.mu.Unlock()
+
+	if err := os.RemoveAll(c.dir); err != nil {
+		return custom_error.Critical("remove install dir: %v", err)
+	}
+
+	return nil
 }
 
 func (c *claudeCode) Kill(id string) error {
@@ -264,24 +284,24 @@ func (c *claudeCode) Kill(id string) error {
 	a, ok := c.agents[id]
 	c.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("no running agent with id %s", id)
+		return custom_error.Critical("no running agent with id %s", id)
 	}
 	a.stdin.Close()
-	return a.cmd.Process.Kill()
+	if err := a.cmd.Process.Kill(); err != nil {
+		return custom_error.Critical("%v", err)
+	}
+	return nil
 }
 
 func platformString() (string, error) {
 	goos := map[string]string{"darwin": "darwin", "linux": "linux", "windows": "win32"}[runtime.GOOS]
 	arch := map[string]string{"arm64": "arm64", "amd64": "x64"}[runtime.GOARCH]
 	if goos == "" || arch == "" {
-		return "", fmt.Errorf("unsupported platform %s/%s", runtime.GOOS, runtime.GOARCH)
+		return "", custom_error.Critical("unsupported platform %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 	return goos + "-" + arch, nil
 }
 
-// cleanEnv strips auth and routing variables from the inherited environment
-// so the user's own Anthropic credentials can never take precedence over the
-// managed token.
 func cleanEnv() []string {
 	drop := []string{
 		"ANTHROPIC_API_KEY=", "ANTHROPIC_AUTH_TOKEN=",
@@ -304,7 +324,7 @@ outer:
 func newID() (string, error) {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
-		return "", err
+		return "", custom_error.Critical("%v", err)
 	}
 	return hex.EncodeToString(b), nil
 }
