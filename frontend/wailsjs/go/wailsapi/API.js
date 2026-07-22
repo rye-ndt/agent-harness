@@ -5,3 +5,7 @@
 export function Greet(arg1) {
   return window['go']['wailsapi']['API']['Greet'](arg1);
 }
+
+export function SupportedAgents() {
+  return window['go']['wailsapi']['API']['SupportedAgents']();
+}

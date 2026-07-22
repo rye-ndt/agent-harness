@@ -84,7 +84,11 @@ func (f *basic) Download(url, path string, p *input_itf.DownloadParams) error {
 		return err
 	}
 	h := sha256.New()
-	_, err = io.Copy(io.MultiWriter(file, h), res.Body)
+	dst := io.MultiWriter(file, h)
+	if p != nil && p.OnProgress != nil {
+		dst = io.MultiWriter(dst, &progressWriter{total: res.ContentLength, onProgress: p.OnProgress})
+	}
+	_, err = io.Copy(dst, res.Body)
 	if cerr := file.Close(); err == nil {
 		err = cerr
 	}
@@ -100,4 +104,22 @@ func (f *basic) Download(url, path string, p *input_itf.DownloadParams) error {
 		}
 	}
 	return nil
+}
+
+type progressWriter struct {
+	total      int64
+	written    int64
+	reported   int64
+	onProgress func(downloaded, total int64)
+}
+
+const reportStep = 256 * 1024
+
+func (w *progressWriter) Write(b []byte) (int, error) {
+	w.written += int64(len(b))
+	if w.written-w.reported >= reportStep || w.written == w.total {
+		w.reported = w.written
+		w.onProgress(w.written, w.total)
+	}
+	return len(b), nil
 }

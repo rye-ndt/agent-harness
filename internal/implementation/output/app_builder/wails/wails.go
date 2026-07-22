@@ -14,22 +14,27 @@ import (
 var assets embed.FS
 
 type wailsInstance struct {
-	config input_itf.Config
-	logger output_itf.Logger
+	config       input_itf.Config
+	logger       output_itf.Logger
+	agentManager output_itf.AgentManager
 }
 
 func New(
 	config input_itf.Config,
 	logger output_itf.Logger,
+	agentManager output_itf.AgentManager,
 ) output_itf.AppBuilder {
 	return &wailsInstance{
-		config: config,
-		logger: logger,
+		config:       config,
+		logger:       logger,
+		agentManager: agentManager,
 	}
 }
 
 func (w *wailsInstance) Run() error {
 	app := w.config.Read().App
+
+	api := wailsapi.New(w.config, w.logger, w.agentManager)
 
 	return wails.Run(&options.App{
 		Title:            app.Name,
@@ -37,8 +42,9 @@ func (w *wailsInstance) Run() error {
 		Height:           app.H,
 		Assets:           assets,
 		BackgroundColour: helpers.HexColour(app.Bg),
+		OnStartup:        api.Startup,
 		Bind: []any{
-			wailsapi.New(w.config, w.logger),
+			api,
 		},
 	})
 }

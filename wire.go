@@ -5,10 +5,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"hexago/internal/implementation/core/custom_error"
 	viper "hexago/internal/implementation/input/config/viper"
-	"hexago/internal/implementation/input/harness"
 	"hexago/internal/implementation/input/http_cli"
+	"hexago/internal/implementation/output/agent_manager"
 	"hexago/internal/implementation/output/app_builder/wails"
 	slogger "hexago/internal/implementation/output/logger/slog"
 	"hexago/internal/implementation/output/storage"
@@ -22,10 +21,9 @@ type App struct {
 	AppBuilder   output_itf.AppBuilder
 	HttpFetcher  input_itf.HttpCli
 	Storage      output_itf.HarnessStorage
-	HarnessAgent input_itf.HarnessAgent
+	AgentManager output_itf.AgentManager
 }
 
-// wire builds every implementation and connects it to its interface.
 func wire() (*App, error) {
 	cfg, err := viper.New("config.yaml")
 	if err != nil {
@@ -34,28 +32,24 @@ func wire() (*App, error) {
 
 	logger := slogger.New(cfg)
 
-	appBuilder := wails.New(cfg, logger)
-
 	httpCli := http_cli.New(&http_cli.BasicHttpCliCfg{Timeout: 30 * time.Second})
 
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return nil, err
 	}
+
 	store, err := storage.New(filepath.Join(base, cfg.Read().App.Name, "harness.db"))
 	if err != nil {
 		return nil, err
 	}
 
-	claudeCodeCfg := cfg.Read().Harness("claude_code")
-	if claudeCodeCfg == nil {
-		return nil, custom_error.Critical("no agent_harness entry named claude_code in config")
-	}
-
-	harnessAgent, err := harness.New(cfg, claudeCodeCfg, httpCli, store)
+	agentManager, err := agent_manager.InitAgentManagerV1(cfg, httpCli, store)
 	if err != nil {
 		return nil, err
 	}
+
+	appBuilder := wails.New(cfg, logger, agentManager)
 
 	return &App{
 		Config:       cfg,
@@ -63,6 +57,6 @@ func wire() (*App, error) {
 		AppBuilder:   appBuilder,
 		HttpFetcher:  httpCli,
 		Storage:      store,
-		HarnessAgent: harnessAgent,
+		AgentManager: agentManager,
 	}, nil
 }
