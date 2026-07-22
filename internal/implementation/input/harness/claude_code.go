@@ -116,11 +116,17 @@ func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
 	}
 
 	if _, err := os.Stat(c.binPath()); err == nil {
-		onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageDone})
-		return nil
+		info, err := c.storage.Find(harnessName)
+		if err != nil {
+			return custom_error.Critical("find harness info: %v", err)
+		}
+		if info != nil {
+			onProgress(input_itf.InstallProgress{Stage: enums.InstallStageDone})
+			return nil
+		}
 	}
 
-	onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageResolve})
+	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageResolve})
 
 	platform, err := platformString()
 	if err != nil {
@@ -149,14 +155,14 @@ func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
 
 	tmp := c.binPath() + ".download"
 
-	onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageDownload})
+	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageDownload})
 
 	url := c.cfg.ReleaseBase + "/" + version + "/" + platform + "/" + entry.Binary
 	if err := c.httpCli.Download(url, tmp, &input_itf.DownloadParams{
 		Checksum: entry.Checksum,
 		OnProgress: func(downloaded, total int64) {
 			onProgress(input_itf.InstallProgress{
-				Stage:      input_itf.InstallStageDownload,
+				Stage:      enums.InstallStageDownload,
 				Downloaded: downloaded,
 				Total:      total,
 			})
@@ -180,7 +186,7 @@ func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		return custom_error.Critical("save install info: %v", err)
 	}
 
-	onProgress(input_itf.InstallProgress{Stage: input_itf.InstallStageDone})
+	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageDone})
 
 	return nil
 }
@@ -238,6 +244,28 @@ func (c *claudeCode) Auth() error {
 	}
 
 	return custom_error.Critical("login timed out after %s", c.cfg.LoginTimeout)
+}
+
+func (c *claudeCode) Status() (*input_itf.AgentStatus, error) {
+	status := &input_itf.AgentStatus{Name: c.cfg.Name}
+
+	info, err := c.storage.Find(harnessName)
+	if err != nil {
+		return nil, custom_error.Critical("find harness info: %v", err)
+	}
+
+	if info != nil {
+		if _, err := os.Stat(info.Path); err == nil {
+			status.Installed = true
+			status.Version = info.Version
+		}
+	}
+
+	c.mu.Lock()
+	status.InstanceCount = len(c.agents)
+	c.mu.Unlock()
+
+	return status, nil
 }
 
 func (c *claudeCode) Spawn() (*input_itf.Agent, error) {

@@ -90,6 +90,19 @@ func decodeAgentCfg[T any](raw map[string]any) (*T, error) {
 	return out, nil
 }
 
+func (m *agentManagerV1) Harness(name enums.AgentHarness) (input_itf.AgentHarness, error) {
+	if m == nil {
+		return nil, custom_error.Critical("agent manager is not initialized")
+	}
+
+	h, ok := m.agentList[name]
+	if !ok {
+		return nil, custom_error.Critical("no configured harness named %s", name)
+	}
+
+	return h, nil
+}
+
 func (m *agentManagerV1) SupportedAgents() ([]enums.AgentHarness, error) {
 	if m == nil {
 		return nil, custom_error.Critical("agent manager is not initialized")

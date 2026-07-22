@@ -1,24 +1,27 @@
 package input_itf
 
+import "hexago/internal/implementation/helpers/enums"
+
 type Agent struct {
 	ID string
 }
 
-const (
-	InstallStageResolve  = "resolve"
-	InstallStageDownload = "download"
-	InstallStageExtract  = "extract"
-	InstallStageDone     = "done"
-)
-
 type InstallProgress struct {
-	Stage      string `json:"stage"`
-	Downloaded int64  `json:"downloaded"`
-	Total      int64  `json:"total"`
+	Stage      enums.InstallationStage `json:"stage"`
+	Downloaded int64                   `json:"downloaded"`
+	Total      int64                   `json:"total"`
+}
+
+type AgentStatus struct {
+	Name          string `json:"name"`
+	Installed     bool   `json:"installed"`
+	InstanceCount int    `json:"instance_count"`
+	Version       string `json:"version"`
 }
 
 type AgentHarness interface {
 	Auth() error
+	Status() (*AgentStatus, error)
 	Install(onProgress func(InstallProgress)) error
 	Uninstall() error
 	Spawn() (*Agent, error)
