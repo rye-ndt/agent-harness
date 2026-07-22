@@ -8,7 +8,7 @@ version: 0.0.1
 log_level: info # debug | info | warn | error
 
 agent_harness:
-  claude_code:
+  - name: claude_code
     bin_name: claude_code
     release_base: https://downloads.claude.ai/claude-code-releases
     login_timeout: 5m
