@@ -1,7 +1,7 @@
-package output_itf
+package input_itf
 
 import (
-	"hexago/internal/implementation/helpers/enums"
+	"hexago/internal/helpers/enums"
 )
 
 type HarnessInfo struct {

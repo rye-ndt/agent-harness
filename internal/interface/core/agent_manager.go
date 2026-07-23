@@ -1,7 +1,7 @@
-package output_itf
+package core_itf
 
 import (
-	"hexago/internal/implementation/helpers/enums"
+	"hexago/internal/helpers/enums"
 	input_itf "hexago/internal/interface/input"
 )
 

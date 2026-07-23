@@ -1,11 +1,11 @@
 package agent_manager
 
 import (
+	"hexago/internal/helpers/enums"
 	"hexago/internal/implementation/core/custom_error"
-	"hexago/internal/implementation/helpers/enums"
 	"hexago/internal/implementation/input/harness"
+	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
-	output_itf "hexago/internal/interface/output"
 
 	mapstructure "github.com/go-viper/mapstructure/v2"
 )
@@ -14,11 +14,11 @@ type agentManagerV1 struct {
 	agentList map[enums.AgentHarness]input_itf.AgentHarness
 }
 
-func InitAgentManagerV1(
+func InitV1(
 	cfg input_itf.Config,
 	httpCli input_itf.HttpCli,
-	store output_itf.HarnessStorage,
-) (output_itf.AgentManager, error) {
+	store input_itf.HarnessStorage,
+) (core_itf.AgentManager, error) {
 	supportedAgents := cfg.Read().AgentHarness
 
 	list := map[enums.AgentHarness]input_itf.AgentHarness{}

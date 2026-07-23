@@ -2,8 +2,7 @@ package wails
 
 import (
 	"embed"
-	"hexago/internal/implementation/helpers"
-	"hexago/internal/implementation/input/wailsapi"
+	"hexago/internal/helpers"
 	input_itf "hexago/internal/interface/input"
 	output_itf "hexago/internal/interface/output"
 
@@ -14,27 +13,22 @@ import (
 var assets embed.FS
 
 type wailsInstance struct {
-	config       input_itf.Config
-	logger       output_itf.Logger
-	agentManager output_itf.AgentManager
+	config input_itf.Config
+	api    output_itf.FEAPI
 }
 
 func New(
 	config input_itf.Config,
-	logger output_itf.Logger,
-	agentManager output_itf.AgentManager,
+	api output_itf.FEAPI,
 ) output_itf.AppBuilder {
 	return &wailsInstance{
-		config:       config,
-		logger:       logger,
-		agentManager: agentManager,
+		config: config,
+		api:    api,
 	}
 }
 
 func (w *wailsInstance) Run() error {
 	app := w.config.Read().App
-
-	api := wailsapi.New(w.config, w.logger, w.agentManager)
 
 	return wails.Run(&options.App{
 		Title:            app.Name,
@@ -42,9 +36,9 @@ func (w *wailsInstance) Run() error {
 		Height:           app.H,
 		Assets:           assets,
 		BackgroundColour: helpers.HexColour(app.Bg),
-		OnStartup:        api.Startup,
+		OnStartup:        w.api.Startup,
 		Bind: []any{
-			api,
+			w.api,
 		},
 	})
 }

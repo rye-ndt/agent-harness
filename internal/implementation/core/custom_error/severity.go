@@ -2,7 +2,7 @@ package custom_error
 
 import (
 	"fmt"
-	"hexago/internal/implementation/helpers/enums"
+	"hexago/internal/helpers/enums"
 )
 
 type severity struct {
