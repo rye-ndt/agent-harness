@@ -2,8 +2,6 @@ package harness
 
 import (
 	"bufio"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,10 +14,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"hexago/internal/implementation/core/custom_error"
-	"hexago/internal/implementation/helpers/enums"
+	"hexago/internal/helpers/enums"
 	input_itf "hexago/internal/interface/input"
-	output_itf "hexago/internal/interface/output"
 )
 
 const harnessName = "claude-code"
@@ -53,7 +52,7 @@ type claudeCode struct {
 	agents  map[string]*agentProc
 	cfg     *ClaudeCodeCfg
 	httpCli input_itf.HttpCli
-	storage output_itf.HarnessStorage
+	storage input_itf.HarnessStorage
 	tokenRe *regexp.Regexp
 	ansiRe  *regexp.Regexp
 }
@@ -62,7 +61,7 @@ type ClaudeManagerParams struct {
 	GlobalCfg     input_itf.Config
 	ClaudeCodeCfg *ClaudeCodeCfg
 	HttpCli       input_itf.HttpCli
-	Storage       output_itf.HarnessStorage
+	Storage       input_itf.HarnessStorage
 }
 
 func NewClaudeCode(p *ClaudeManagerParams) (input_itf.AgentHarness, error) {
@@ -177,7 +176,7 @@ func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		return custom_error.Critical("%v", err)
 	}
 
-	if err := c.storage.Save(&output_itf.HarnessInfo{
+	if err := c.storage.Save(&input_itf.HarnessInfo{
 		Name:     harnessName,
 		Version:  version,
 		Platform: enums.OS(platform),
@@ -278,10 +277,11 @@ func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 		return nil, custom_error.Critical("not authenticated, run Auth first")
 	}
 
-	id, err := newID()
+	uid, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, custom_error.Critical("%v", err)
 	}
+	id := uid.String()
 
 	workdir := filepath.Join(c.dir, "workspaces", id)
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
@@ -434,12 +434,4 @@ outer:
 		env = append(env, kv)
 	}
 	return env
-}
-
-func newID() (string, error) {
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		return "", custom_error.Critical("%v", err)
-	}
-	return hex.EncodeToString(b), nil
 }

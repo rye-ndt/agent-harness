@@ -1,6 +1,6 @@
 package input_itf
 
-import "hexago/internal/implementation/helpers/enums"
+import "hexago/internal/helpers/enums"
 
 type AppConfig struct {
 	Name string `mapstructure:"name"`

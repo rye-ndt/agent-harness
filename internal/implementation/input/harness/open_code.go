@@ -18,10 +18,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"hexago/internal/implementation/core/custom_error"
-	"hexago/internal/implementation/helpers/enums"
+	"hexago/internal/helpers/enums"
 	input_itf "hexago/internal/interface/input"
-	output_itf "hexago/internal/interface/output"
 )
 
 const openCodeName = "open-code"
@@ -55,14 +56,14 @@ type openCode struct {
 	agents  map[string]*openCodeProc
 	cfg     *OpenCodeCfg
 	httpCli input_itf.HttpCli
-	storage output_itf.HarnessStorage
+	storage input_itf.HarnessStorage
 }
 
 type OpenCodeManagerParams struct {
 	GlobalCfg   input_itf.Config
 	OpenCodeCfg *OpenCodeCfg
 	HttpCli     input_itf.HttpCli
-	Storage     output_itf.HarnessStorage
+	Storage     input_itf.HarnessStorage
 }
 
 func NewOpenCode(p *OpenCodeManagerParams) (input_itf.AgentHarness, error) {
@@ -172,7 +173,7 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		return custom_error.Critical("%v", err)
 	}
 
-	if err := o.storage.Save(&output_itf.HarnessInfo{
+	if err := o.storage.Save(&input_itf.HarnessInfo{
 		Name:     openCodeName,
 		Version:  release.TagName,
 		Platform: enums.OS(platform),
@@ -260,10 +261,11 @@ func (o *openCode) Spawn() (*input_itf.Agent, error) {
 		return nil, custom_error.Critical("not authenticated, run Auth first")
 	}
 
-	id, err := newID()
+	uid, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, custom_error.Critical("%v", err)
 	}
+	id := uid.String()
 
 	workdir := filepath.Join(o.dir, "workspaces", id)
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
