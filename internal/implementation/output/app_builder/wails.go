@@ -37,6 +37,7 @@ func (w *wailsInstance) Run() error {
 		Assets:           assets,
 		BackgroundColour: helpers.HexColour(app.Bg),
 		OnStartup:        w.api.Startup,
+		OnShutdown:       w.api.Shutdown,
 		Bind: []any{
 			w.api,
 		},

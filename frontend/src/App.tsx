@@ -4,14 +4,16 @@ import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/compo
 import {Input} from '@/components/ui/input'
 import {
     AgentStatuses,
+    AuthAgent,
     InstallAgent,
     KillAgent,
     SendToAgent,
     SpawnAgent,
+    SubmitAuthCode,
     UninstallAgent,
-} from '../wailsjs/go/wailsapi/API'
-import {wailsapi} from '../wailsjs/go/models'
-import {EventsOn} from '../wailsjs/runtime/runtime'
+} from '../wailsjs/go/wails_api/API'
+import {output_itf} from '../wailsjs/go/models'
+import {BrowserOpenURL, EventsOn} from '../wailsjs/runtime/runtime'
 
 type InstallProgress = {
     stage: string
@@ -141,9 +143,11 @@ function ChatBox({
 }
 
 function App() {
-    const [agents, setAgents] = useState<wailsapi.AgentInfo[]>([])
+    const [agents, setAgents] = useState<output_itf.AgentInfo[]>([])
     const [instances, setInstances] = useState<Instance[]>([])
     const [progress, setProgress] = useState<Record<string, string>>({})
+    const [authUrls, setAuthUrls] = useState<Record<string, string>>({})
+    const [codeDrafts, setCodeDrafts] = useState<Record<string, string>>({})
     const [error, setError] = useState('')
 
     const refresh = () => {
@@ -208,6 +212,52 @@ function App() {
         refresh()
     }
 
+    useEffect(() => {
+        if (Object.keys(authUrls).length === 0) return
+        const timer = setInterval(refresh, 2000)
+        return () => clearInterval(timer)
+    }, [authUrls])
+
+    useEffect(() => {
+        setAuthUrls((prev) => {
+            const next = {...prev}
+            let changed = false
+            for (const {id, status} of agents) {
+                if (status?.logged_in && id in next) {
+                    delete next[id]
+                    changed = true
+                }
+            }
+            return changed ? next : prev
+        })
+    }, [agents])
+
+    const login = (id: string) =>
+        run(id, 'logging in', async (harnessId) => {
+            const url = await AuthAgent(harnessId)
+            if (url) {
+                setAuthUrls((prev) => ({...prev, [harnessId]: url}))
+            }
+        })
+
+    const submitCode = (id: string) => {
+        const code = (codeDrafts[id] ?? '').trim()
+        if (!code) return
+        run(id, 'verifying', async (harnessId) => {
+            await SubmitAuthCode(harnessId, code)
+            setAuthUrls((prev) => {
+                const next = {...prev}
+                delete next[harnessId]
+                return next
+            })
+            setCodeDrafts((prev) => {
+                const next = {...prev}
+                delete next[harnessId]
+                return next
+            })
+        })
+    }
+
     const spawn = (id: string) =>
         run(id, 'spawning', async (harnessId) => {
             const agentId = await SpawnAgent(harnessId)
@@ -253,28 +303,43 @@ function App() {
                     {agents.map(({id, status}) => (
                         <div
                             key={id}
-                            className="flex items-center justify-between rounded-md border px-3 py-2"
+                            className="flex flex-col gap-2 rounded-md border px-3 py-2"
                         >
+                            <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-sm font-medium">
                                     {status?.name || formatAgentName(id)}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
                                     {status?.installed
-                                        ? `v${status.version} · ${status.instance_count} running`
+                                        ? status.logged_in
+                                            ? `v${status.version} · ${status.instance_count} running`
+                                            : `v${status.version} · not logged in`
                                         : 'not installed'}
                                 </p>
                             </div>
                             {status?.installed ? (
                                 <div className="flex gap-2">
-                                    <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        disabled={id in progress}
-                                        onClick={() => spawn(id)}
-                                    >
-                                        {progress[id] === 'spawning' ? 'spawning' : 'Spawn'}
-                                    </Button>
+                                    {status.logged_in ? (
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            disabled={id in progress}
+                                            onClick={() => spawn(id)}
+                                        >
+                                            {progress[id] === 'spawning' ? 'spawning' : 'Spawn'}
+                                        </Button>
+                                    ) : (
+                                        <Button
+                                            size="sm"
+                                            disabled={id in progress}
+                                            onClick={() => login(id)}
+                                        >
+                                            {progress[id] === 'logging in'
+                                                ? 'logging in'
+                                                : 'Log in'}
+                                        </Button>
+                                    )}
                                     <Button
                                         size="sm"
                                         variant="destructive"
@@ -294,6 +359,45 @@ function App() {
                                 >
                                     {progress[id] ?? 'Install'}
                                 </Button>
+                            )}
+                            </div>
+                            {authUrls[id] && !status?.logged_in && (
+                                <div className="flex flex-col gap-2 border-t pt-2">
+                                    <p className="text-xs text-muted-foreground">
+                                        A login page should have opened in your browser.{' '}
+                                        <button
+                                            className="underline"
+                                            onClick={() => BrowserOpenURL(authUrls[id])}
+                                        >
+                                            Open it again
+                                        </button>{' '}
+                                        if it didn't. Most logins finish on their own after you
+                                        approve in the browser — only paste a code below if the
+                                        page shows you one.
+                                    </p>
+                                    <div className="flex gap-2">
+                                        <Input
+                                            value={codeDrafts[id] ?? ''}
+                                            placeholder="Authorization code"
+                                            onChange={(e) =>
+                                                setCodeDrafts((prev) => ({
+                                                    ...prev,
+                                                    [id]: e.target.value,
+                                                }))
+                                            }
+                                            onKeyDown={(e) => e.key === 'Enter' && submitCode(id)}
+                                        />
+                                        <Button
+                                            size="sm"
+                                            disabled={
+                                                id in progress || !(codeDrafts[id] ?? '').trim()
+                                            }
+                                            onClick={() => submitCode(id)}
+                                        >
+                                            {progress[id] === 'verifying' ? 'verifying' : 'Submit'}
+                                        </Button>
+                                    </div>
+                                </div>
                             )}
                         </div>
                     ))}

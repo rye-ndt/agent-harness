@@ -1,12 +1,12 @@
 package enums
 
-type CriticalLevel string
+type Severity string
 
 const (
-	Critical CriticalLevel = "critical"
-	Bypass   CriticalLevel = "bypass"
+	Critical Severity = "critical"
+	Bypass   Severity = "bypass"
 )
 
-func (c CriticalLevel) String() string {
+func (c Severity) String() string {
 	return string(c)
 }

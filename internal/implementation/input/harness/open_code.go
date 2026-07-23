@@ -20,8 +20,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/helpers/enums"
+	"hexago/internal/implementation/core/custom_error"
+	"hexago/internal/implementation/input/harness/harness_helper"
 	input_itf "hexago/internal/interface/input"
 )
 
@@ -41,6 +42,8 @@ type openCodeProc struct {
 	out     chan string
 	port    int
 	session string
+	done    chan struct{}
+	exited  chan struct{}
 }
 
 type OpenCodeCfg struct {
@@ -51,12 +54,14 @@ type OpenCodeCfg struct {
 }
 
 type openCode struct {
-	dir     string
-	mu      sync.Mutex
-	agents  map[string]*openCodeProc
-	cfg     *OpenCodeCfg
-	httpCli input_itf.HttpCli
-	storage input_itf.HarnessStorage
+	dir         string
+	mu          sync.Mutex
+	agents      map[string]*openCodeProc
+	uninstalled bool
+	authMu      sync.Mutex
+	cfg         *OpenCodeCfg
+	httpCli     input_itf.HttpCli
+	storage     input_itf.HarnessStorage
 }
 
 type OpenCodeManagerParams struct {
@@ -182,26 +187,35 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		return custom_error.Critical("save install info: %v", err)
 	}
 
+	o.mu.Lock()
+	o.uninstalled = false
+	o.mu.Unlock()
+
 	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageDone})
 
 	return nil
 }
 
-func (o *openCode) Auth() error {
+func (o *openCode) Auth() (string, error) {
+	if !o.authMu.TryLock() {
+		return "", custom_error.Critical("auth is already in progress")
+	}
+	defer o.authMu.Unlock()
+
 	if _, err := os.Stat(o.authPath()); err == nil {
-		return nil
+		return "", nil
 	}
 
 	if _, err := os.Stat(o.binPath()); err != nil {
-		return custom_error.Critical("open code is not installed, run Install first")
+		return "", custom_error.Critical("open code is not installed, run Install first")
 	}
 
 	if runtime.GOOS != enums.Mac.String() {
-		return custom_error.Critical("interactive login is only implemented for macOS")
+		return "", custom_error.Critical("interactive login is only implemented for macOS")
 	}
 
 	if err := os.MkdirAll(o.dataDir(), 0o755); err != nil {
-		return custom_error.Critical("%v", err)
+		return "", custom_error.Critical("%v", err)
 	}
 
 	scriptPath := filepath.Join(o.dir, "login.sh")
@@ -209,25 +223,29 @@ func (o *openCode) Auth() error {
 	sh := fmt.Sprintf("#!/bin/sh\nexport XDG_DATA_HOME='%s'\nexec '%s' auth login\n",
 		o.dataDir(), o.binPath())
 	if err := os.WriteFile(scriptPath, []byte(sh), 0o700); err != nil {
-		return custom_error.Critical("%v", err)
+		return "", custom_error.Critical("%v", err)
 	}
 
 	if err := exec.Command("osascript",
 		"-e", `tell application "Terminal" to activate`,
 		"-e", fmt.Sprintf(`tell application "Terminal" to do script "sh '%s'"`, scriptPath),
 	).Run(); err != nil {
-		return custom_error.Critical("open Terminal for login: %v", err)
+		return "", custom_error.Critical("open Terminal for login: %v", err)
 	}
 
 	deadline := time.Now().Add(o.cfg.LoginTimeout)
 	for time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)
 		if _, err := os.Stat(o.authPath()); err == nil {
-			return nil
+			return "", nil
 		}
 	}
 
-	return custom_error.Critical("login timed out after %s", o.cfg.LoginTimeout)
+	return "", custom_error.Critical("login timed out after %s", o.cfg.LoginTimeout)
+}
+
+func (o *openCode) SubmitAuthCode(code string) error {
+	return custom_error.Critical("open code login does not use an auth code")
 }
 
 func (o *openCode) Status() (*input_itf.AgentStatus, error) {
@@ -243,6 +261,10 @@ func (o *openCode) Status() (*input_itf.AgentStatus, error) {
 			status.Installed = true
 			status.Version = info.Version
 		}
+	}
+
+	if _, err := os.Stat(o.authPath()); err == nil {
+		status.LoggedIn = true
 	}
 
 	o.mu.Lock()
@@ -274,11 +296,13 @@ func (o *openCode) Spawn() (*input_itf.Agent, error) {
 
 	port, err := freePort()
 	if err != nil {
+		os.RemoveAll(workdir)
 		return nil, err
 	}
 
 	logFile, err := os.Create(filepath.Join(workdir, "serve.log"))
 	if err != nil {
+		os.RemoveAll(workdir)
 		return nil, custom_error.Critical("%v", err)
 	}
 
@@ -292,36 +316,58 @@ func (o *openCode) Spawn() (*input_itf.Agent, error) {
 	)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+	harness_helper.SetProcAttrs(cmd)
 
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
+		os.RemoveAll(workdir)
 		return nil, custom_error.Critical("start open code: %v", err)
 	}
 
 	session, err := o.createSession(port)
 	if err != nil {
-		cmd.Process.Kill()
+		harness_helper.KillProc(cmd)
 		go func() {
 			cmd.Wait()
 			logFile.Close()
+			os.RemoveAll(workdir)
 		}()
 		return nil, err
 	}
 
 	out := make(chan string, 64)
+	done := make(chan struct{})
+	exited := make(chan struct{})
 
 	o.mu.Lock()
-	o.agents[id] = &openCodeProc{cmd: cmd, out: out, port: port, session: session}
-	o.mu.Unlock()
-
-	go streamEvents(port, out)
-
-	go func() {
+	if o.uninstalled {
+		o.mu.Unlock()
+		harness_helper.KillProc(cmd)
 		cmd.Wait()
 		logFile.Close()
+		os.RemoveAll(workdir)
+		return nil, custom_error.Critical("open code was uninstalled")
+	}
+	o.agents[id] = &openCodeProc{cmd: cmd, out: out, port: port, session: session, done: done, exited: exited}
+	o.mu.Unlock()
+
+	streamClosed := make(chan struct{})
+
+	go streamEvents(port, out, done, streamClosed)
+
+	go func() {
+		select {
+		case <-done:
+		case <-streamClosed:
+		}
+		harness_helper.KillProc(cmd)
+		cmd.Wait()
+		logFile.Close()
+		os.RemoveAll(workdir)
 		o.mu.Lock()
 		delete(o.agents, id)
 		o.mu.Unlock()
+		close(exited)
 	}()
 
 	return &input_itf.Agent{ID: id}, nil
@@ -358,10 +404,12 @@ func (o *openCode) createSession(port int) (string, error) {
 	return "", custom_error.Critical("open code server did not become ready on port %d", port)
 }
 
-func streamEvents(port int, out chan string) {
+func streamEvents(port int, out chan string, done <-chan struct{}, closed chan<- struct{}) {
+	defer close(closed)
+	defer close(out)
+
 	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/event", port))
 	if err != nil {
-		close(out)
 		return
 	}
 	defer res.Body.Close()
@@ -373,9 +421,12 @@ func streamEvents(port int, out chan string) {
 		if !ok || data == "" {
 			continue
 		}
-		out <- data
+		select {
+		case out <- data:
+		case <-done:
+			return
+		}
 	}
-	close(out)
 }
 
 func (o *openCode) Send(id string, message string) error {
@@ -419,14 +470,37 @@ func (o *openCode) Listen(id string) (<-chan string, error) {
 	return a.out, nil
 }
 
-func (o *openCode) Uninstall() error {
+func (o *openCode) stopAll() {
 	o.mu.Lock()
+	procs := make([]*openCodeProc, 0, len(o.agents))
+	for id, a := range o.agents {
+		procs = append(procs, a)
+		delete(o.agents, id)
+	}
+	o.mu.Unlock()
 
-	for _, a := range o.agents {
-		a.cmd.Process.Kill()
+	for _, a := range procs {
+		close(a.done)
 	}
 
+	for _, a := range procs {
+		select {
+		case <-a.exited:
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+func (o *openCode) Shutdown() {
+	o.stopAll()
+}
+
+func (o *openCode) Uninstall() error {
+	o.mu.Lock()
+	o.uninstalled = true
 	o.mu.Unlock()
+
+	o.stopAll()
 
 	if err := os.RemoveAll(o.dir); err != nil {
 		return custom_error.Critical("remove install dir: %v", err)
@@ -438,13 +512,14 @@ func (o *openCode) Uninstall() error {
 func (o *openCode) Kill(id string) error {
 	o.mu.Lock()
 	a, ok := o.agents[id]
+	if ok {
+		delete(o.agents, id)
+	}
 	o.mu.Unlock()
 	if !ok {
 		return custom_error.Critical("no running agent with id %s", id)
 	}
-	if err := a.cmd.Process.Kill(); err != nil {
-		return custom_error.Critical("%v", err)
-	}
+	close(a.done)
 	return nil
 }
 

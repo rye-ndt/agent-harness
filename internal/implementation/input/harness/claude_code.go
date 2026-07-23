@@ -3,7 +3,6 @@ package harness
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -16,12 +15,72 @@ import (
 
 	"github.com/google/uuid"
 
-	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/helpers/enums"
+	"hexago/internal/implementation/core/custom_error"
+	"hexago/internal/implementation/input/harness/harness_helper"
 	input_itf "hexago/internal/interface/input"
 )
 
 const harnessName = "claude-code"
+
+var authURLRe = regexp.MustCompile(`https://[A-Za-z0-9._~:/?#&=%+-]+`)
+
+type authSession struct {
+	cmd    *exec.Cmd
+	tty    *os.File
+	mu     sync.Mutex
+	out    []byte
+	killed bool
+	done   chan struct{}
+}
+
+func (s *authSession) read() {
+	buf := make([]byte, 4096)
+	for {
+		n, err := s.tty.Read(buf)
+		if n > 0 {
+			s.mu.Lock()
+			s.out = append(s.out, buf[:n]...)
+			if len(s.out) > 128*1024 {
+				s.out = append(s.out[:0:0], s.out[len(s.out)-64*1024:]...)
+			}
+			s.mu.Unlock()
+		}
+		if err != nil {
+			break
+		}
+	}
+	s.cmd.Wait()
+	close(s.done)
+}
+
+func (s *authSession) snapshot() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return string(s.out)
+}
+
+func (s *authSession) wasKilled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.killed
+}
+
+func (s *authSession) close() {
+	select {
+	case <-s.done:
+	default:
+		s.mu.Lock()
+		s.killed = true
+		s.mu.Unlock()
+	}
+	s.cmd.Process.Kill()
+	s.tty.Close()
+	select {
+	case <-s.done:
+	case <-time.After(5 * time.Second):
+	}
+}
 
 type claudeManifest struct {
 	Platforms map[string]struct {
@@ -31,10 +90,13 @@ type claudeManifest struct {
 }
 
 type agentProc struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
-	out    chan string
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	stdinMu sync.Mutex
+	stdout  io.ReadCloser
+	out     chan string
+	done    chan struct{}
+	exited  chan struct{}
 }
 
 type ClaudeCodeCfg struct {
@@ -47,14 +109,18 @@ type ClaudeCodeCfg struct {
 }
 
 type claudeCode struct {
-	dir     string
-	mu      sync.Mutex
-	agents  map[string]*agentProc
-	cfg     *ClaudeCodeCfg
-	httpCli input_itf.HttpCli
-	storage input_itf.HarnessStorage
-	tokenRe *regexp.Regexp
-	ansiRe  *regexp.Regexp
+	dir         string
+	mu          sync.Mutex
+	agents      map[string]*agentProc
+	uninstalled bool
+	authMu      sync.Mutex
+	auth        *authSession
+	loginMu     sync.Mutex
+	cfg         *ClaudeCodeCfg
+	httpCli     input_itf.HttpCli
+	storage     input_itf.HarnessStorage
+	tokenRe     *regexp.Regexp
+	ansiRe      *regexp.Regexp
 }
 
 type ClaudeManagerParams struct {
@@ -170,9 +236,11 @@ func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		return custom_error.Critical("download binary: %v", err)
 	}
 	if err := os.Chmod(tmp, 0o755); err != nil {
+		os.Remove(tmp)
 		return custom_error.Critical("%v", err)
 	}
 	if err := os.Rename(tmp, c.binPath()); err != nil {
+		os.Remove(tmp)
 		return custom_error.Critical("%v", err)
 	}
 
@@ -185,64 +253,149 @@ func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		return custom_error.Critical("save install info: %v", err)
 	}
 
+	c.mu.Lock()
+	c.uninstalled = false
+	c.mu.Unlock()
+
 	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageDone})
 
 	return nil
 }
 
-func (c *claudeCode) Auth() error {
+func (c *claudeCode) Auth() (string, error) {
+	if !c.loginMu.TryLock() {
+		return "", custom_error.Critical("auth is already in progress")
+	}
+	defer c.loginMu.Unlock()
+
+	if _, err := os.Stat(c.tokenPath()); err == nil {
+		return "", nil
+	}
+
+	if _, err := os.Stat(c.binPath()); err != nil {
+		return "", custom_error.Critical("claude code is not installed, run Install first")
+	}
+
+	if err := os.MkdirAll(c.configDir(), 0o755); err != nil {
+		return "", custom_error.Critical("%v", err)
+	}
+
+	cmd := exec.Command(c.binPath(), "setup-token")
+	cmd.Env = append(cleanEnv(),
+		"CLAUDE_CONFIG_DIR="+c.configDir(),
+		"TERM=xterm-256color",
+	)
+
+	tty, err := harness_helper.StartPty(cmd, 500, 50)
+	if err != nil {
+		return "", custom_error.Critical("start login session: %v", err)
+	}
+
+	s := &authSession{cmd: cmd, tty: tty, done: make(chan struct{})}
+	go s.read()
+
+	c.authMu.Lock()
+	old := c.auth
+	c.auth = s
+	c.authMu.Unlock()
+	if old != nil {
+		old.close()
+	}
+
+	go func() {
+		select {
+		case <-s.done:
+		case <-time.After(c.cfg.LoginTimeout):
+		}
+		c.dropAuth(s)
+	}()
+
+	go func() {
+		tok, err := c.waitFor(s, c.tokenRe, c.cfg.LoginTimeout)
+		if err != nil {
+			return
+		}
+		if err := os.WriteFile(c.tokenPath(), []byte(tok), 0o600); err != nil {
+			return
+		}
+		c.dropAuth(s)
+	}()
+
+	url, err := c.waitFor(s, authURLRe, 30*time.Second)
+	if err != nil {
+		c.dropAuth(s)
+		return "", custom_error.Critical("wait for login url: %v", err)
+	}
+
+	return url, nil
+}
+
+func (c *claudeCode) SubmitAuthCode(code string) error {
 	if _, err := os.Stat(c.tokenPath()); err == nil {
 		return nil
 	}
 
-	if _, err := os.Stat(c.binPath()); err != nil {
-		return custom_error.Critical("claude code is not installed, run Install first")
+	c.authMu.Lock()
+	s := c.auth
+	c.authMu.Unlock()
+	if s == nil {
+		return custom_error.Critical("no login in progress, run Auth first")
 	}
 
-	if runtime.GOOS != enums.Mac.String() {
-		return custom_error.Critical("interactive login is only implemented for macOS")
+	if _, err := s.tty.Write([]byte(strings.TrimSpace(code) + "\r")); err != nil {
+		return custom_error.Critical("write auth code: %v", err)
 	}
 
-	if err := os.MkdirAll(c.configDir(), 0o755); err != nil {
+	tok, err := c.waitFor(s, c.tokenRe, 30*time.Second)
+	if err != nil {
+		return custom_error.Critical("confirm login: %v", err)
+	}
+
+	if err := os.WriteFile(c.tokenPath(), []byte(tok), 0o600); err != nil {
 		return custom_error.Critical("%v", err)
 	}
 
-	logPath := filepath.Join(c.dir, "login.log")
-	os.Remove(logPath)
+	c.dropAuth(s)
 
-	scriptPath := filepath.Join(c.dir, "login.sh")
+	return nil
+}
 
-	sh := fmt.Sprintf("#!/bin/sh\nexport CLAUDE_CONFIG_DIR='%s'\nexec script -q '%s' '%s' setup-token\n",
-		c.configDir(), logPath, c.binPath())
-	if err := os.WriteFile(scriptPath, []byte(sh), 0o700); err != nil {
-		return custom_error.Critical("%v", err)
+func (c *claudeCode) dropAuth(s *authSession) {
+	c.authMu.Lock()
+	if c.auth == s {
+		c.auth = nil
 	}
+	c.authMu.Unlock()
+	s.close()
+}
 
-	if err := exec.Command("osascript",
-		"-e", `tell application "Terminal" to activate`,
-		"-e", fmt.Sprintf(`tell application "Terminal" to do script "sh '%s'"`, scriptPath),
-	).Run(); err != nil {
-		return custom_error.Critical("open Terminal for login: %v", err)
-	}
-
-	deadline := time.Now().Add(c.cfg.LoginTimeout)
-	for time.Now().Before(deadline) {
-		time.Sleep(2 * time.Second)
-		raw, err := os.ReadFile(logPath)
-		if err != nil {
-			continue
+func (c *claudeCode) waitFor(s *authSession, re *regexp.Regexp, timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		clean := c.ansiRe.ReplaceAllString(strings.ReplaceAll(s.snapshot(), "\r", ""), "")
+		if loc := re.FindStringIndex(clean); loc != nil && loc[1] < len(clean) {
+			return clean[loc[0]:loc[1]], nil
 		}
-		clean := c.ansiRe.ReplaceAllString(strings.ReplaceAll(string(raw), "\r", ""), "")
-		if tok := c.tokenRe.FindString(clean); tok != "" {
-			if err := os.WriteFile(c.tokenPath(), []byte(tok), 0o600); err != nil {
-				return custom_error.Critical("%v", err)
+
+		select {
+		case <-s.done:
+			if s.wasKilled() {
+				return "", custom_error.Critical("login session was cancelled")
 			}
-			os.Remove(logPath)
-			return nil
+			clean = c.ansiRe.ReplaceAllString(strings.ReplaceAll(s.snapshot(), "\r", ""), "")
+			if m := re.FindString(clean); m != "" {
+				return m, nil
+			}
+			return "", custom_error.Critical("login process exited unexpectedly")
+		default:
 		}
-	}
 
-	return custom_error.Critical("login timed out after %s", c.cfg.LoginTimeout)
+		if time.Now().After(deadline) {
+			return "", custom_error.Critical("timed out after %s", timeout)
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func (c *claudeCode) Status() (*input_itf.AgentStatus, error) {
@@ -258,6 +411,10 @@ func (c *claudeCode) Status() (*input_itf.AgentStatus, error) {
 			status.Installed = true
 			status.Version = info.Version
 		}
+	}
+
+	if _, err := os.Stat(c.tokenPath()); err == nil {
+		status.LoggedIn = true
 	}
 
 	c.mu.Lock()
@@ -300,41 +457,65 @@ func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 	)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		os.RemoveAll(workdir)
 		return nil, custom_error.Critical("%v", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		stdin.Close()
+		os.RemoveAll(workdir)
 		return nil, custom_error.Critical("%v", err)
 	}
 	stderr, err := os.Create(filepath.Join(workdir, "stderr.log"))
 	if err != nil {
+		stdin.Close()
+		stdout.Close()
+		os.RemoveAll(workdir)
 		return nil, custom_error.Critical("%v", err)
 	}
 	cmd.Stderr = stderr
+	harness_helper.SetProcAttrs(cmd)
 
 	if err := cmd.Start(); err != nil {
 		stderr.Close()
+		os.RemoveAll(workdir)
 		return nil, custom_error.Critical("start claude code: %v", err)
 	}
 
 	out := make(chan string, 64)
+	done := make(chan struct{})
+	exited := make(chan struct{})
 
 	c.mu.Lock()
-	c.agents[id] = &agentProc{cmd: cmd, stdin: stdin, stdout: stdout, out: out}
+	if c.uninstalled {
+		c.mu.Unlock()
+		harness_helper.KillProc(cmd)
+		cmd.Wait()
+		stderr.Close()
+		os.RemoveAll(workdir)
+		return nil, custom_error.Critical("claude code was uninstalled")
+	}
+	c.agents[id] = &agentProc{cmd: cmd, stdin: stdin, stdout: stdout, out: out, done: done, exited: exited}
 	c.mu.Unlock()
 
 	go func() {
 		sc := bufio.NewScanner(stdout)
 		sc.Buffer(make([]byte, 64*1024), 8*1024*1024)
 		for sc.Scan() {
-			out <- sc.Text()
+			select {
+			case out <- sc.Text():
+			case <-done:
+			}
 		}
 		close(out)
+		harness_helper.KillProc(cmd)
 		cmd.Wait()
 		stderr.Close()
+		os.RemoveAll(workdir)
 		c.mu.Lock()
 		delete(c.agents, id)
 		c.mu.Unlock()
+		close(exited)
 	}()
 
 	return &input_itf.Agent{ID: id}, nil
@@ -361,7 +542,10 @@ func (c *claudeCode) Send(id string, message string) error {
 		return custom_error.Critical("%v", err)
 	}
 
-	if _, err := a.stdin.Write(append(payload, '\n')); err != nil {
+	a.stdinMu.Lock()
+	_, err = a.stdin.Write(append(payload, '\n'))
+	a.stdinMu.Unlock()
+	if err != nil {
 		return custom_error.Critical("write to agent %s: %v", id, err)
 	}
 	return nil
@@ -377,15 +561,47 @@ func (c *claudeCode) Listen(id string) (<-chan string, error) {
 	return a.out, nil
 }
 
-func (c *claudeCode) Uninstall() error {
-	c.mu.Lock()
-
-	for _, a := range c.agents {
-		a.stdin.Close()
-		a.cmd.Process.Kill()
+func (c *claudeCode) stopAll() {
+	c.authMu.Lock()
+	s := c.auth
+	c.auth = nil
+	c.authMu.Unlock()
+	if s != nil {
+		s.close()
 	}
 
+	c.mu.Lock()
+	procs := make([]*agentProc, 0, len(c.agents))
+	for id, a := range c.agents {
+		procs = append(procs, a)
+		delete(c.agents, id)
+	}
 	c.mu.Unlock()
+
+	for _, a := range procs {
+		close(a.done)
+		a.stdin.Close()
+		harness_helper.SignalProc(a.cmd)
+	}
+
+	for _, a := range procs {
+		select {
+		case <-a.exited:
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+func (c *claudeCode) Shutdown() {
+	c.stopAll()
+}
+
+func (c *claudeCode) Uninstall() error {
+	c.mu.Lock()
+	c.uninstalled = true
+	c.mu.Unlock()
+
+	c.stopAll()
 
 	if err := os.RemoveAll(c.dir); err != nil {
 		return custom_error.Critical("remove install dir: %v", err)
@@ -397,12 +613,16 @@ func (c *claudeCode) Uninstall() error {
 func (c *claudeCode) Kill(id string) error {
 	c.mu.Lock()
 	a, ok := c.agents[id]
+	if ok {
+		delete(c.agents, id)
+	}
 	c.mu.Unlock()
 	if !ok {
 		return custom_error.Critical("no running agent with id %s", id)
 	}
+	close(a.done)
 	a.stdin.Close()
-	if err := a.cmd.Process.Kill(); err != nil {
+	if err := harness_helper.SignalProc(a.cmd); err != nil {
 		return custom_error.Critical("%v", err)
 	}
 	return nil

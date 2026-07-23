@@ -34,6 +34,22 @@ func (a *API) Startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
+// Shutdown is wired to Wails OnShutdown; it is not meant to be called from JS.
+func (a *API) Shutdown(ctx context.Context) {
+	agents, err := a.agentManager.SupportedAgents()
+	if err != nil {
+		return
+	}
+
+	for _, agent := range agents {
+		h, err := a.agentManager.Harness(agent)
+		if err != nil {
+			continue
+		}
+		h.Shutdown()
+	}
+}
+
 func (a *API) harness(id string) (input_itf.AgentHarness, error) {
 	return a.agentManager.Harness(enums.AgentHarness(id))
 }
@@ -73,6 +89,24 @@ func (a *API) InstallAgent(id string) error {
 	return h.Install(func(p input_itf.InstallProgress) {
 		runtime.EventsEmit(a.ctx, installProgressEvent, id, p)
 	})
+}
+
+func (a *API) AuthAgent(id string) (string, error) {
+	h, err := a.harness(id)
+	if err != nil {
+		return "", err
+	}
+
+	return h.Auth()
+}
+
+func (a *API) SubmitAuthCode(id string, code string) error {
+	h, err := a.harness(id)
+	if err != nil {
+		return err
+	}
+
+	return h.SubmitAuthCode(code)
 }
 
 func (a *API) SpawnAgent(id string) (string, error) {

@@ -7,7 +7,7 @@ import (
 
 type severity struct {
 	msg           string
-	criticalLevel enums.CriticalLevel
+	criticalLevel enums.Severity
 }
 
 type Severity interface {
