@@ -13,8 +13,11 @@ type AgentInfo struct {
 
 type FEAPI interface {
 	Startup(ctx context.Context)
+	Shutdown(ctx context.Context)
 	AgentStatuses() ([]AgentInfo, error)
 	InstallAgent(id string) error
+	AuthAgent(id string) (string, error)
+	SubmitAuthCode(id string, code string) error
 	SpawnAgent(id string) (string, error)
 	SendToAgent(id string, agentID string, message string) error
 	KillAgent(id string, agentID string) error

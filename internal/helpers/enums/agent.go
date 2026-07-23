@@ -24,3 +24,11 @@ const (
 func (s InstallationStage) String() string {
 	return string(s)
 }
+
+type AgentInstanceStatus string
+
+const (
+	Healthy       AgentInstanceStatus = "healthy"
+	NotResponding AgentInstanceStatus = "not_responding"
+	Terminated    AgentInstanceStatus = "terminated"
+)

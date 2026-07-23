@@ -16,11 +16,13 @@ type AgentStatus struct {
 	Name          string `json:"name"`
 	Installed     bool   `json:"installed"`
 	InstanceCount int    `json:"instance_count"`
+	LoggedIn      bool   `json:"logged_in"`
 	Version       string `json:"version"`
 }
 
 type AgentHarness interface {
-	Auth() error
+	Auth() (string, error)
+	SubmitAuthCode(code string) error
 	Status() (*AgentStatus, error)
 	Install(onProgress func(InstallProgress)) error
 	Uninstall() error
@@ -28,4 +30,5 @@ type AgentHarness interface {
 	Send(id string, message string) error
 	Listen(id string) (<-chan string, error)
 	Kill(id string) error
+	Shutdown()
 }

@@ -4,6 +4,7 @@ export namespace input_itf {
 	    name: string;
 	    installed: boolean;
 	    instance_count: number;
+	    logged_in: boolean;
 	    version: string;
 	
 	    static createFrom(source: any = {}) {
@@ -15,13 +16,14 @@ export namespace input_itf {
 	        this.name = source["name"];
 	        this.installed = source["installed"];
 	        this.instance_count = source["instance_count"];
+	        this.logged_in = source["logged_in"];
 	        this.version = source["version"];
 	    }
 	}
 
 }
 
-export namespace wailsapi {
+export namespace output_itf {
 	
 	export class AgentInfo {
 	    id: string;
