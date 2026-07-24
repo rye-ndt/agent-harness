@@ -244,7 +244,7 @@ func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		return custom_error.Critical("%v", err)
 	}
 
-	if err := c.storage.Save(&input_itf.HarnessInfo{
+	if err := c.storage.Save(&input_itf.HarnessEntity{
 		Name:     harnessName,
 		Version:  version,
 		Platform: enums.OS(platform),
@@ -449,6 +449,10 @@ func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 		"--input-format", "stream-json",
 		"--output-format", "stream-json",
 		"--verbose",
+		"--permission-mode", "dontAsk",
+		"--allowedTools", "Read,Edit,Write,Glob,Grep,Bash,WebFetch,WebSearch",
+		"--disallowedTools", "AskUserQuestion",
+		"--append-system-prompt", "You are running non-interactively. Never ask the user questions or present choices; make reasonable assumptions, state them, and proceed.",
 	)
 	cmd.Dir = workdir
 	cmd.Env = append(cleanEnv(),

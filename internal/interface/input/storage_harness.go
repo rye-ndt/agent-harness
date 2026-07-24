@@ -4,7 +4,7 @@ import (
 	"hexago/internal/helpers/enums"
 )
 
-type HarnessInfo struct {
+type HarnessEntity struct {
 	Name     string
 	Version  string
 	Platform enums.OS
@@ -12,6 +12,6 @@ type HarnessInfo struct {
 }
 
 type HarnessStorage interface {
-	Save(info *HarnessInfo) error
-	Find(name string) (*HarnessInfo, error)
+	Save(info *HarnessEntity) error
+	Find(name string) (*HarnessEntity, error)
 }

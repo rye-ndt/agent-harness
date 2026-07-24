@@ -70,7 +70,7 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
-func (s *litesql) Save(info *input_itf.HarnessInfo) error {
+func (s *litesql) Save(info *input_itf.HarnessEntity) error {
 	_, err := s.db.Exec(`INSERT INTO harnesses (name, version, platform, path)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET
@@ -85,8 +85,8 @@ func (s *litesql) Save(info *input_itf.HarnessInfo) error {
 	return err
 }
 
-func (s *litesql) Find(name string) (*input_itf.HarnessInfo, error) {
-	info := &input_itf.HarnessInfo{}
+func (s *litesql) Find(name string) (*input_itf.HarnessEntity, error) {
+	info := &input_itf.HarnessEntity{}
 	var platform string
 
 	err := s.db.QueryRow(`SELECT name, version, platform, path

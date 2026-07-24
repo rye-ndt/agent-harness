@@ -178,7 +178,7 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		return custom_error.Critical("%v", err)
 	}
 
-	if err := o.storage.Save(&input_itf.HarnessInfo{
+	if err := o.storage.Save(&input_itf.HarnessEntity{
 		Name:     openCodeName,
 		Version:  release.TagName,
 		Platform: enums.OS(platform),
@@ -291,6 +291,18 @@ func (o *openCode) Spawn() (*input_itf.Agent, error) {
 
 	workdir := filepath.Join(o.dir, "workspaces", id)
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		return nil, custom_error.Critical("%v", err)
+	}
+
+	permCfg := []byte(`{"permission":{"edit":"allow","bash":"allow","webfetch":"allow"}}`)
+	if err := os.WriteFile(filepath.Join(workdir, "opencode.json"), permCfg, 0o644); err != nil {
+		os.RemoveAll(workdir)
+		return nil, custom_error.Critical("%v", err)
+	}
+
+	instructions := []byte("You are running non-interactively. Never ask the user questions or present choices; make reasonable assumptions, state them, and proceed.\n")
+	if err := os.WriteFile(filepath.Join(workdir, "AGENTS.md"), instructions, 0o644); err != nil {
+		os.RemoveAll(workdir)
 		return nil, custom_error.Critical("%v", err)
 	}
 
