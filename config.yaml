@@ -7,6 +7,10 @@ app:
 version: 0.0.1
 log_level: info # debug | info | warn | error
 
+task_queue:
+  heartbeat_timeout: 30m
+  heartbeat_scan_interval: 1m
+
 agent_harness:
   claude_code:
     name: Claude Code

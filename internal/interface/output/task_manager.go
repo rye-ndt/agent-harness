@@ -91,4 +91,5 @@ type TaskManager interface {
 	SubscribeTaskEvent(taskID uuid.UUID) (channelID uuid.UUID, channel <-chan *TaskEvent)
 	SubscribeQueueEvent(queueID uuid.UUID) (channelID uuid.UUID, channel <-chan *QueueEvent)
 	Unsubscribe(channelID uuid.UUID)
+	Stop()
 }

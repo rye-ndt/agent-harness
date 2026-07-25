@@ -49,6 +49,7 @@ const (
 	EventTaskCreated       TaskQueueEvent = "task_created"
 	EventTaskStatusChanged TaskQueueEvent = "task_status_changed"
 	EventTaskReported      TaskQueueEvent = "task_reported"
+	EventTaskDropped       TaskQueueEvent = "task_dropped"
 )
 
 type TaskQueueStatus string

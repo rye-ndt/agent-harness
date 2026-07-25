@@ -13,7 +13,11 @@ import (
 	"github.com/google/uuid"
 )
 
-const eventBufferSize = 16
+const (
+	eventBufferSize              = 16
+	defaultHeartbeatScanInterval = time.Minute
+	defaultHeartbeatTimeout      = 30 * time.Minute
+)
 
 type AgentHandle struct {
 	AgentID       uuid.UUID
@@ -31,19 +35,24 @@ type queueChannel struct {
 }
 
 type V1Config struct {
-	PollTimeout time.Duration
+	PollTimeout           time.Duration
+	HeartbeatTimeout      time.Duration
+	HeartbeatScanInterval time.Duration
 }
 
 type v1 struct {
-	locker         sync.Mutex
-	info           *input_itf.QueueEntity
-	pollTimeout    time.Duration
-	wal            input_itf.TaskWAL
-	logger         output_itf.Logger
-	tasks          map[uuid.UUID]*input_itf.TaskEntity
-	agentsInCharge map[uuid.UUID]*AgentHandle
-	taskChannels   map[uuid.UUID]*taskChannel
-	queueChannels  map[uuid.UUID]*queueChannel
+	locker                sync.Mutex
+	info                  *input_itf.QueueEntity
+	pollTimeout           time.Duration
+	heartbeatTimeout      time.Duration
+	heartbeatScanInterval time.Duration
+	wal                   input_itf.TaskWAL
+	logger                output_itf.Logger
+	tasks                 map[uuid.UUID]*input_itf.TaskEntity
+	agentsInCharge        map[uuid.UUID]*AgentHandle
+	taskChannels          map[uuid.UUID]*taskChannel
+	queueChannels         map[uuid.UUID]*queueChannel
+	stop                  chan struct{}
 }
 
 func InitV1(
@@ -75,17 +84,134 @@ func InitV1(
 		return nil, custom_error.Critical("cannot append queue info to wal: %v", err)
 	}
 
-	return &v1{
-		locker:         sync.Mutex{},
-		pollTimeout:    cfg.PollTimeout,
-		wal:            wal,
-		logger:         logger,
-		info:           info,
-		tasks:          map[uuid.UUID]*input_itf.TaskEntity{},
-		agentsInCharge: map[uuid.UUID]*AgentHandle{},
-		taskChannels:   map[uuid.UUID]*taskChannel{},
-		queueChannels:  map[uuid.UUID]*queueChannel{},
-	}, nil
+	heartbeatTimeout := cfg.HeartbeatTimeout
+	if heartbeatTimeout <= 0 {
+		heartbeatTimeout = defaultHeartbeatTimeout
+	}
+
+	heartbeatScanInterval := cfg.HeartbeatScanInterval
+	if heartbeatScanInterval <= 0 {
+		heartbeatScanInterval = defaultHeartbeatScanInterval
+	}
+
+	q := &v1{
+		locker:                sync.Mutex{},
+		pollTimeout:           cfg.PollTimeout,
+		heartbeatTimeout:      heartbeatTimeout,
+		heartbeatScanInterval: heartbeatScanInterval,
+		wal:                   wal,
+		logger:                logger,
+		info:                  info,
+		tasks:                 map[uuid.UUID]*input_itf.TaskEntity{},
+		agentsInCharge:        map[uuid.UUID]*AgentHandle{},
+		taskChannels:          map[uuid.UUID]*taskChannel{},
+		queueChannels:         map[uuid.UUID]*queueChannel{},
+		stop:                  make(chan struct{}),
+	}
+
+	go q.watchHeartbeats()
+
+	return q, nil
+}
+
+func (q *v1) Stop() {
+	close(q.stop)
+}
+
+func (q *v1) watchHeartbeats() {
+	ticker := time.NewTicker(q.heartbeatScanInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-q.stop:
+			return
+		case <-ticker.C:
+			q.dropStaleAgents()
+		}
+	}
+}
+
+func (q *v1) dropStaleAgents() {
+	deadline := helpers.NewUTCUnix() - int64(q.heartbeatTimeout.Seconds())
+
+	stale := []uuid.UUID{}
+
+	q.raceSafe(func() {
+		for taskID, handle := range q.agentsInCharge {
+			if handle.LastHeartBeat <= deadline {
+				stale = append(stale, taskID)
+			}
+		}
+	})
+
+	for _, taskID := range stale {
+		if err := q.dropTask(taskID, deadline); err != nil {
+			q.logger.Error("cannot drop stale task", "task_id", taskID, "err", err)
+		}
+	}
+}
+
+func (q *v1) dropTask(taskID uuid.UUID, deadline int64) error {
+	var t *input_itf.TaskEntity
+	var workingAgent *AgentHandle
+	var prevTask, taskSnapshot input_itf.TaskEntity
+	var infoSnapshot input_itf.QueueEntity
+	skip := false
+
+	q.raceSafe(func() {
+		found := false
+
+		// still working
+		workingAgent, found = q.agentsInCharge[taskID]
+		if !found || workingAgent.LastHeartBeat > deadline {
+			skip = true
+			return
+		}
+
+		t, found = q.tasks[taskID]
+		if !found || t.Status != enums.TaskProcessing {
+			skip = true
+			return
+		}
+
+		prevTask = *t
+		t.Status = enums.TaskCancelled
+		t.UpdatedAt = helpers.NewUTC()
+		taskSnapshot = *t
+
+		delete(q.agentsInCharge, taskID)
+		infoSnapshot = *q.info
+	})
+
+	if skip {
+		return nil
+	}
+
+	if err := q.wal.Append(&input_itf.TaskWALRecord{
+		Kind:    enums.EventTaskDropped,
+		TaskID:  taskID,
+		AgentID: workingAgent.AgentID,
+		Status:  enums.TaskCancelled,
+		Queue:   &infoSnapshot,
+	}); err != nil {
+		q.raceSafe(func() {
+			*t = prevTask
+			q.agentsInCharge[taskID] = workingAgent
+		})
+
+		return custom_error.Critical("cannot append task drop to wal: %v", err)
+	}
+
+	q.raceSafe(func() {
+		q.publishTaskEvent(taskID, enums.EventTaskDropped, &output_itf.TaskEventData{
+			AgentID:    workingAgent.AgentID,
+			Status:     taskSnapshot.Status,
+			RetryCount: taskSnapshot.RetryCount,
+		})
+	})
+
+	return nil
 }
 
 func (q *v1) Add(task *output_itf.AddTask) error {

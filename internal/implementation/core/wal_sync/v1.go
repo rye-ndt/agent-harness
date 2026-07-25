@@ -37,7 +37,7 @@ func Run(wal input_itf.TaskWAL, db input_itf.TaskStorage) error {
 				continue
 			}
 			tasks[r.Task.ID] = r.Task
-		case enums.EventTaskStatusChanged:
+		case enums.EventTaskStatusChanged, enums.EventTaskDropped:
 			t, found := tasks[r.TaskID]
 			if !found {
 				corrupted = true
