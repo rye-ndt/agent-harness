@@ -7,6 +7,17 @@ import (
 	"github.com/google/uuid"
 )
 
+type QueueEntity struct {
+	ID          uuid.UUID
+	StartedAt   time.Time
+	CompletedAt time.Time
+	TotalTask   int
+	TotalRetry  int
+	RevertCount int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type FileChangeEntity struct {
 	ID          uuid.UUID
 	ReportID    uuid.UUID
@@ -44,22 +55,23 @@ type TaskReportEntity struct {
 }
 
 type TaskEntity struct {
-	ID                 uuid.UUID
-	QueueID            uuid.UUID
-	Name               string
-	AgentRole          string
-	FileWriteAllowance enums.FileAllowance
-	AllowedFilePaths   []string
-	TemplateFilePaths  []string
-	ExtraGuidance      string
-	Age                int
-	Status             enums.TaskStatus
-	PrevTaskID         uuid.UUID
-	NextTaskID         uuid.UUID
-	ChildrenTaskIDs    uuid.UUIDs
-	LastReportID       uuid.UUID
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                   uuid.UUID
+	QueueID              uuid.UUID
+	Name                 string
+	AgentRole            string
+	PreferredModelFamily enums.ModelFamily
+	FileWriteAllowance   enums.FileAllowance
+	AllowedFilePaths     []string
+	TemplateFilePaths    []string
+	ExtraGuidance        string
+	RetryCount           int
+	Status               enums.TaskStatus
+	PrevTaskID           uuid.UUID
+	NextTaskID           uuid.UUID
+	ChildrenTaskIDs      uuid.UUIDs
+	LastReportID         uuid.UUID
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type TaskStorage interface {
@@ -67,4 +79,10 @@ type TaskStorage interface {
 	CreateImplementRecord(implement *TaskReportEntity) error // only when done or being cancelled
 	Find(taskID uuid.UUID) (*TaskEntity, error)
 	FindLastImplementRecord(taskID uuid.UUID) *TaskReportEntity
+	SaveTaskHistory(
+		queues []*QueueEntity,
+		tasks []*TaskEntity,
+		reports []*TaskReportEntity,
+		fileChanges []*FileChangeEntity,
+	) error
 }

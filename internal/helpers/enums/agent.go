@@ -1,5 +1,14 @@
 package enums
 
+type ModelFamily string
+
+const (
+	Claude   ModelFamily = "claude"
+	GPT      ModelFamily = "gpt"
+	Gwen     ModelFamily = "gwen"
+	Deepseek ModelFamily = "deepseek"
+)
+
 type AgentHarness string
 
 const (

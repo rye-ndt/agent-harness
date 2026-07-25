@@ -2,11 +2,14 @@ package storage
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 
 	"hexago/internal/helpers/enums"
@@ -20,13 +23,71 @@ var migrations = []string{
 		platform TEXT NOT NULL,
 		path TEXT NOT NULL
 	)`,
+	`CREATE TABLE queues (
+		id TEXT PRIMARY KEY,
+		started_at TEXT NOT NULL,
+		completed_at TEXT NOT NULL,
+		total_task INTEGER NOT NULL,
+		total_retry INTEGER NOT NULL,
+		revert_count INTEGER NOT NULL,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
+	`CREATE TABLE tasks (
+		id TEXT PRIMARY KEY,
+		queue_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		agent_role TEXT NOT NULL,
+		preferred_model_family TEXT NOT NULL,
+		file_write_allowance TEXT NOT NULL,
+		allowed_file_paths TEXT NOT NULL,
+		template_file_paths TEXT NOT NULL,
+		extra_guidance TEXT NOT NULL,
+		retry_count INTEGER NOT NULL,
+		status TEXT NOT NULL,
+		prev_task_id TEXT NOT NULL,
+		next_task_id TEXT NOT NULL,
+		children_task_ids TEXT NOT NULL,
+		last_report_id TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
+	`CREATE TABLE task_reports (
+		id TEXT PRIMARY KEY,
+		task_id TEXT NOT NULL,
+		agent_id TEXT NOT NULL,
+		attempt_status TEXT NOT NULL,
+		handover_doc TEXT NOT NULL,
+		started_at TEXT NOT NULL,
+		completed_at TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
+	`CREATE TABLE file_changes (
+		id TEXT PRIMARY KEY,
+		report_id TEXT NOT NULL,
+		path TEXT NOT NULL,
+		old_path TEXT NOT NULL,
+		change_type TEXT NOT NULL,
+		additions INTEGER NOT NULL,
+		deletions INTEGER NOT NULL,
+		unified_diff TEXT NOT NULL
+	)`,
 }
 
 type litesql struct {
 	db *sql.DB
 }
 
-func New(path string) (input_itf.HarnessStorage, error) {
+type taskStore struct {
+	db *sql.DB
+}
+
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func New(path string) (*litesql, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
@@ -101,4 +162,253 @@ func (s *litesql) Find(name string) (*input_itf.HarnessEntity, error) {
 
 	info.Platform = enums.OS(platform)
 	return info, nil
+}
+
+func (s *litesql) TaskStore() input_itf.TaskStorage {
+	return &taskStore{db: s.db}
+}
+
+func (s *taskStore) Create(task *input_itf.TaskEntity) error {
+	return saveTask(s.db, task)
+}
+
+func (s *taskStore) CreateImplementRecord(implement *input_itf.TaskReportEntity) error {
+	return saveReport(s.db, implement)
+}
+
+func (s *taskStore) Find(taskID uuid.UUID) (*input_itf.TaskEntity, error) {
+	t := &input_itf.TaskEntity{}
+
+	var id, queueID, modelFamily, allowance string
+	var allowedPaths, templatePaths, childrenIDs string
+	var status, prevID, nextID, lastReportID string
+	var createdAt, updatedAt string
+
+	err := s.db.QueryRow(`SELECT id, queue_id, name, agent_role, preferred_model_family,
+		file_write_allowance, allowed_file_paths, template_file_paths, extra_guidance,
+		retry_count, status, prev_task_id, next_task_id, children_task_ids,
+		last_report_id, created_at, updated_at
+		FROM tasks WHERE id = ?`, taskID.String()).
+		Scan(&id, &queueID, &t.Name, &t.AgentRole, &modelFamily,
+			&allowance, &allowedPaths, &templatePaths, &t.ExtraGuidance,
+			&t.RetryCount, &status, &prevID, &nextID, &childrenIDs,
+			&lastReportID, &createdAt, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	t.ID = parseUUID(id)
+	t.QueueID = parseUUID(queueID)
+	t.PreferredModelFamily = enums.ModelFamily(modelFamily)
+	t.FileWriteAllowance = enums.FileAllowance(allowance)
+	t.Status = enums.TaskStatus(status)
+	t.PrevTaskID = parseUUID(prevID)
+	t.NextTaskID = parseUUID(nextID)
+	t.LastReportID = parseUUID(lastReportID)
+	t.CreatedAt = parseTime(createdAt)
+	t.UpdatedAt = parseTime(updatedAt)
+
+	if err := json.Unmarshal([]byte(allowedPaths), &t.AllowedFilePaths); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(templatePaths), &t.TemplateFilePaths); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(childrenIDs), &t.ChildrenTaskIDs); err != nil {
+		return nil, err
+	}
+
+	return t, nil
+}
+
+func (s *taskStore) FindLastImplementRecord(taskID uuid.UUID) *input_itf.TaskReportEntity {
+	r := &input_itf.TaskReportEntity{}
+
+	var id, tID, agentID, attemptStatus, handoverDoc string
+	var startedAt, completedAt, createdAt, updatedAt string
+
+	err := s.db.QueryRow(`SELECT id, task_id, agent_id, attempt_status, handover_doc,
+		started_at, completed_at, created_at, updated_at
+		FROM task_reports WHERE task_id = ? ORDER BY id DESC LIMIT 1`, taskID.String()).
+		Scan(&id, &tID, &agentID, &attemptStatus, &handoverDoc,
+			&startedAt, &completedAt, &createdAt, &updatedAt)
+	if err != nil {
+		return nil
+	}
+
+	r.ID = parseUUID(id)
+	r.TaskID = parseUUID(tID)
+	r.AgentID = parseUUID(agentID)
+	r.AttemptStatus = enums.TaskStatus(attemptStatus)
+	r.StartedAt = parseTime(startedAt)
+	r.CompletedAt = parseTime(completedAt)
+	r.CreatedAt = parseTime(createdAt)
+	r.UpdatedAt = parseTime(updatedAt)
+
+	doc := &input_itf.HandoverDocEntity{}
+	if err := json.Unmarshal([]byte(handoverDoc), doc); err != nil {
+		return nil
+	}
+	r.HandoverDoc = doc
+
+	return r
+}
+
+func (s *taskStore) SaveTaskHistory(
+	queues []*input_itf.QueueEntity,
+	tasks []*input_itf.TaskEntity,
+	reports []*input_itf.TaskReportEntity,
+	fileChanges []*input_itf.FileChangeEntity,
+) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, q := range queues {
+		if err := saveQueue(tx, q); err != nil {
+			return err
+		}
+	}
+
+	for _, t := range tasks {
+		if err := saveTask(tx, t); err != nil {
+			return err
+		}
+	}
+
+	for _, r := range reports {
+		if err := saveReport(tx, r); err != nil {
+			return err
+		}
+	}
+
+	for _, fc := range fileChanges {
+		if err := saveFileChange(tx, fc); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func saveQueue(e execer, q *input_itf.QueueEntity) error {
+	_, err := e.Exec(`INSERT OR REPLACE INTO queues
+		(id, started_at, completed_at, total_task, total_retry, revert_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		q.ID.String(),
+		formatTime(q.StartedAt),
+		formatTime(q.CompletedAt),
+		q.TotalTask,
+		q.TotalRetry,
+		q.RevertCount,
+		formatTime(q.CreatedAt),
+		formatTime(q.UpdatedAt),
+	)
+	return err
+}
+
+func saveTask(e execer, t *input_itf.TaskEntity) error {
+	allowedPaths, err := json.Marshal(t.AllowedFilePaths)
+	if err != nil {
+		return err
+	}
+
+	templatePaths, err := json.Marshal(t.TemplateFilePaths)
+	if err != nil {
+		return err
+	}
+
+	childrenIDs, err := json.Marshal(t.ChildrenTaskIDs)
+	if err != nil {
+		return err
+	}
+
+	_, err = e.Exec(`INSERT OR REPLACE INTO tasks
+		(id, queue_id, name, agent_role, preferred_model_family, file_write_allowance,
+		allowed_file_paths, template_file_paths, extra_guidance, retry_count, status,
+		prev_task_id, next_task_id, children_task_ids, last_report_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID.String(),
+		t.QueueID.String(),
+		t.Name,
+		t.AgentRole,
+		string(t.PreferredModelFamily),
+		string(t.FileWriteAllowance),
+		string(allowedPaths),
+		string(templatePaths),
+		t.ExtraGuidance,
+		t.RetryCount,
+		string(t.Status),
+		t.PrevTaskID.String(),
+		t.NextTaskID.String(),
+		string(childrenIDs),
+		t.LastReportID.String(),
+		formatTime(t.CreatedAt),
+		formatTime(t.UpdatedAt),
+	)
+	return err
+}
+
+func saveReport(e execer, r *input_itf.TaskReportEntity) error {
+	doc, err := json.Marshal(r.HandoverDoc)
+	if err != nil {
+		return err
+	}
+
+	_, err = e.Exec(`INSERT OR REPLACE INTO task_reports
+		(id, task_id, agent_id, attempt_status, handover_doc,
+		started_at, completed_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID.String(),
+		r.TaskID.String(),
+		r.AgentID.String(),
+		string(r.AttemptStatus),
+		string(doc),
+		formatTime(r.StartedAt),
+		formatTime(r.CompletedAt),
+		formatTime(r.CreatedAt),
+		formatTime(r.UpdatedAt),
+	)
+	return err
+}
+
+func saveFileChange(e execer, fc *input_itf.FileChangeEntity) error {
+	_, err := e.Exec(`INSERT OR REPLACE INTO file_changes
+		(id, report_id, path, old_path, change_type, additions, deletions, unified_diff)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		fc.ID.String(),
+		fc.ReportID.String(),
+		fc.Path,
+		fc.OldPath,
+		fc.ChangeType.String(),
+		fc.Additions,
+		fc.Deletions,
+		fc.UnifiedDiff,
+	)
+	return err
+}
+
+func formatTime(t time.Time) string {
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func parseTime(s string) time.Time {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+func parseUUID(s string) uuid.UUID {
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.Nil
+	}
+	return id
 }

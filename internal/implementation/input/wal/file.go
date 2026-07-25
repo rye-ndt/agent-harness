@@ -96,12 +96,12 @@ func (w *fileWAL) Replay() ([]*input_itf.TaskWALRecord, error) {
 	for scanner.Scan() {
 		record := &input_itf.TaskWALRecord{}
 		if err := json.Unmarshal(scanner.Bytes(), record); err != nil {
-			break
+			return records, err
 		}
 		records = append(records, record)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return records, err
 	}
 
 	return records, nil

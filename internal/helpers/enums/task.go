@@ -41,12 +41,14 @@ func (s TaskStatus) Removable() bool {
 	return false
 }
 
-type TaskWALKind string
+type TaskQueueEvent string
 
 const (
-	WALTaskCreated       TaskWALKind = "task_created"
-	WALTaskStatusChanged TaskWALKind = "task_status_changed"
-	WALTaskReported      TaskWALKind = "task_reported"
+	EventQueueCreated      TaskQueueEvent = "queue_created"
+	EventQueueDrained      TaskQueueEvent = "queue_drained"
+	EventTaskCreated       TaskQueueEvent = "task_created"
+	EventTaskStatusChanged TaskQueueEvent = "task_status_changed"
+	EventTaskReported      TaskQueueEvent = "task_reported"
 )
 
 type TaskQueueStatus string

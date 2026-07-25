@@ -8,12 +8,13 @@ import (
 )
 
 type AddTask struct {
-	Name               string
-	AgentRole          string
-	FileWriteAllowance enums.FileAllowance
-	AllowedFilePaths   []string
-	TemplateFilePaths  []string
-	ExtraGuidance      string
+	Name                 string
+	AgentRole            string
+	PreferredModelFamily enums.ModelFamily
+	FileWriteAllowance   enums.FileAllowance
+	AllowedFilePaths     []string
+	TemplateFilePaths    []string
+	ExtraGuidance        string
 }
 
 type FileChange struct {
@@ -50,8 +51,35 @@ type QueueReport struct {
 	Status enums.TaskQueueStatus
 	Tasks  []*AddTask
 }
-
-type TaskQueue interface {
+type TaskEventData struct {
+	AgentID     uuid.UUID
+	Status      enums.TaskStatus
+	RetryCount  int
+	Report      *TaskReport
+	FileChanges []*FileChange
+}
+type TaskEvent struct {
+	ChannelID uuid.UUID
+	QueueID   uuid.UUID
+	TaskID    uuid.UUID
+	Event     enums.TaskQueueEvent
+	Data      *TaskEventData
+	EmittedAt time.Time
+}
+type QueueEventData struct {
+	TotalTasks  int
+	TotalRetry  int
+	StartedAt   time.Time
+	CompletedAt time.Time
+}
+type QueueEvent struct {
+	ChannelID uuid.UUID
+	QueueID   uuid.UUID
+	Event     enums.TaskQueueEvent
+	Data      *QueueEventData
+	EmittedAt time.Time
+}
+type TaskManager interface {
 	Add(task *AddTask) error
 	Assign(agentID, taskID uuid.UUID) error
 	Report(
@@ -60,4 +88,7 @@ type TaskQueue interface {
 		fileChanges []*FileChange,
 	) error
 	HeartBeat(agentID, taskID uuid.UUID)
+	SubscribeTaskEvent(taskID uuid.UUID) (channelID uuid.UUID, channel <-chan *TaskEvent)
+	SubscribeQueueEvent(queueID uuid.UUID) (channelID uuid.UUID, channel <-chan *QueueEvent)
+	Unsubscribe(channelID uuid.UUID)
 }

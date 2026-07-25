@@ -4,6 +4,15 @@ A Wails desktop app (Go backend, React frontend) built with hexagonal
 architecture: every technology sits behind an interface, and only `wire.go`
 knows which implementation fills which interface.
 
+# todo list
+
+- Single node work e2e
+- Node linking & chaining
+- Revert workflow
+- Centralized MCP credential storage
+- Repo Knowledge engineering
+- Context Engineering
+
 ## Layout
 
 ```

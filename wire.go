@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"hexago/internal/implementation/core/agent_manager"
+	"hexago/internal/implementation/core/wal_sync"
 	viper "hexago/internal/implementation/input/config"
 	"hexago/internal/implementation/input/http_cli"
 	"hexago/internal/implementation/input/storage"
+	"hexago/internal/implementation/input/wal"
 	wails "hexago/internal/implementation/output/app_builder"
 	wails_api "hexago/internal/implementation/output/fe_api"
 	slogger "hexago/internal/implementation/output/logger"
@@ -23,6 +25,8 @@ type App struct {
 	AppBuilder   output_itf.AppBuilder
 	HttpFetcher  input_itf.HttpCli
 	Storage      input_itf.HarnessStorage
+	TaskStore    input_itf.TaskStorage
+	TaskWAL      input_itf.TaskWAL
 	AgentManager core_itf.AgentManager
 }
 
@@ -46,12 +50,25 @@ func wire() (*App, error) {
 		return nil, err
 	}
 
+	taskWAL, err := wal.New(filepath.Join(base, cfg.Read().App.Name, "task.wal"))
+	if err != nil {
+		return nil, err
+	}
+
+	taskStore := store.TaskStore()
+
+	dataWarning := ""
+	if err := wal_sync.Run(taskWAL, taskStore); err != nil {
+		logger.Error("wal sync", "err", err)
+		dataWarning = "Task history from the previous session is corrupted or could not be saved. The app will continue without it."
+	}
+
 	agentManager, err := agent_manager.InitV1(cfg, httpCli, store)
 	if err != nil {
 		return nil, err
 	}
 
-	feAPI := wails_api.New(agentManager)
+	feAPI := wails_api.New(agentManager, dataWarning)
 
 	appBuilder := wails.New(cfg, feAPI)
 
@@ -61,6 +78,8 @@ func wire() (*App, error) {
 		AppBuilder:   appBuilder,
 		HttpFetcher:  httpCli,
 		Storage:      store,
+		TaskStore:    taskStore,
+		TaskWAL:      taskWAL,
 		AgentManager: agentManager,
 	}, nil
 }
