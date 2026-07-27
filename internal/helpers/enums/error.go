@@ -10,3 +10,16 @@ const (
 func (c Severity) String() string {
 	return string(c)
 }
+
+type ErrorType string
+
+const (
+	ErrCannotGetAuthInfo     ErrorType = "err_cannot_get_auth_info"
+	ErrMcpNotFound           ErrorType = "err_mcp_not_found"
+	ErrMcpDiscoveryFailed    ErrorType = "err_mcp_discovery_failed"
+	ErrMcpRegistrationFailed ErrorType = "err_mcp_registration_failed"
+	ErrMcpAuthorizeFailed    ErrorType = "err_mcp_authorize_failed"
+	ErrMcpAuthorizeTimeout   ErrorType = "err_mcp_authorize_timeout"
+	ErrMcpTokenExchange      ErrorType = "err_mcp_token_exchange"
+	ErrMcpStoreCredentials   ErrorType = "err_mcp_store_credentials"
+)

@@ -11,6 +11,25 @@ task_queue:
   heartbeat_timeout: 30m
   heartbeat_scan_interval: 1m
 
+mcp_servers:
+  auth_timeout: 5m
+  client_name: master_harness
+  callback_path: /callback
+  shutdown_grace: 2s
+  verifier_bytes: 32
+  state_bytes: 16
+  min_verifier_bytes: 32 # rfc 7636 floor
+  min_state_bytes: 16
+  default_token_ttl: 1h
+  challenge_method: S256
+  supported_challenge_method: S256 # the only method implemented; anything else is rejected at startup
+  supported_servers:
+    atlassian:
+      name: atlassian
+      url: https://idontknowhowto
+      auth_key_name: ATLASSIAN_OAUTH_SECRET
+  encode_key: sk-abcxyz
+
 agent_harness:
   claude_code:
     name: Claude Code

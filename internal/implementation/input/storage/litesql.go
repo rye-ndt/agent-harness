@@ -73,6 +73,16 @@ var migrations = []string{
 		deletions INTEGER NOT NULL,
 		unified_diff TEXT NOT NULL
 	)`,
+	`CREATE TABLE mcp_credentials (
+		name TEXT PRIMARY KEY,
+		client_id TEXT NOT NULL,
+		token_endpoint TEXT NOT NULL,
+		encrypted_oauth_key TEXT NOT NULL,
+		encrypted_refresh_key TEXT NOT NULL,
+		expired_at TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
 }
 
 type litesql struct {
@@ -80,6 +90,10 @@ type litesql struct {
 }
 
 type taskStore struct {
+	db *sql.DB
+}
+
+type mcpStore struct {
 	db *sql.DB
 }
 
@@ -166,6 +180,87 @@ func (s *litesql) Find(name string) (*input_itf.HarnessEntity, error) {
 
 func (s *litesql) TaskStore() input_itf.TaskStorage {
 	return &taskStore{db: s.db}
+}
+
+func (s *litesql) MCPStore() input_itf.StorageMCP {
+	return &mcpStore{db: s.db}
+}
+
+func (s *mcpStore) ListAuthenticated() ([]*input_itf.MCPEntity, error) {
+	rows, err := s.db.Query(`SELECT name, client_id, token_endpoint, encrypted_oauth_key,
+		encrypted_refresh_key, expired_at, created_at, updated_at
+		FROM mcp_credentials WHERE encrypted_oauth_key != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := []*input_itf.MCPEntity{}
+
+	for rows.Next() {
+		m := &input_itf.MCPEntity{}
+		var expiredAt, createdAt, updatedAt string
+
+		if err := rows.Scan(&m.Name, &m.ClientID, &m.TokenEndpoint, &m.EncryptedOAuthKey,
+			&m.EncryptedRefreshKey, &expiredAt, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+
+		m.ExpiredAt = parseTime(expiredAt)
+		m.CreatedAt = parseTime(createdAt)
+		m.UpdatedAt = parseTime(updatedAt)
+
+		list = append(list, m)
+	}
+
+	return list, rows.Err()
+}
+
+func (s *mcpStore) UpsertCredentials(mcp *input_itf.MCPEntity) error {
+	_, err := s.db.Exec(`INSERT INTO mcp_credentials
+		(name, client_id, token_endpoint, encrypted_oauth_key, encrypted_refresh_key,
+		expired_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET
+			client_id = excluded.client_id,
+			token_endpoint = excluded.token_endpoint,
+			encrypted_oauth_key = excluded.encrypted_oauth_key,
+			encrypted_refresh_key = excluded.encrypted_refresh_key,
+			expired_at = excluded.expired_at,
+			updated_at = excluded.updated_at`,
+		mcp.Name,
+		mcp.ClientID,
+		mcp.TokenEndpoint,
+		mcp.EncryptedOAuthKey,
+		mcp.EncryptedRefreshKey,
+		formatTime(mcp.ExpiredAt),
+		formatTime(mcp.CreatedAt),
+		formatTime(mcp.UpdatedAt),
+	)
+	return err
+}
+
+func (s *mcpStore) GetCredentials(name string) (*input_itf.MCPEntity, error) {
+	m := &input_itf.MCPEntity{}
+	var expiredAt, createdAt, updatedAt string
+
+	err := s.db.QueryRow(`SELECT name, client_id, token_endpoint, encrypted_oauth_key,
+		encrypted_refresh_key, expired_at, created_at, updated_at
+		FROM mcp_credentials WHERE name = ?`, name).
+		Scan(&m.Name, &m.ClientID, &m.TokenEndpoint, &m.EncryptedOAuthKey,
+			&m.EncryptedRefreshKey, &expiredAt, &createdAt, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	m.ExpiredAt = parseTime(expiredAt)
+	m.CreatedAt = parseTime(createdAt)
+	m.UpdatedAt = parseTime(updatedAt)
+
+	return m, nil
 }
 
 func (s *taskStore) Create(task *input_itf.TaskEntity) error {

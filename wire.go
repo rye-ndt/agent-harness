@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"hexago/internal/implementation/core/agent_manager"
+	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/core/wal_sync"
 	viper "hexago/internal/implementation/input/config"
 	"hexago/internal/implementation/input/http_cli"
@@ -14,6 +15,7 @@ import (
 	wails "hexago/internal/implementation/output/app_builder"
 	wails_api "hexago/internal/implementation/output/fe_api"
 	slogger "hexago/internal/implementation/output/logger"
+	"hexago/internal/implementation/output/mcp_proxy"
 	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
 	output_itf "hexago/internal/interface/output"
@@ -28,6 +30,7 @@ type App struct {
 	TaskStore    input_itf.TaskStorage
 	TaskWAL      input_itf.TaskWAL
 	AgentManager core_itf.AgentManager
+	MCPProxy     output_itf.MCPProxyServer
 }
 
 func wire() (*App, error) {
@@ -68,6 +71,16 @@ func wire() (*App, error) {
 		return nil, err
 	}
 
+	mcpCfg := cfg.Read().MCPServers
+	if mcpCfg == nil {
+		return nil, custom_error.Critical("mcp server config not found")
+	}
+
+	mcpProxy, err := mcp_proxy.InitV1(mcpCfg, store.MCPStore(), httpCli)
+	if err != nil {
+		return nil, err
+	}
+
 	feAPI := wails_api.New(agentManager, dataWarning)
 
 	appBuilder := wails.New(cfg, feAPI)
@@ -81,5 +94,6 @@ func wire() (*App, error) {
 		TaskStore:    taskStore,
 		TaskWAL:      taskWAL,
 		AgentManager: agentManager,
+		MCPProxy:     mcpProxy,
 	}, nil
 }

@@ -1,12 +1,14 @@
 package http_cli
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strings"
 	"time"
@@ -63,6 +65,55 @@ func (f *basic) GetJSON(url string, v any) error {
 	}
 	defer res.Body.Close()
 
+	return json.NewDecoder(res.Body).Decode(v)
+}
+
+func (f *basic) post(url, contentType string, body io.Reader) (*http.Response, error) {
+	res, err := f.client.Post(url, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode < http.StatusOK || res.StatusCode > 299 {
+		detail, _ := io.ReadAll(io.LimitReader(res.Body, 2048))
+		res.Body.Close()
+		return nil, fmt.Errorf("POST %s: %s: %s", url, res.Status, strings.TrimSpace(string(detail)))
+	}
+	return res, nil
+}
+
+func (f *basic) PostForm(url string, form map[string]string, v any) error {
+	values := neturl.Values{}
+	for k, val := range form {
+		values.Set(k, val)
+	}
+
+	res, err := f.post(url, "application/x-www-form-urlencoded", strings.NewReader(values.Encode()))
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if v == nil {
+		return nil
+	}
+	return json.NewDecoder(res.Body).Decode(v)
+}
+
+func (f *basic) PostJSON(url string, body any, v any) error {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	res, err := f.post(url, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if v == nil {
+		return nil
+	}
 	return json.NewDecoder(res.Body).Decode(v)
 }
 
