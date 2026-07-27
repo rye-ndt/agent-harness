@@ -1,8 +1,11 @@
 package mcp_proxy
 
 import (
+	"bytes"
 	"crypto/cipher"
 	"crypto/subtle"
+	"io"
+	"net/http"
 	"sync"
 	"time"
 
@@ -18,13 +21,19 @@ import (
 
 var openBrowser = browser.OpenURL
 
+type cred struct {
+	token     string
+	endpoint  string
+	expiredAt time.Time
+}
+
 type v1 struct {
-	locker  sync.RWMutex
-	aead    cipher.AEAD
-	cfg     input_itf.MCPServersConfig
-	creds   map[string]string
-	httpCli input_itf.HttpCli
-	db      input_itf.StorageMCP
+	locker       sync.RWMutex
+	aead         cipher.AEAD
+	cfg          input_itf.MCPServersConfig
+	serverToCred map[string]*cred
+	httpCli      input_itf.HttpCli
+	db           input_itf.StorageMCP
 }
 
 func InitV1(
@@ -42,14 +51,57 @@ func InitV1(
 		return nil, err
 	}
 
-	return &v1{
-		locker:  sync.RWMutex{},
-		aead:    aead,
-		cfg:     validated,
-		creds:   map[string]string{},
-		httpCli: httpCli,
-		db:      db,
-	}, nil
+	s := &v1{
+		locker:       sync.RWMutex{},
+		aead:         aead,
+		cfg:          validated,
+		serverToCred: map[string]*cred{},
+		httpCli:      httpCli,
+		db:           db,
+	}
+
+	if err := s.loadCredentials(); err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+func (s *v1) loadCredentials() error {
+	stored, err := s.db.ListAuthenticated()
+	if err != nil {
+		return custom_error.TypedCritical(enums.ErrCannotGetAuthInfo, "cannot load mcp creds: %v", err)
+	}
+
+	supported := map[string]any{}
+	for _, server := range s.cfg.SupportedServers {
+		supported[server.Name] = struct{}{}
+	}
+
+	now := helpers.NewUTC()
+
+	for _, m := range stored {
+		if _, found := supported[m.Name]; !found {
+			continue
+		}
+
+		if !m.ExpiredAt.After(now) {
+			continue
+		}
+
+		token, err := mcp_helpers.Decrypt(s.aead, m.EncryptedOAuthKey)
+		if err != nil {
+			continue
+		}
+
+		s.serverToCred[m.Name] = &cred{
+			token:     token,
+			endpoint:  m.TokenEndpoint,
+			expiredAt: m.ExpiredAt,
+		}
+	}
+
+	return nil
 }
 
 func validate(cfg input_itf.MCPServersConfig) (input_itf.MCPServersConfig, error) {
@@ -98,6 +150,19 @@ func validate(cfg input_itf.MCPServersConfig) (input_itf.MCPServersConfig, error
 			cfg.MinStateBytes,
 			cfg.StateBytes,
 		)
+	}
+
+	for key, server := range cfg.SupportedServers {
+		if server == nil || server.Name == "" || server.URL == "" || server.AuthKeyName == "" {
+			return cfg, custom_error.Critical(
+				"mcp server %q must configure name, url and auth_key_name",
+				key,
+			)
+		}
+
+		if err := mcp_helpers.RejectAuthRequest(server.URL, ""); err != nil {
+			return cfg, custom_error.Critical("mcp server %q has an invalid url: %v", key, err)
+		}
 	}
 
 	return cfg, nil
@@ -237,13 +302,15 @@ func (s *v1) storeToken(
 		ttl = s.cfg.DefaultTokenTTL
 	}
 
+	expiredAt := now.Add(ttl)
+
 	if err := s.db.UpsertCredentials(&input_itf.MCPEntity{
 		Name:                name,
 		ClientID:            reg.ClientID,
 		TokenEndpoint:       target.Meta.TokenEndpoint,
 		EncryptedOAuthKey:   encryptedAccess,
 		EncryptedRefreshKey: encryptedRefresh,
-		ExpiredAt:           now.Add(ttl),
+		ExpiredAt:           expiredAt,
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}); err != nil {
@@ -255,11 +322,111 @@ func (s *v1) storeToken(
 		)
 	}
 
-	s.locker.Lock()
-	s.creds[name] = token.AccessToken
-	s.locker.Unlock()
+	s.cache(name, &cred{
+		token:     token.AccessToken,
+		endpoint:  target.Meta.TokenEndpoint,
+		expiredAt: expiredAt,
+	})
 
 	return nil
 }
 
-func (s *v1) Request() {}
+func (s *v1) Request(server string, header http.Header, body io.Reader) (*output_itf.MCPResponse, error) {
+	mcp, found := s.cfg.SupportedServers[server]
+	if !found {
+		return nil, custom_error.TypedCritical(enums.ErrMcpNotFound, "mcp %s not found", server)
+	}
+
+	cred, err := s.credentials(mcp.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := mcp_helpers.RejectAuthRequest(mcp.URL, cred.endpoint); err != nil {
+		return nil, err
+	}
+
+	forwardBody, err := mcp_helpers.ForwardBody(body, mcp.AuthKeyName, cred.token)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &input_itf.HttpRequest{
+		Method: http.MethodGet,
+		URL:    mcp.URL,
+		Header: mcp_helpers.ForwardHeader(header, mcp.AuthKeyName, cred.token),
+	}
+
+	if forwardBody != nil {
+		req.Method = http.MethodPost
+		req.Body = bytes.NewReader(forwardBody)
+	}
+
+	res, err := s.httpCli.Stream(req)
+	if err != nil {
+		return nil, custom_error.TypedCritical(
+			enums.ErrMcpRequestFailed,
+			"cannot forward request to %s: %v",
+			mcp.Name,
+			err,
+		)
+	}
+
+	return &output_itf.MCPResponse{
+		StatusCode: res.StatusCode,
+		Header:     res.Header,
+		Body:       res.Body,
+	}, nil
+}
+
+func (s *v1) credentials(name string) (*cred, error) {
+	if cred := s.cached(name); cred != nil {
+		return cred, nil
+	}
+
+	stored, err := s.db.GetCredentials(name)
+	if err != nil {
+		return nil, custom_error.TypedCritical(enums.ErrCannotGetAuthInfo, "cannot get credentials for %s: %v", name, err)
+	}
+
+	if stored == nil || stored.EncryptedOAuthKey == "" {
+		return nil, custom_error.TypedCritical(enums.ErrMcpNotAuthenticated, "%s is not authenticated, authorize it first", name)
+	}
+
+	if !stored.ExpiredAt.After(helpers.NewUTC()) {
+		return nil, custom_error.TypedCritical(enums.ErrMcpCredentialsExpired, "credentials for %s expired at %s, authorize it again", name, stored.ExpiredAt)
+	}
+
+	accessToken, err := mcp_helpers.Decrypt(s.aead, stored.EncryptedOAuthKey)
+	if err != nil {
+		return nil, err
+	}
+
+	cred := &cred{
+		token:     accessToken,
+		endpoint:  stored.TokenEndpoint,
+		expiredAt: stored.ExpiredAt,
+	}
+
+	s.cache(name, cred)
+
+	return cred, nil
+}
+
+func (s *v1) cached(name string) *cred {
+	s.locker.RLock()
+	cred, found := s.serverToCred[name]
+	s.locker.RUnlock()
+
+	if !found || !cred.expiredAt.After(helpers.NewUTC()) {
+		return nil
+	}
+
+	return cred
+}
+
+func (s *v1) cache(name string, cred *cred) {
+	s.locker.Lock()
+	s.serverToCred[name] = cred
+	s.locker.Unlock()
+}

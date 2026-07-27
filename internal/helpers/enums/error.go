@@ -22,4 +22,8 @@ const (
 	ErrMcpAuthorizeTimeout   ErrorType = "err_mcp_authorize_timeout"
 	ErrMcpTokenExchange      ErrorType = "err_mcp_token_exchange"
 	ErrMcpStoreCredentials   ErrorType = "err_mcp_store_credentials"
+	ErrMcpNotAuthenticated   ErrorType = "err_mcp_not_authenticated"
+	ErrMcpCredentialsExpired ErrorType = "err_mcp_credentials_expired"
+	ErrMcpForbiddenRequest   ErrorType = "err_mcp_forbidden_request"
+	ErrMcpRequestFailed      ErrorType = "err_mcp_request_failed"
 )

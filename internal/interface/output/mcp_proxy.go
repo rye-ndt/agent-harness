@@ -1,6 +1,10 @@
 package output_itf
 
-import "time"
+import (
+	"io"
+	"net/http"
+	"time"
+)
 
 type MCPAuthInfo struct {
 	ServerName    string
@@ -9,8 +13,14 @@ type MCPAuthInfo struct {
 	InitializedAt time.Time
 }
 
+type MCPResponse struct {
+	StatusCode int
+	Header     http.Header
+	Body       io.ReadCloser
+}
+
 type MCPProxyServer interface {
 	List() ([]*MCPAuthInfo, error)
 	Authorize(server string) error // rfc 8252
-	Request()                      //block method authorize of agent, to avoid agent-cached credentials
+	Request(server string, header http.Header, body io.Reader) (*MCPResponse, error)
 }

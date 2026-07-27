@@ -22,13 +22,22 @@ type BasicHttpCliCfg struct {
 
 type basic struct {
 	client *http.Client
+	stream *http.Client
 	cfg    *BasicHttpCliCfg
 }
 
 func New(cfg *BasicHttpCliCfg) input_itf.HttpCli {
 	return &basic{
 		client: &http.Client{Timeout: cfg.Timeout},
-		cfg:    cfg,
+		stream: &http.Client{
+			Transport: &http.Transport{
+				ResponseHeaderTimeout: cfg.Timeout,
+			},
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		cfg: cfg,
 	}
 }
 
@@ -115,6 +124,30 @@ func (f *basic) PostJSON(url string, body any, v any) error {
 		return nil
 	}
 	return json.NewDecoder(res.Body).Decode(v)
+}
+
+func (f *basic) Stream(req *input_itf.HttpRequest) (*input_itf.HttpResponse, error) {
+	r, err := http.NewRequest(req.Method, req.URL, req.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	for name, values := range req.Header {
+		for _, v := range values {
+			r.Header.Add(name, v)
+		}
+	}
+
+	res, err := f.stream.Do(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return &input_itf.HttpResponse{
+		StatusCode: res.StatusCode,
+		Header:     res.Header,
+		Body:       res.Body,
+	}, nil
 }
 
 // Download streams url into path. The client's total timeout would abort

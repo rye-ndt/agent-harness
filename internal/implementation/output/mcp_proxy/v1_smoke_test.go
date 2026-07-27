@@ -2,10 +2,12 @@ package mcp_proxy
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,12 +15,14 @@ import (
 	"hexago/internal/implementation/input/storage"
 	mcp_helpers "hexago/internal/implementation/output/mcp_proxy/helpers"
 	input_itf "hexago/internal/interface/input"
+	output_itf "hexago/internal/interface/output"
 )
 
 const (
 	testClientID     = "test-client"
 	testAccessToken  = "access-token-value"
 	testRefreshToken = "refresh-token-value"
+	testAuthKeyName  = "ThisIsTheKey"
 )
 
 func testConfig() input_itf.MCPServersConfig {
@@ -96,9 +100,61 @@ func fakeAuthServer(t *testing.T) (*httptest.Server, *string) {
 		})
 	})
 
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer "+testAccessToken {
+			http.Error(w, "missing bearer token", http.StatusUnauthorized)
+			return
+		}
+		if strings.Contains(string(body), testAuthKeyName) {
+			http.Error(w, "placeholder reached the upstream server", http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusAccepted)
+		w.Write([]byte("data: " + string(body) + "\n\n"))
+	})
+
 	t.Cleanup(srv.Close)
 
 	return srv, &challenge
+}
+
+func stubBrowser(t *testing.T, challenge *string, inspect func(url.Values)) {
+	t.Helper()
+
+	original := openBrowser
+	t.Cleanup(func() { openBrowser = original })
+
+	openBrowser = func(raw string) error {
+		u, err := url.Parse(raw)
+		if err != nil {
+			return err
+		}
+
+		q := u.Query()
+		*challenge = q.Get("code_challenge")
+
+		if inspect != nil {
+			inspect(q)
+		}
+
+		callback := q.Get("redirect_uri") + "?code=auth-code&state=" + url.QueryEscape(q.Get("state"))
+
+		go func() {
+			res, err := http.Get(callback)
+			if err == nil {
+				res.Body.Close()
+			}
+		}()
+
+		return nil
+	}
 }
 
 func TestAuthorizeStoresEncryptedCredentials(t *testing.T) {
@@ -123,36 +179,14 @@ func TestAuthorizeStoresEncryptedCredentials(t *testing.T) {
 		t.Fatalf("init: %v", err)
 	}
 
-	original := openBrowser
-	t.Cleanup(func() { openBrowser = original })
-
-	openBrowser = func(raw string) error {
-		u, err := url.Parse(raw)
-		if err != nil {
-			return err
-		}
-
-		q := u.Query()
-		*challenge = q.Get("code_challenge")
-
+	stubBrowser(t, challenge, func(q url.Values) {
 		if q.Get("code_challenge_method") != cfg.ChallengeMethod {
 			t.Errorf("code_challenge_method = %q, want %q", q.Get("code_challenge_method"), cfg.ChallengeMethod)
 		}
 		if q.Get("resource") != srv.URL {
 			t.Errorf("resource = %q, want %q", q.Get("resource"), srv.URL)
 		}
-
-		callback := q.Get("redirect_uri") + "?code=auth-code&state=" + url.QueryEscape(q.Get("state"))
-
-		go func() {
-			res, err := http.Get(callback)
-			if err == nil {
-				res.Body.Close()
-			}
-		}()
-
-		return nil
-	}
+	})
 
 	if err := proxy.Authorize("atlassian"); err != nil {
 		t.Fatalf("authorize: %v", err)
@@ -222,6 +256,196 @@ func TestAuthorizeUnknownServer(t *testing.T) {
 	}
 }
 
+func newProxy(t *testing.T, mcpURL string) (output_itf.MCPProxyServer, input_itf.StorageMCP) {
+	t.Helper()
+
+	store, err := storage.New(filepath.Join(t.TempDir(), "harness.db"))
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+
+	return newProxyOn(t, mcpURL, store.MCPStore()), store.MCPStore()
+}
+
+func newProxyOn(t *testing.T, mcpURL string, store input_itf.StorageMCP) output_itf.MCPProxyServer {
+	t.Helper()
+
+	cfg := testConfig()
+	cfg.SupportedServers = map[string]*input_itf.MCPServerConfig{
+		"atlassian": {Name: "atlassian", AuthKeyName: testAuthKeyName, URL: mcpURL},
+	}
+
+	proxy, err := InitV1(
+		&cfg,
+		store,
+		http_cli.New(&http_cli.BasicHttpCliCfg{Timeout: 10 * time.Second}),
+	)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	return proxy
+}
+
+func TestRequestSubstitutesCredentials(t *testing.T) {
+	srv, challenge := fakeAuthServer(t)
+
+	proxy, _ := newProxy(t, srv.URL+"/mcp")
+
+	stubBrowser(t, challenge, nil)
+
+	if err := proxy.Authorize("atlassian"); err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+testAuthKeyName)
+	header.Set("Content-Length", "999")
+	header.Set("Connection", "close")
+
+	res, err := proxy.Request(
+		"atlassian",
+		header,
+		strings.NewReader(`{"method":"tools/list","secret":"`+testAuthKeyName+`"}`),
+	)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusAccepted)
+	}
+	if got := res.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Errorf("content type = %q, want text/event-stream", got)
+	}
+
+	payload, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+
+	if !strings.Contains(string(payload), testAccessToken) {
+		t.Errorf("body %q does not contain the substituted token", payload)
+	}
+	if strings.Contains(string(payload), testAuthKeyName) {
+		t.Errorf("body %q still contains the placeholder", payload)
+	}
+}
+
+func TestRequestUsesCachedCredentials(t *testing.T) {
+	srv, challenge := fakeAuthServer(t)
+
+	proxy, store := newProxy(t, srv.URL+"/mcp")
+
+	stubBrowser(t, challenge, nil)
+
+	if err := proxy.Authorize("atlassian"); err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+
+	saved, err := store.GetCredentials("atlassian")
+	if err != nil {
+		t.Fatalf("get credentials: %v", err)
+	}
+
+	saved.EncryptedOAuthKey = ""
+	if err := store.UpsertCredentials(saved); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+testAuthKeyName)
+
+	res, err := proxy.Request("atlassian", header, strings.NewReader(`{"method":"tools/list"}`))
+	if err != nil {
+		t.Fatalf("request after the stored token was cleared: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusAccepted)
+	}
+}
+
+func TestInitLoadsStoredCredentials(t *testing.T) {
+	srv, challenge := fakeAuthServer(t)
+
+	proxy, store := newProxy(t, srv.URL+"/mcp")
+
+	stubBrowser(t, challenge, nil)
+
+	if err := proxy.Authorize("atlassian"); err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+
+	restarted := newProxyOn(t, srv.URL+"/mcp", store)
+
+	saved, err := store.GetCredentials("atlassian")
+	if err != nil {
+		t.Fatalf("get credentials: %v", err)
+	}
+
+	saved.EncryptedOAuthKey = ""
+	if err := store.UpsertCredentials(saved); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+testAuthKeyName)
+
+	res, err := restarted.Request("atlassian", header, strings.NewReader(`{"method":"tools/list"}`))
+	if err != nil {
+		t.Fatalf("request on a restarted proxy: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusAccepted)
+	}
+}
+
+func TestRequestWithoutCredentials(t *testing.T) {
+	srv, _ := fakeAuthServer(t)
+
+	proxy, _ := newProxy(t, srv.URL+"/mcp")
+
+	if _, err := proxy.Request("atlassian", http.Header{}, nil); err == nil {
+		t.Fatal("expected an error for an unauthenticated server")
+	}
+
+	if _, err := proxy.Request("nope", http.Header{}, nil); err == nil {
+		t.Fatal("expected an error for an unsupported server")
+	}
+}
+
+func TestRejectAuthRequest(t *testing.T) {
+	blocked := []string{
+		"https://mcp.example.com/.well-known/oauth-protected-resource",
+		"https://mcp.example.com/oauth/token",
+		"https://mcp.example.com/authorize",
+		"https://mcp.example.com/v1/register",
+		"not a url",
+	}
+
+	for _, raw := range blocked {
+		if err := mcp_helpers.RejectAuthRequest(raw, ""); err == nil {
+			t.Errorf("expected %s to be rejected", raw)
+		}
+	}
+
+	if err := mcp_helpers.RejectAuthRequest("https://mcp.example.com/mcp", ""); err != nil {
+		t.Errorf("expected the mcp endpoint to be allowed: %v", err)
+	}
+
+	if err := mcp_helpers.RejectAuthRequest(
+		"https://mcp.example.com/mcp",
+		"https://mcp.example.com/mcp/",
+	); err == nil {
+		t.Error("expected the token endpoint to be rejected")
+	}
+}
+
 func TestValidateConfig(t *testing.T) {
 	valid, err := validate(testConfig())
 	if err != nil {
@@ -240,6 +464,16 @@ func TestValidateConfig(t *testing.T) {
 		"unsupported challenge": func(c *input_itf.MCPServersConfig) { c.ChallengeMethod = "plain" },
 		"short verifier":        func(c *input_itf.MCPServersConfig) { c.VerifierBytes = 8 },
 		"short state":           func(c *input_itf.MCPServersConfig) { c.StateBytes = 4 },
+		"missing auth key name": func(c *input_itf.MCPServersConfig) {
+			c.SupportedServers = map[string]*input_itf.MCPServerConfig{
+				"atlassian": {Name: "atlassian", URL: "https://mcp.example.com/mcp"},
+			}
+		},
+		"auth endpoint url": func(c *input_itf.MCPServersConfig) {
+			c.SupportedServers = map[string]*input_itf.MCPServerConfig{
+				"atlassian": {Name: "atlassian", AuthKeyName: testAuthKeyName, URL: "https://mcp.example.com/oauth/token"},
+			}
+		},
 	}
 
 	for name, mutate := range cases {
