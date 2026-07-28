@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"hexago/internal/helpers"
 	"hexago/internal/implementation/input/http_cli"
 	"hexago/internal/implementation/input/storage"
 	mcp_helpers "hexago/internal/implementation/output/mcp_proxy/helpers"
@@ -112,6 +113,10 @@ func fakeAuthServer(t *testing.T) (*httptest.Server, *string) {
 		}
 		if strings.Contains(string(body), testAuthKeyName) {
 			http.Error(w, "placeholder reached the upstream server", http.StatusBadRequest)
+			return
+		}
+		if r.Header.Get(gatewayTokenHeader) != "" {
+			http.Error(w, "gateway token reached the upstream server", http.StatusBadRequest)
 			return
 		}
 
@@ -447,32 +452,33 @@ func TestRejectAuthRequest(t *testing.T) {
 }
 
 func TestValidateConfig(t *testing.T) {
-	valid, err := validate(testConfig())
-	if err != nil {
+	if err := helpers.ValidateStruct(testConfig()); err != nil {
 		t.Fatalf("validate: %v", err)
-	}
-	if valid.SupportedServers == nil {
-		t.Error("supported servers map was not initialised")
 	}
 
 	cases := map[string]func(*input_itf.MCPServersConfig){
-		"empty client name":     func(c *input_itf.MCPServersConfig) { c.ClientName = "" },
-		"empty callback path":   func(c *input_itf.MCPServersConfig) { c.CallbackPath = "" },
-		"missing auth timeout":  func(c *input_itf.MCPServersConfig) { c.AuthTimeout = 0 },
-		"missing token ttl":     func(c *input_itf.MCPServersConfig) { c.DefaultTokenTTL = 0 },
-		"missing minimums":      func(c *input_itf.MCPServersConfig) { c.MinVerifierBytes = 0 },
-		"unsupported challenge": func(c *input_itf.MCPServersConfig) { c.ChallengeMethod = "plain" },
-		"short verifier":        func(c *input_itf.MCPServersConfig) { c.VerifierBytes = 8 },
-		"short state":           func(c *input_itf.MCPServersConfig) { c.StateBytes = 4 },
+		"empty client name":      func(c *input_itf.MCPServersConfig) { c.ClientName = "" },
+		"empty callback path":    func(c *input_itf.MCPServersConfig) { c.CallbackPath = "" },
+		"relative callback path": func(c *input_itf.MCPServersConfig) { c.CallbackPath = "callback" },
+		"missing encode key":     func(c *input_itf.MCPServersConfig) { c.EncodeKey = "" },
+		"missing auth timeout":   func(c *input_itf.MCPServersConfig) { c.AuthTimeout = 0 },
+		"missing token ttl":      func(c *input_itf.MCPServersConfig) { c.DefaultTokenTTL = 0 },
+		"missing minimums":       func(c *input_itf.MCPServersConfig) { c.MinVerifierBytes = 0 },
+		"unsupported challenge":  func(c *input_itf.MCPServersConfig) { c.ChallengeMethod = "plain" },
+		"short verifier":         func(c *input_itf.MCPServersConfig) { c.VerifierBytes = 8 },
+		"short state":            func(c *input_itf.MCPServersConfig) { c.StateBytes = 4 },
 		"missing auth key name": func(c *input_itf.MCPServersConfig) {
 			c.SupportedServers = map[string]*input_itf.MCPServerConfig{
 				"atlassian": {Name: "atlassian", URL: "https://mcp.example.com/mcp"},
 			}
 		},
-		"auth endpoint url": func(c *input_itf.MCPServersConfig) {
+		"malformed server url": func(c *input_itf.MCPServersConfig) {
 			c.SupportedServers = map[string]*input_itf.MCPServerConfig{
-				"atlassian": {Name: "atlassian", AuthKeyName: testAuthKeyName, URL: "https://mcp.example.com/oauth/token"},
+				"atlassian": {Name: "atlassian", AuthKeyName: testAuthKeyName, URL: "not-a-url"},
 			}
+		},
+		"nil server entry": func(c *input_itf.MCPServersConfig) {
+			c.SupportedServers = map[string]*input_itf.MCPServerConfig{"atlassian": nil}
 		},
 	}
 
@@ -480,8 +486,171 @@ func TestValidateConfig(t *testing.T) {
 		cfg := testConfig()
 		mutate(&cfg)
 
-		if _, err := validate(cfg); err == nil {
+		if err := helpers.ValidateStruct(cfg); err == nil {
 			t.Errorf("expected %s to be rejected", name)
 		}
+	}
+}
+
+func TestInitRejectsAuthEndpointURL(t *testing.T) {
+	store, err := storage.New(filepath.Join(t.TempDir(), "harness.db"))
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+
+	cfg := testConfig()
+	cfg.SupportedServers = map[string]*input_itf.MCPServerConfig{
+		"atlassian": {Name: "atlassian", AuthKeyName: testAuthKeyName, URL: "https://mcp.example.com/oauth/token"},
+	}
+
+	if _, err := InitV1(
+		&cfg,
+		store.MCPStore(),
+		http_cli.New(&http_cli.BasicHttpCliCfg{Timeout: time.Second}),
+	); err == nil {
+		t.Fatal("expected an auth endpoint url to be rejected")
+	}
+}
+
+func newGateway(t *testing.T, proxy output_itf.MCPProxyServer) *output_itf.MCPGateway {
+	t.Helper()
+
+	gateway, err := proxy.Serve()
+	if err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+
+	t.Cleanup(func() { proxy.Close() })
+
+	return gateway
+}
+
+func TestGatewayForwardsAgentRequest(t *testing.T) {
+	srv, challenge := fakeAuthServer(t)
+
+	proxy, _ := newProxy(t, srv.URL+"/mcp")
+
+	stubBrowser(t, challenge, nil)
+
+	if err := proxy.Authorize("atlassian"); err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+
+	gateway := newGateway(t, proxy)
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		gateway.BaseURL+"/mcp/atlassian",
+		strings.NewReader(`{"method":"tools/list","secret":"`+testAuthKeyName+`"}`),
+	)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testAuthKeyName)
+	req.Header.Set(gateway.TokenHeader, gateway.Token)
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("gateway request: %v", err)
+	}
+	defer res.Body.Close()
+
+	payload, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d (%s)", res.StatusCode, http.StatusAccepted, payload)
+	}
+	if got := res.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Errorf("content type = %q, want text/event-stream", got)
+	}
+	if !strings.Contains(string(payload), testAccessToken) {
+		t.Errorf("body %q does not contain the substituted token", payload)
+	}
+	if strings.Contains(string(payload), testAuthKeyName) {
+		t.Errorf("body %q still contains the placeholder", payload)
+	}
+}
+
+func TestGatewayRejectsUnknownToken(t *testing.T) {
+	srv, _ := fakeAuthServer(t)
+
+	proxy, _ := newProxy(t, srv.URL+"/mcp")
+
+	gateway := newGateway(t, proxy)
+
+	for name, token := range map[string]string{
+		"missing": "",
+		"wrong":   "not-the-token",
+	} {
+		req, err := http.NewRequest(http.MethodPost, gateway.BaseURL+"/mcp/atlassian", strings.NewReader("{}"))
+		if err != nil {
+			t.Fatalf("%s: new request: %v", name, err)
+		}
+		if token != "" {
+			req.Header.Set(gateway.TokenHeader, token)
+		}
+
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s: gateway request: %v", name, err)
+		}
+		res.Body.Close()
+
+		if res.StatusCode != http.StatusForbidden {
+			t.Errorf("%s: status = %d, want %d", name, res.StatusCode, http.StatusForbidden)
+		}
+	}
+}
+
+func TestGatewayHidesUpstreamAuthChallenge(t *testing.T) {
+	srv, challenge := fakeAuthServer(t)
+
+	proxy, _ := newProxy(t, srv.URL+"/mcp")
+
+	stubBrowser(t, challenge, nil)
+
+	if err := proxy.Authorize("atlassian"); err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+
+	gateway := newGateway(t, proxy)
+
+	req, err := http.NewRequest(http.MethodPost, gateway.BaseURL+"/mcp/atlassian", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set(gateway.TokenHeader, gateway.Token)
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("gateway request: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == http.StatusUnauthorized {
+		t.Errorf("gateway returned 401, which starts an oauth flow inside the agent")
+	}
+	if got := res.Header.Get("WWW-Authenticate"); got != "" {
+		t.Errorf("www-authenticate = %q, want it stripped", got)
+	}
+}
+
+func TestGatewayServeIsIdempotent(t *testing.T) {
+	srv, _ := fakeAuthServer(t)
+
+	proxy, _ := newProxy(t, srv.URL+"/mcp")
+
+	first := newGateway(t, proxy)
+
+	second, err := proxy.Serve()
+	if err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+
+	if first.BaseURL != second.BaseURL || first.Token != second.Token {
+		t.Errorf("serve returned a second gateway %v, want %v", second, first)
 	}
 }

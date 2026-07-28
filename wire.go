@@ -66,11 +66,6 @@ func wire() (*App, error) {
 		dataWarning = "Task history from the previous session is corrupted or could not be saved. The app will continue without it."
 	}
 
-	agentManager, err := agent_manager.InitV1(cfg, httpCli, store)
-	if err != nil {
-		return nil, err
-	}
-
 	mcpCfg := cfg.Read().MCPServers
 	if mcpCfg == nil {
 		return nil, custom_error.Critical("mcp server config not found")
@@ -81,7 +76,18 @@ func wire() (*App, error) {
 		return nil, err
 	}
 
-	feAPI := wails_api.New(agentManager, dataWarning)
+	mcpGateway, err := mcpProxy.Serve()
+	if err != nil {
+		return nil, err
+	}
+
+	agentManager, err := agent_manager.InitV1(cfg, httpCli, store, mcpGateway)
+	if err != nil {
+		mcpProxy.Close()
+		return nil, err
+	}
+
+	feAPI := wails_api.New(agentManager, mcpProxy, dataWarning)
 
 	appBuilder := wails.New(cfg, feAPI)
 

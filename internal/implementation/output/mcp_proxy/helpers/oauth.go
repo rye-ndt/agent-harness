@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"hexago/internal/helpers/enums"
@@ -194,8 +195,8 @@ func Register(
 	return reg, nil
 }
 
-func ListenLoopback(cfg *input_itf.MCPServersConfig) (*http.Server, string, <-chan *CallbackResult, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+func ListenLoopback(cfg *input_itf.MCPServersConfig, host string) (*http.Server, string, <-chan *CallbackResult, error) {
+	ln, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -246,7 +247,7 @@ func ListenLoopback(cfg *input_itf.MCPServersConfig) (*http.Server, string, <-ch
 
 	go srv.Serve(ln)
 
-	redirectURI := fmt.Sprintf("http://127.0.0.1:%d%s", addr.Port, cfg.CallbackPath)
+	redirectURI := fmt.Sprintf("http://%s%s", net.JoinHostPort(host, strconv.Itoa(addr.Port)), cfg.CallbackPath)
 
 	return srv, redirectURI, results, nil
 }

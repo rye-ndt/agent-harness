@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,14 +17,17 @@ import (
 	"github.com/google/uuid"
 
 	"hexago/internal/helpers/enums"
+	"hexago/internal/helpers/prompts"
 	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/input/harness/harness_helper"
 	input_itf "hexago/internal/interface/input"
+	output_itf "hexago/internal/interface/output"
 )
 
 const harnessName = "claude-code"
 
 var authURLRe = regexp.MustCompile(`https://[A-Za-z0-9._~:/?#&=%+-]+`)
+var claudePermissions = "Read,Edit,Write,Glob,Grep,Bash,WebFetch,WebSearch"
 
 type authSession struct {
 	cmd    *exec.Cmd
@@ -100,16 +104,21 @@ type agentProc struct {
 }
 
 type ClaudeCodeCfg struct {
-	Name         string        `mapstructure:"name"`
-	BinName      string        `mapstructure:"bin_name"`
-	ReleaseBase  string        `mapstructure:"release_base"`
-	LoginTimeout time.Duration `mapstructure:"login_timeout"`
-	TokenRegex   string        `mapstructure:"token_regex"`
-	AnsiRegex    string        `mapstructure:"ansi_regex"`
+	Name         string        `mapstructure:"name" validate:"required"`
+	BinName      string        `mapstructure:"bin_name" validate:"required"`
+	ReleaseBase  string        `mapstructure:"release_base" validate:"required,http_url"`
+	LoginTimeout time.Duration `mapstructure:"login_timeout" validate:"gt=0"`
+	TokenRegex   string        `mapstructure:"token_regex" validate:"required"`
+	AnsiRegex    string        `mapstructure:"ansi_regex" validate:"required"`
 }
 
 type claudeCode struct {
-	dir         string
+	dir           string
+	binPath       string
+	configDir     string
+	tokenPath     string
+	workspacesDir string
+
 	mu          sync.Mutex
 	agents      map[string]*agentProc
 	uninstalled bool
@@ -121,58 +130,65 @@ type claudeCode struct {
 	storage     input_itf.HarnessStorage
 	tokenRe     *regexp.Regexp
 	ansiRe      *regexp.Regexp
+	spawnArgs   []string
+	mcpCfg      []byte
+	baseEnv     []string
 }
 
-type ClaudeManagerParams struct {
-	GlobalCfg     input_itf.Config
-	ClaudeCodeCfg *ClaudeCodeCfg
-	HttpCli       input_itf.HttpCli
-	Storage       input_itf.HarnessStorage
-}
-
-func NewClaudeCode(p *ClaudeManagerParams) (input_itf.AgentHarness, error) {
+func NewClaudeCode(
+	globalCfg input_itf.Config,
+	httpCli input_itf.HttpCli,
+	db input_itf.HarnessStorage,
+	mcpGateway *output_itf.MCPGateway,
+	claudeCfg *ClaudeCodeCfg,
+) (input_itf.AgentHarness, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return nil, custom_error.Critical("%v", err)
 	}
 
-	tokenRe, err := regexp.Compile(p.ClaudeCodeCfg.TokenRegex)
+	tokenRe, err := regexp.Compile(claudeCfg.TokenRegex)
 	if err != nil {
 		return nil, custom_error.Critical("compile token_regex: %v", err)
 	}
 
-	ansiRe, err := regexp.Compile(p.ClaudeCodeCfg.AnsiRegex)
+	ansiRe, err := regexp.Compile(claudeCfg.AnsiRegex)
 	if err != nil {
 		return nil, custom_error.Critical("compile ansi_regex: %v", err)
 	}
 
-	return &claudeCode{
-		dir:     filepath.Join(base, p.GlobalCfg.Read().App.Name, "harness", harnessName),
-		agents:  map[string]*agentProc{},
-		cfg:     p.ClaudeCodeCfg,
-		httpCli: p.HttpCli,
-		storage: p.Storage,
-		tokenRe: tokenRe,
-		ansiRe:  ansiRe,
-	}, nil
-}
-
-func (c *claudeCode) binPath() string {
-	name := c.cfg.BinName
-
-	if runtime.GOOS == enums.Windows.String() {
-		name += ".exe"
+	mcpCfg, err := claudeMCPConfig(mcpGateway)
+	if err != nil {
+		return nil, err
 	}
 
-	return filepath.Join(c.dir, "bin", name)
-}
+	dir := filepath.Join(base, globalCfg.Read().App.Name, "harness", harnessName)
+	configDir := filepath.Join(dir, "config")
 
-func (c *claudeCode) configDir() string {
-	return filepath.Join(c.dir, "config")
-}
-
-func (c *claudeCode) tokenPath() string {
-	return filepath.Join(c.dir, "credentials")
+	return &claudeCode{
+		dir:           dir,
+		binPath:       binPath(dir, claudeCfg.BinName),
+		configDir:     configDir,
+		tokenPath:     filepath.Join(dir, "credentials"),
+		workspacesDir: filepath.Join(dir, "workspaces"),
+		agents:        map[string]*agentProc{},
+		cfg:           claudeCfg,
+		httpCli:       httpCli,
+		storage:       db,
+		tokenRe:       tokenRe,
+		ansiRe:        ansiRe,
+		mcpCfg:        mcpCfg,
+		baseEnv:       append(cleanEnv(), "CLAUDE_CONFIG_DIR="+configDir),
+		spawnArgs: []string{"-p",
+			"--input-format", "stream-json",
+			"--output-format", "stream-json",
+			"--verbose",
+			"--permission-mode", "dontAsk",
+			"--allowedTools", claudePermissions,
+			"--disallowedTools", "AskUserQuestion",
+			"--append-system-prompt", string(prompts.System()),
+		},
+	}, nil
 }
 
 func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
@@ -180,7 +196,7 @@ func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		onProgress = func(input_itf.InstallProgress) {}
 	}
 
-	if _, err := os.Stat(c.binPath()); err == nil {
+	if _, err := os.Stat(c.binPath); err == nil {
 		info, err := c.storage.Find(harnessName)
 		if err != nil {
 			return custom_error.Critical("find harness info: %v", err)
@@ -214,11 +230,11 @@ func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		return custom_error.Critical("no claude code build for platform %s", platform)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(c.binPath()), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(c.binPath), 0o755); err != nil {
 		return custom_error.Critical("%v", err)
 	}
 
-	tmp := c.binPath() + ".download"
+	tmp := c.binPath + ".download"
 
 	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageDownload})
 
@@ -239,7 +255,7 @@ func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		os.Remove(tmp)
 		return custom_error.Critical("%v", err)
 	}
-	if err := os.Rename(tmp, c.binPath()); err != nil {
+	if err := os.Rename(tmp, c.binPath); err != nil {
 		os.Remove(tmp)
 		return custom_error.Critical("%v", err)
 	}
@@ -248,7 +264,7 @@ func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		Name:     harnessName,
 		Version:  version,
 		Platform: enums.OS(platform),
-		Path:     c.binPath(),
+		Path:     c.binPath,
 	}); err != nil {
 		return custom_error.Critical("save install info: %v", err)
 	}
@@ -268,21 +284,21 @@ func (c *claudeCode) Auth() (string, error) {
 	}
 	defer c.loginMu.Unlock()
 
-	if _, err := os.Stat(c.tokenPath()); err == nil {
+	if _, err := os.Stat(c.tokenPath); err == nil {
 		return "", nil
 	}
 
-	if _, err := os.Stat(c.binPath()); err != nil {
+	if _, err := os.Stat(c.binPath); err != nil {
 		return "", custom_error.Critical("claude code is not installed, run Install first")
 	}
 
-	if err := os.MkdirAll(c.configDir(), 0o755); err != nil {
+	if err := os.MkdirAll(c.configDir, 0o755); err != nil {
 		return "", custom_error.Critical("%v", err)
 	}
 
-	cmd := exec.Command(c.binPath(), "setup-token")
+	cmd := exec.Command(c.binPath, "setup-token")
 	cmd.Env = append(cleanEnv(),
-		"CLAUDE_CONFIG_DIR="+c.configDir(),
+		"CLAUDE_CONFIG_DIR="+c.configDir,
 		"TERM=xterm-256color",
 	)
 
@@ -315,7 +331,7 @@ func (c *claudeCode) Auth() (string, error) {
 		if err != nil {
 			return
 		}
-		if err := os.WriteFile(c.tokenPath(), []byte(tok), 0o600); err != nil {
+		if err := os.WriteFile(c.tokenPath, []byte(tok), 0o600); err != nil {
 			return
 		}
 		c.dropAuth(s)
@@ -331,7 +347,7 @@ func (c *claudeCode) Auth() (string, error) {
 }
 
 func (c *claudeCode) SubmitAuthCode(code string) error {
-	if _, err := os.Stat(c.tokenPath()); err == nil {
+	if _, err := os.Stat(c.tokenPath); err == nil {
 		return nil
 	}
 
@@ -351,7 +367,7 @@ func (c *claudeCode) SubmitAuthCode(code string) error {
 		return custom_error.Critical("confirm login: %v", err)
 	}
 
-	if err := os.WriteFile(c.tokenPath(), []byte(tok), 0o600); err != nil {
+	if err := os.WriteFile(c.tokenPath, []byte(tok), 0o600); err != nil {
 		return custom_error.Critical("%v", err)
 	}
 
@@ -413,7 +429,7 @@ func (c *claudeCode) Status() (*input_itf.AgentStatus, error) {
 		}
 	}
 
-	if _, err := os.Stat(c.tokenPath()); err == nil {
+	if _, err := os.Stat(c.tokenPath); err == nil {
 		status.LoggedIn = true
 	}
 
@@ -425,11 +441,11 @@ func (c *claudeCode) Status() (*input_itf.AgentStatus, error) {
 }
 
 func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
-	if _, err := os.Stat(c.binPath()); err != nil {
+	if _, err := os.Stat(c.binPath); err != nil {
 		return nil, custom_error.Critical("claude code is not installed, run Install first")
 	}
 
-	token, err := os.ReadFile(c.tokenPath())
+	token, err := os.ReadFile(c.tokenPath)
 	if err != nil {
 		return nil, custom_error.Critical("not authenticated, run Auth first")
 	}
@@ -440,23 +456,27 @@ func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 	}
 	id := uid.String()
 
-	workdir := filepath.Join(c.dir, "workspaces", id)
+	workdir := filepath.Join(c.workspacesDir, id)
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
 		return nil, custom_error.Critical("%v", err)
 	}
 
-	cmd := exec.Command(c.binPath(), "-p",
-		"--input-format", "stream-json",
-		"--output-format", "stream-json",
-		"--verbose",
-		"--permission-mode", "dontAsk",
-		"--allowedTools", "Read,Edit,Write,Glob,Grep,Bash,WebFetch,WebSearch",
-		"--disallowedTools", "AskUserQuestion",
-		"--append-system-prompt", "You are running non-interactively. Never ask the user questions or present choices; make reasonable assumptions, state them, and proceed.",
-	)
+	args := slices.Clone(c.spawnArgs)
+
+	if c.mcpCfg != nil {
+		mcpPath := filepath.Join(workdir, "mcp.json")
+
+		if err := harness_helper.WriteNewFile(mcpPath, c.mcpCfg, 0o600); err != nil {
+			os.RemoveAll(workdir)
+			return nil, custom_error.Critical("write mcp config: %v", err)
+		}
+
+		args = append(args, "--mcp-config", mcpPath, "--strict-mcp-config")
+	}
+
+	cmd := exec.Command(c.binPath, args...)
 	cmd.Dir = workdir
-	cmd.Env = append(cleanEnv(),
-		"CLAUDE_CONFIG_DIR="+c.configDir(),
+	cmd.Env = append(slices.Clone(c.baseEnv),
 		"CLAUDE_CODE_OAUTH_TOKEN="+strings.TrimSpace(string(token)),
 	)
 	stdin, err := cmd.StdinPipe()
@@ -499,7 +519,16 @@ func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 		os.RemoveAll(workdir)
 		return nil, custom_error.Critical("claude code was uninstalled")
 	}
-	c.agents[id] = &agentProc{cmd: cmd, stdin: stdin, stdout: stdout, out: out, done: done, exited: exited}
+
+	c.agents[id] = &agentProc{
+		cmd:    cmd,
+		stdin:  stdin,
+		stdout: stdout,
+		out:    out,
+		done:   done,
+		exited: exited,
+	}
+
 	c.mu.Unlock()
 
 	go func() {
@@ -630,6 +659,40 @@ func (c *claudeCode) Kill(id string) error {
 		return custom_error.Critical("%v", err)
 	}
 	return nil
+}
+
+func claudeMCPConfig(gateway *output_itf.MCPGateway) ([]byte, error) {
+	if gateway == nil || len(gateway.Servers) == 0 {
+		return nil, nil
+	}
+
+	servers := map[string]any{}
+
+	for _, server := range gateway.Servers {
+		servers[server.Name] = map[string]any{
+			"type": "http",
+			"url":  gateway.BaseURL + "/mcp/" + server.Name,
+			"headers": map[string]string{
+				"Authorization":     "Bearer " + server.AuthKeyName,
+				gateway.TokenHeader: gateway.Token,
+			},
+		}
+	}
+
+	raw, err := json.Marshal(map[string]any{"mcpServers": servers})
+	if err != nil {
+		return nil, custom_error.Critical("cannot build claude code mcp config: %v", err)
+	}
+
+	return raw, nil
+}
+
+func binPath(dir, name string) string {
+	if runtime.GOOS == enums.Windows.String() {
+		name += ".exe"
+	}
+
+	return filepath.Join(dir, "bin", name)
 }
 
 func platformString() (string, error) {

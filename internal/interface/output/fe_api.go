@@ -2,7 +2,6 @@ package output_itf
 
 import (
 	"context"
-
 	input_itf "hexago/internal/interface/input"
 )
 

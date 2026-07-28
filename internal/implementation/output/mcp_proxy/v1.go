@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"hexago/internal/helpers"
+	"hexago/internal/helpers/constances"
 	"hexago/internal/helpers/enums"
 	"hexago/internal/implementation/core/custom_error"
 	mcp_helpers "hexago/internal/implementation/output/mcp_proxy/helpers"
@@ -28,12 +29,14 @@ type cred struct {
 }
 
 type v1 struct {
-	locker       sync.RWMutex
-	aead         cipher.AEAD
-	cfg          input_itf.MCPServersConfig
-	serverToCred map[string]*cred
-	httpCli      input_itf.HttpCli
-	db           input_itf.StorageMCP
+	locker            sync.RWMutex
+	aead              cipher.AEAD
+	cfg               input_itf.MCPServersConfig
+	serverToCred      map[string]*cred
+	httpCli           input_itf.HttpCli
+	db                input_itf.StorageMCP
+	gateway           *output_itf.MCPGateway
+	gatewayHttpServer *http.Server
 }
 
 func InitV1(
@@ -46,15 +49,16 @@ func InitV1(
 		return nil, custom_error.Critical("cannot build mcp credential cipher: %v", err)
 	}
 
-	validated, err := validate(*cfg)
-	if err != nil {
-		return nil, err
+	for key, server := range cfg.SupportedServers {
+		if err := mcp_helpers.RejectAuthRequest(server.URL, ""); err != nil {
+			return nil, custom_error.Critical("mcp server %q has an invalid url: %v", key, err)
+		}
 	}
 
 	s := &v1{
 		locker:       sync.RWMutex{},
 		aead:         aead,
-		cfg:          validated,
+		cfg:          *cfg,
 		serverToCred: map[string]*cred{},
 		httpCli:      httpCli,
 		db:           db,
@@ -104,70 +108,6 @@ func (s *v1) loadCredentials() error {
 	return nil
 }
 
-func validate(cfg input_itf.MCPServersConfig) (input_itf.MCPServersConfig, error) {
-	if cfg.SupportedServers == nil {
-		cfg.SupportedServers = map[string]*input_itf.MCPServerConfig{}
-	}
-
-	if cfg.ClientName == "" || cfg.CallbackPath == "" ||
-		cfg.ChallengeMethod == "" || cfg.SupportedChallengeMethod == "" {
-		return cfg, custom_error.Critical(
-			"mcp client_name, callback_path, challenge_method and supported_challenge_method must be configured",
-		)
-	}
-
-	if cfg.AuthTimeout <= 0 || cfg.ShutdownGrace <= 0 || cfg.DefaultTokenTTL <= 0 {
-		return cfg, custom_error.Critical(
-			"mcp auth_timeout, shutdown_grace and default_token_ttl must be positive durations",
-		)
-	}
-
-	if cfg.MinVerifierBytes <= 0 || cfg.MinStateBytes <= 0 {
-		return cfg, custom_error.Critical(
-			"mcp min_verifier_bytes and min_state_bytes must be positive",
-		)
-	}
-
-	if cfg.ChallengeMethod != cfg.SupportedChallengeMethod {
-		return cfg, custom_error.Critical(
-			"mcp challenge_method %q is not supported, only %s is implemented",
-			cfg.ChallengeMethod,
-			cfg.SupportedChallengeMethod,
-		)
-	}
-
-	if cfg.VerifierBytes < cfg.MinVerifierBytes {
-		return cfg, custom_error.Critical(
-			"mcp verifier_bytes must be at least %d, got %d",
-			cfg.MinVerifierBytes,
-			cfg.VerifierBytes,
-		)
-	}
-
-	if cfg.StateBytes < cfg.MinStateBytes {
-		return cfg, custom_error.Critical(
-			"mcp state_bytes must be at least %d, got %d",
-			cfg.MinStateBytes,
-			cfg.StateBytes,
-		)
-	}
-
-	for key, server := range cfg.SupportedServers {
-		if server == nil || server.Name == "" || server.URL == "" || server.AuthKeyName == "" {
-			return cfg, custom_error.Critical(
-				"mcp server %q must configure name, url and auth_key_name",
-				key,
-			)
-		}
-
-		if err := mcp_helpers.RejectAuthRequest(server.URL, ""); err != nil {
-			return cfg, custom_error.Critical("mcp server %q has an invalid url: %v", key, err)
-		}
-	}
-
-	return cfg, nil
-}
-
 func (s *v1) List() ([]*output_itf.MCPAuthInfo, error) {
 	authenticatedList, err := s.db.ListAuthenticated()
 	if err != nil {
@@ -215,7 +155,7 @@ func (s *v1) Authorize(server string) error {
 		return err
 	}
 
-	srv, redirectURI, callbacks, err := mcp_helpers.ListenLoopback(&s.cfg)
+	srv, redirectURI, callbacks, err := mcp_helpers.ListenLoopback(&s.cfg, constances.GlobalLocalHost)
 	if err != nil {
 		return custom_error.TypedCritical(
 			enums.ErrMcpAuthorizeFailed,

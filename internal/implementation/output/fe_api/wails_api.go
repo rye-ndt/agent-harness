@@ -21,13 +21,22 @@ const (
 type API struct {
 	ctx          context.Context
 	agentManager core_itf.AgentManager
+	mcpProxy     output_itf.MCPProxyServer
 	dataWarning  string
 }
 
 var _ output_itf.FEAPI = (*API)(nil)
 
-func New(agentManager core_itf.AgentManager, dataWarning string) *API {
-	return &API{agentManager: agentManager, dataWarning: dataWarning}
+func New(
+	agentManager core_itf.AgentManager,
+	mcpProxy output_itf.MCPProxyServer,
+	dataWarning string,
+) *API {
+	return &API{
+		agentManager: agentManager,
+		mcpProxy:     mcpProxy,
+		dataWarning:  dataWarning,
+	}
 }
 
 // Startup is wired to Wails OnStartup; it is not meant to be called from JS.
@@ -59,6 +68,8 @@ func (a *API) Shutdown(ctx context.Context) {
 		}
 		h.Shutdown()
 	}
+
+	a.mcpProxy.Close()
 }
 
 func (a *API) harness(id string) (input_itf.AgentHarness, error) {

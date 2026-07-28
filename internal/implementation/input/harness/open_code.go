@@ -20,13 +20,22 @@ import (
 
 	"github.com/google/uuid"
 
+	"hexago/internal/helpers/constances"
 	"hexago/internal/helpers/enums"
+	"hexago/internal/helpers/prompts"
 	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/input/harness/harness_helper"
 	input_itf "hexago/internal/interface/input"
+	output_itf "hexago/internal/interface/output"
 )
 
 const openCodeName = "open-code"
+
+var openCodePermissions = map[string]string{
+	"edit":     "allow",
+	"bash":     "allow",
+	"webfetch": "allow",
+}
 
 type githubRelease struct {
 	TagName string `json:"tag_name"`
@@ -47,61 +56,76 @@ type openCodeProc struct {
 }
 
 type OpenCodeCfg struct {
-	Name         string        `mapstructure:"name"`
-	BinName      string        `mapstructure:"bin_name"`
-	ReleaseBase  string        `mapstructure:"release_base"`
-	LoginTimeout time.Duration `mapstructure:"login_timeout"`
+	Name         string        `mapstructure:"name" validate:"required"`
+	BinName      string        `mapstructure:"bin_name" validate:"required"`
+	ReleaseBase  string        `mapstructure:"release_base" validate:"required,http_url"`
+	LoginTimeout time.Duration `mapstructure:"login_timeout" validate:"gt=0"`
 }
 
 type openCode struct {
-	dir         string
-	mu          sync.Mutex
-	agents      map[string]*openCodeProc
-	uninstalled bool
-	authMu      sync.Mutex
-	cfg         *OpenCodeCfg
-	httpCli     input_itf.HttpCli
-	storage     input_itf.HarnessStorage
+	dir           string
+	binPath       string
+	dataDir       string
+	authPath      string
+	workspacesDir string
+
+	mu           sync.Mutex
+	agents       map[string]*openCodeProc
+	uninstalled  bool
+	authMu       sync.Mutex
+	cfg          *OpenCodeCfg
+	httpCli      input_itf.HttpCli
+	storage      input_itf.HarnessStorage
+	agentCfg     []byte
+	systemPrompt []byte
+	env          []string
+	sessionCli   *http.Client
 }
 
-type OpenCodeManagerParams struct {
-	GlobalCfg   input_itf.Config
-	OpenCodeCfg *OpenCodeCfg
-	HttpCli     input_itf.HttpCli
-	Storage     input_itf.HarnessStorage
-}
-
-func NewOpenCode(p *OpenCodeManagerParams) (input_itf.AgentHarness, error) {
+func NewOpenCode(
+	globalCfg input_itf.Config,
+	httpCli input_itf.HttpCli,
+	db input_itf.HarnessStorage,
+	mcpGateway *output_itf.MCPGateway,
+	openCodeCfg *OpenCodeCfg,
+) (input_itf.AgentHarness, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return nil, custom_error.Critical("%v", err)
 	}
 
-	return &openCode{
-		dir:     filepath.Join(base, p.GlobalCfg.Read().App.Name, "harness", openCodeName),
-		agents:  map[string]*openCodeProc{},
-		cfg:     p.OpenCodeCfg,
-		httpCli: p.HttpCli,
-		storage: p.Storage,
-	}, nil
-}
+	dir := filepath.Join(base, globalCfg.Read().App.Name, "harness", openCodeName)
+	dataDir := filepath.Join(dir, "config")
 
-func (o *openCode) binPath() string {
-	name := o.cfg.BinName
-
-	if runtime.GOOS == enums.Windows.String() {
-		name += ".exe"
+	cfg := map[string]any{
+		"permission": openCodePermissions,
 	}
 
-	return filepath.Join(o.dir, "bin", name)
-}
+	if block := openCodeMCPCfg(mcpGateway); block != nil {
+		cfg["mcp"] = block
+	}
 
-func (o *openCode) dataDir() string {
-	return filepath.Join(o.dir, "config")
-}
+	agentCfg, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, custom_error.Critical("build open code config: %v", err)
+	}
 
-func (o *openCode) authPath() string {
-	return filepath.Join(o.dataDir(), "opencode", "auth.json")
+	return &openCode{
+		dir:           dir,
+		binPath:       binPath(dir, openCodeCfg.BinName),
+		dataDir:       dataDir,
+		authPath:      filepath.Join(dataDir, "opencode", "auth.json"),
+		workspacesDir: filepath.Join(dir, "workspaces"),
+
+		agents:       map[string]*openCodeProc{},
+		cfg:          openCodeCfg,
+		httpCli:      httpCli,
+		storage:      db,
+		agentCfg:     agentCfg,
+		systemPrompt: prompts.System(),
+		env:          append(cleanEnv("XDG_DATA_HOME=", "OPENCODE_"), "XDG_DATA_HOME="+dataDir),
+		sessionCli:   &http.Client{Timeout: 2 * time.Second},
+	}, nil
 }
 
 func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
@@ -109,7 +133,7 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		onProgress = func(input_itf.InstallProgress) {}
 	}
 
-	if _, err := os.Stat(o.binPath()); err == nil {
+	if _, err := os.Stat(o.binPath); err == nil {
 		info, err := o.storage.Find(openCodeName)
 		if err != nil {
 			return custom_error.Critical("find harness info: %v", err)
@@ -147,11 +171,11 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		return custom_error.Critical("no open code build for platform %s", platform)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(o.binPath()), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(o.binPath), 0o755); err != nil {
 		return custom_error.Critical("%v", err)
 	}
 
-	archive := o.binPath() + ".zip"
+	archive := o.binPath + ".zip"
 
 	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageDownload})
 
@@ -171,10 +195,10 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 
 	onProgress(input_itf.InstallProgress{Stage: enums.InstallStageExtract})
 
-	if err := extractBinary(archive, filepath.Base(o.binPath()), o.binPath()); err != nil {
+	if err := extractBinary(archive, filepath.Base(o.binPath), o.binPath); err != nil {
 		return err
 	}
-	if err := os.Chmod(o.binPath(), 0o755); err != nil {
+	if err := os.Chmod(o.binPath, 0o755); err != nil {
 		return custom_error.Critical("%v", err)
 	}
 
@@ -182,7 +206,7 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 		Name:     openCodeName,
 		Version:  release.TagName,
 		Platform: enums.OS(platform),
-		Path:     o.binPath(),
+		Path:     o.binPath,
 	}); err != nil {
 		return custom_error.Critical("save install info: %v", err)
 	}
@@ -202,11 +226,11 @@ func (o *openCode) Auth() (string, error) {
 	}
 	defer o.authMu.Unlock()
 
-	if _, err := os.Stat(o.authPath()); err == nil {
+	if _, err := os.Stat(o.authPath); err == nil {
 		return "", nil
 	}
 
-	if _, err := os.Stat(o.binPath()); err != nil {
+	if _, err := os.Stat(o.binPath); err != nil {
 		return "", custom_error.Critical("open code is not installed, run Install first")
 	}
 
@@ -214,14 +238,14 @@ func (o *openCode) Auth() (string, error) {
 		return "", custom_error.Critical("interactive login is only implemented for macOS")
 	}
 
-	if err := os.MkdirAll(o.dataDir(), 0o755); err != nil {
+	if err := os.MkdirAll(o.dataDir, 0o755); err != nil {
 		return "", custom_error.Critical("%v", err)
 	}
 
 	scriptPath := filepath.Join(o.dir, "login.sh")
 
 	sh := fmt.Sprintf("#!/bin/sh\nexport XDG_DATA_HOME='%s'\nexec '%s' auth login\n",
-		o.dataDir(), o.binPath())
+		o.dataDir, o.binPath)
 	if err := os.WriteFile(scriptPath, []byte(sh), 0o700); err != nil {
 		return "", custom_error.Critical("%v", err)
 	}
@@ -236,7 +260,7 @@ func (o *openCode) Auth() (string, error) {
 	deadline := time.Now().Add(o.cfg.LoginTimeout)
 	for time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)
-		if _, err := os.Stat(o.authPath()); err == nil {
+		if _, err := os.Stat(o.authPath); err == nil {
 			return "", nil
 		}
 	}
@@ -263,7 +287,7 @@ func (o *openCode) Status() (*input_itf.AgentStatus, error) {
 		}
 	}
 
-	if _, err := os.Stat(o.authPath()); err == nil {
+	if _, err := os.Stat(o.authPath); err == nil {
 		status.LoggedIn = true
 	}
 
@@ -275,11 +299,11 @@ func (o *openCode) Status() (*input_itf.AgentStatus, error) {
 }
 
 func (o *openCode) Spawn() (*input_itf.Agent, error) {
-	if _, err := os.Stat(o.binPath()); err != nil {
+	if _, err := os.Stat(o.binPath); err != nil {
 		return nil, custom_error.Critical("open code is not installed, run Install first")
 	}
 
-	if _, err := os.Stat(o.authPath()); err != nil {
+	if _, err := os.Stat(o.authPath); err != nil {
 		return nil, custom_error.Critical("not authenticated, run Auth first")
 	}
 
@@ -289,24 +313,22 @@ func (o *openCode) Spawn() (*input_itf.Agent, error) {
 	}
 	id := uid.String()
 
-	workdir := filepath.Join(o.dir, "workspaces", id)
+	workdir := filepath.Join(o.workspacesDir, id)
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
 		return nil, custom_error.Critical("%v", err)
 	}
 
-	permCfg := []byte(`{"permission":{"edit":"allow","bash":"allow","webfetch":"allow"}}`)
-	if err := os.WriteFile(filepath.Join(workdir, "opencode.json"), permCfg, 0o644); err != nil {
+	if err := harness_helper.WriteNewFile(filepath.Join(workdir, "opencode.json"), o.agentCfg, 0o600); err != nil {
+		os.RemoveAll(workdir)
+		return nil, custom_error.Critical("write opencode config: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(workdir, "AGENTS.md"), o.systemPrompt, 0o644); err != nil {
 		os.RemoveAll(workdir)
 		return nil, custom_error.Critical("%v", err)
 	}
 
-	instructions := []byte("You are running non-interactively. Never ask the user questions or present choices; make reasonable assumptions, state them, and proceed.\n")
-	if err := os.WriteFile(filepath.Join(workdir, "AGENTS.md"), instructions, 0o644); err != nil {
-		os.RemoveAll(workdir)
-		return nil, custom_error.Critical("%v", err)
-	}
-
-	port, err := freePort()
+	port, err := freePort(constances.GlobalLocalHost)
 	if err != nil {
 		os.RemoveAll(workdir)
 		return nil, err
@@ -318,14 +340,15 @@ func (o *openCode) Spawn() (*input_itf.Agent, error) {
 		return nil, custom_error.Critical("%v", err)
 	}
 
-	cmd := exec.Command(o.binPath(), "serve",
+	cmd := exec.Command(
+		o.binPath,
+		"serve",
 		"--port", strconv.Itoa(port),
-		"--hostname", "127.0.0.1",
+		"--hostname", constances.GlobalLocalHost,
 	)
+
 	cmd.Dir = workdir
-	cmd.Env = append(cleanEnv("XDG_DATA_HOME=", "OPENCODE_"),
-		"XDG_DATA_HOME="+o.dataDir(),
-	)
+	cmd.Env = o.env
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	harness_helper.SetProcAttrs(cmd)
@@ -365,7 +388,7 @@ func (o *openCode) Spawn() (*input_itf.Agent, error) {
 
 	streamClosed := make(chan struct{})
 
-	go streamEvents(port, out, done, streamClosed)
+	go streamEvents(o.baseURL(port), out, done, streamClosed)
 
 	go func() {
 		select {
@@ -385,13 +408,16 @@ func (o *openCode) Spawn() (*input_itf.Agent, error) {
 	return &input_itf.Agent{ID: id}, nil
 }
 
+func (o *openCode) baseURL(port int) string {
+	return "http://" + net.JoinHostPort(constances.GlobalLocalHost, strconv.Itoa(port))
+}
+
 func (o *openCode) createSession(port int) (string, error) {
-	client := &http.Client{Timeout: 2 * time.Second}
-	url := fmt.Sprintf("http://127.0.0.1:%d/session", port)
+	url := o.baseURL(port) + "/session"
 
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		res, err := client.Post(url, "application/json", strings.NewReader("{}"))
+		res, err := o.sessionCli.Post(url, "application/json", strings.NewReader("{}"))
 		if err != nil {
 			time.Sleep(200 * time.Millisecond)
 			continue
@@ -416,11 +442,11 @@ func (o *openCode) createSession(port int) (string, error) {
 	return "", custom_error.Critical("open code server did not become ready on port %d", port)
 }
 
-func streamEvents(port int, out chan string, done <-chan struct{}, closed chan<- struct{}) {
+func streamEvents(baseURL string, out chan string, done <-chan struct{}, closed chan<- struct{}) {
 	defer close(closed)
 	defer close(out)
 
-	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/event", port))
+	res, err := http.Get(baseURL + "/event")
 	if err != nil {
 		return
 	}
@@ -458,7 +484,7 @@ func (o *openCode) Send(id string, message string) error {
 		return custom_error.Critical("%v", err)
 	}
 
-	url := fmt.Sprintf("http://127.0.0.1:%d/session/%s/message", a.port, a.session)
+	url := fmt.Sprintf("%s/session/%s/message", o.baseURL(a.port), a.session)
 	res, err := http.Post(url, "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return custom_error.Critical("send to agent %s: %v", id, err)
@@ -535,14 +561,36 @@ func (o *openCode) Kill(id string) error {
 	return nil
 }
 
-func freePort() (int, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+func freePort(host string) (int, error) {
+	ln, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
 	if err != nil {
 		return 0, custom_error.Critical("%v", err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 	return port, nil
+}
+
+func openCodeMCPCfg(gateway *output_itf.MCPGateway) map[string]any {
+	if gateway == nil || len(gateway.Servers) == 0 {
+		return nil
+	}
+
+	block := map[string]any{}
+
+	for _, server := range gateway.Servers {
+		block[server.Name] = map[string]any{
+			"type":    "remote",
+			"url":     gateway.BaseURL + "/mcp/" + server.Name,
+			"enabled": true,
+			"headers": map[string]string{
+				"Authorization":     "Bearer " + server.AuthKeyName,
+				gateway.TokenHeader: gateway.Token,
+			},
+		}
+	}
+
+	return block
 }
 
 func openCodePlatform() (string, error) {

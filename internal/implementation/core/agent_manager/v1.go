@@ -1,11 +1,13 @@
 package agent_manager
 
 import (
+	"hexago/internal/helpers"
 	"hexago/internal/helpers/enums"
 	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/input/harness"
 	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
+	output_itf "hexago/internal/interface/output"
 
 	mapstructure "github.com/go-viper/mapstructure/v2"
 )
@@ -18,6 +20,7 @@ func InitV1(
 	cfg input_itf.Config,
 	httpCli input_itf.HttpCli,
 	store input_itf.HarnessStorage,
+	mcpGateway *output_itf.MCPGateway,
 ) (core_itf.AgentManager, error) {
 	supportedAgents := cfg.Read().AgentHarness
 
@@ -31,14 +34,7 @@ func InitV1(
 				return nil, err
 			}
 
-			p := &harness.ClaudeManagerParams{
-				GlobalCfg:     cfg,
-				ClaudeCodeCfg: claudeCfg,
-				HttpCli:       httpCli,
-				Storage:       store,
-			}
-
-			claudeManager, err := harness.NewClaudeCode(p)
+			claudeManager, err := harness.NewClaudeCode(cfg, httpCli, store, mcpGateway, claudeCfg)
 			if err != nil {
 				return nil, err
 			}
@@ -51,19 +47,15 @@ func InitV1(
 				return nil, err
 			}
 
-			p := &harness.OpenCodeManagerParams{
-				GlobalCfg:   cfg,
-				OpenCodeCfg: openCodeCfg,
-				HttpCli:     httpCli,
-				Storage:     store,
-			}
-
-			openCodeManager, err := harness.NewOpenCode(p)
+			openCodeManager, err := harness.NewOpenCode(cfg, httpCli, store, mcpGateway, openCodeCfg)
 			if err != nil {
 				return nil, err
 			}
 
 			list[enums.OpenCode] = openCodeManager
+
+		default:
+			return nil, custom_error.Critical("agent harness %s has no initializer", name)
 		}
 	}
 
@@ -85,6 +77,10 @@ func decodeAgentCfg[T any](raw map[string]any) (*T, error) {
 
 	if err := dec.Decode(raw); err != nil {
 		return nil, err
+	}
+
+	if err := helpers.ValidateStruct(out); err != nil {
+		return nil, custom_error.Critical("invalid agent harness config: %v", err)
 	}
 
 	return out, nil

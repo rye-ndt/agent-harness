@@ -1,6 +1,8 @@
 package input_itf
 
-import "hexago/internal/helpers/enums"
+import (
+	"hexago/internal/helpers/enums"
+)
 
 type Agent struct {
 	ID string
