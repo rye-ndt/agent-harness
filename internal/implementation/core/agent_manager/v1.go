@@ -7,7 +7,6 @@ import (
 	"hexago/internal/implementation/input/harness"
 	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
-	output_itf "hexago/internal/interface/output"
 
 	mapstructure "github.com/go-viper/mapstructure/v2"
 )
@@ -20,7 +19,7 @@ func InitV1(
 	cfg input_itf.Config,
 	httpCli input_itf.HttpCli,
 	store input_itf.HarnessStorage,
-	mcpGateway *output_itf.MCPGateway,
+	mcpGateway *core_itf.MCPGateway,
 ) (core_itf.AgentManager, error) {
 	supportedAgents := cfg.Read().AgentHarness
 

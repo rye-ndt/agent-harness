@@ -25,8 +25,8 @@ import (
 	"hexago/internal/helpers/prompts"
 	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/input/harness/harness_helper"
+	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
-	output_itf "hexago/internal/interface/output"
 )
 
 const openCodeName = "open-code"
@@ -86,7 +86,7 @@ func NewOpenCode(
 	globalCfg input_itf.Config,
 	httpCli input_itf.HttpCli,
 	db input_itf.HarnessStorage,
-	mcpGateway *output_itf.MCPGateway,
+	mcpGateway *core_itf.MCPGateway,
 	openCodeCfg *OpenCodeCfg,
 ) (input_itf.AgentHarness, error) {
 	base, err := os.UserConfigDir()
@@ -571,7 +571,7 @@ func freePort(host string) (int, error) {
 	return port, nil
 }
 
-func openCodeMCPCfg(gateway *output_itf.MCPGateway) map[string]any {
+func openCodeMCPCfg(gateway *core_itf.MCPGateway) map[string]any {
 	if gateway == nil || len(gateway.Servers) == 0 {
 		return nil
 	}

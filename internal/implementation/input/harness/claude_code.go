@@ -20,8 +20,8 @@ import (
 	"hexago/internal/helpers/prompts"
 	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/input/harness/harness_helper"
+	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
-	output_itf "hexago/internal/interface/output"
 )
 
 const harnessName = "claude-code"
@@ -139,7 +139,7 @@ func NewClaudeCode(
 	globalCfg input_itf.Config,
 	httpCli input_itf.HttpCli,
 	db input_itf.HarnessStorage,
-	mcpGateway *output_itf.MCPGateway,
+	mcpGateway *core_itf.MCPGateway,
 	claudeCfg *ClaudeCodeCfg,
 ) (input_itf.AgentHarness, error) {
 	base, err := os.UserConfigDir()
@@ -661,7 +661,7 @@ func (c *claudeCode) Kill(id string) error {
 	return nil
 }
 
-func claudeMCPConfig(gateway *output_itf.MCPGateway) ([]byte, error) {
+func claudeMCPConfig(gateway *core_itf.MCPGateway) ([]byte, error) {
 	if gateway == nil || len(gateway.Servers) == 0 {
 		return nil, nil
 	}

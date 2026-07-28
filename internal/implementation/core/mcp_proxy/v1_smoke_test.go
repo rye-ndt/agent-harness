@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"hexago/internal/helpers"
+	mcp_helpers "hexago/internal/implementation/core/mcp_proxy/helpers"
 	"hexago/internal/implementation/input/http_cli"
 	"hexago/internal/implementation/input/storage"
-	mcp_helpers "hexago/internal/implementation/output/mcp_proxy/helpers"
+	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
-	output_itf "hexago/internal/interface/output"
 )
 
 const (
@@ -261,7 +261,7 @@ func TestAuthorizeUnknownServer(t *testing.T) {
 	}
 }
 
-func newProxy(t *testing.T, mcpURL string) (output_itf.MCPProxyServer, input_itf.StorageMCP) {
+func newProxy(t *testing.T, mcpURL string) (core_itf.MCPProxyServer, input_itf.StorageMCP) {
 	t.Helper()
 
 	store, err := storage.New(filepath.Join(t.TempDir(), "harness.db"))
@@ -272,7 +272,7 @@ func newProxy(t *testing.T, mcpURL string) (output_itf.MCPProxyServer, input_itf
 	return newProxyOn(t, mcpURL, store.MCPStore()), store.MCPStore()
 }
 
-func newProxyOn(t *testing.T, mcpURL string, store input_itf.StorageMCP) output_itf.MCPProxyServer {
+func newProxyOn(t *testing.T, mcpURL string, store input_itf.StorageMCP) core_itf.MCPProxyServer {
 	t.Helper()
 
 	cfg := testConfig()
@@ -512,7 +512,7 @@ func TestInitRejectsAuthEndpointURL(t *testing.T) {
 	}
 }
 
-func newGateway(t *testing.T, proxy output_itf.MCPProxyServer) *output_itf.MCPGateway {
+func newGateway(t *testing.T, proxy core_itf.MCPProxyServer) *core_itf.MCPGateway {
 	t.Helper()
 
 	gateway, err := proxy.Serve()

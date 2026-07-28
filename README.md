@@ -70,12 +70,14 @@ config.yaml                    app, task_queue, mcp_servers, agent_harness setti
 Makefile                       dev / build / run / test
 internal/
   interface/                   ports — pure contracts, no tech
-    core/    agent_manager.go
+    core/    agent_manager, task_manager, mcp_proxy
     input/   config, http_cli, harness, cache (WAL), storage_{harness,task,mcp}
-    output/  logger, app_builder, fe_api, task_manager, mcp_proxy
+    output/  logger, app_builder, fe_api
   implementation/              one package per technology
     core/
       agent_manager/           resolves a configured harness by name
+      task_manager/v1.go       assign / report / heartbeat / events
+      mcp_proxy/v1.go          OAuth broker + request forwarding (helpers/)
       wal_sync/                startup replay: WAL -> SQLite -> reset
       custom_error/            severity- and type-tagged errors
     input/
@@ -88,8 +90,6 @@ internal/
       logger/slog.go
       app_builder/wails.go
       fe_api/wails_api.go      the API bound to JS
-      task_manager/v1.go       assign / report / heartbeat / events
-      mcp_proxy/v1.go          OAuth broker + request forwarding (helpers/)
   helpers/                     small shared utilities and enums/
 frontend/                      React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui
   src/App.tsx                  UI calling Go via generated bindings

@@ -13,9 +13,9 @@ import (
 	"hexago/internal/helpers/constances"
 	"hexago/internal/helpers/enums"
 	"hexago/internal/implementation/core/custom_error"
-	mcp_helpers "hexago/internal/implementation/output/mcp_proxy/helpers"
+	mcp_helpers "hexago/internal/implementation/core/mcp_proxy/helpers"
+	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
-	output_itf "hexago/internal/interface/output"
 
 	"github.com/pkg/browser"
 )
@@ -35,7 +35,7 @@ type v1 struct {
 	serverToCred      map[string]*cred
 	httpCli           input_itf.HttpCli
 	db                input_itf.StorageMCP
-	gateway           *output_itf.MCPGateway
+	gateway           *core_itf.MCPGateway
 	gatewayHttpServer *http.Server
 }
 
@@ -43,7 +43,7 @@ func InitV1(
 	cfg *input_itf.MCPServersConfig,
 	db input_itf.StorageMCP,
 	httpCli input_itf.HttpCli,
-) (output_itf.MCPProxyServer, error) {
+) (core_itf.MCPProxyServer, error) {
 	aead, err := mcp_helpers.NewCipher(cfg.EncodeKey)
 	if err != nil {
 		return nil, custom_error.Critical("cannot build mcp credential cipher: %v", err)
@@ -108,7 +108,7 @@ func (s *v1) loadCredentials() error {
 	return nil
 }
 
-func (s *v1) List() ([]*output_itf.MCPAuthInfo, error) {
+func (s *v1) List() ([]*core_itf.MCPAuthInfo, error) {
 	authenticatedList, err := s.db.ListAuthenticated()
 	if err != nil {
 		return nil, custom_error.TypedCritical(
@@ -121,11 +121,11 @@ func (s *v1) List() ([]*output_itf.MCPAuthInfo, error) {
 		return item.Name, item
 	})
 
-	resp := []*output_itf.MCPAuthInfo{}
+	resp := []*core_itf.MCPAuthInfo{}
 
 	for _, m := range s.cfg.SupportedServers {
 
-		item := &output_itf.MCPAuthInfo{
+		item := &core_itf.MCPAuthInfo{
 			ServerName:    m.Name,
 			URL:           m.URL,
 			Authenticated: false,
@@ -271,7 +271,7 @@ func (s *v1) storeToken(
 	return nil
 }
 
-func (s *v1) Request(server string, header http.Header, body io.Reader) (*output_itf.MCPResponse, error) {
+func (s *v1) Request(server string, header http.Header, body io.Reader) (*core_itf.MCPResponse, error) {
 	mcp, found := s.cfg.SupportedServers[server]
 	if !found {
 		return nil, custom_error.TypedCritical(enums.ErrMcpNotFound, "mcp %s not found", server)
@@ -312,7 +312,7 @@ func (s *v1) Request(server string, header http.Header, body io.Reader) (*output
 		)
 	}
 
-	return &output_itf.MCPResponse{
+	return &core_itf.MCPResponse{
 		StatusCode: res.StatusCode,
 		Header:     res.Header,
 		Body:       res.Body,

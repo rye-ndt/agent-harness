@@ -6,8 +6,8 @@ import (
 
 	"hexago/internal/helpers"
 	"hexago/internal/helpers/enums"
+	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
-	output_itf "hexago/internal/interface/output"
 
 	"github.com/google/uuid"
 )
@@ -43,7 +43,7 @@ func TestDropStaleAgent(t *testing.T) {
 
 	q := manager.(*v1)
 
-	if err := q.Add(&output_itf.AddTask{Name: "stale", AgentRole: "dev"}); err != nil {
+	if err := q.Add(&core_itf.AddTask{Name: "stale", AgentRole: "dev"}); err != nil {
 		t.Fatal(err)
 	}
 

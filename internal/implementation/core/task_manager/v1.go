@@ -7,6 +7,7 @@ import (
 	"hexago/internal/helpers"
 	"hexago/internal/helpers/enums"
 	"hexago/internal/implementation/core/custom_error"
+	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
 	output_itf "hexago/internal/interface/output"
 
@@ -26,12 +27,12 @@ type AgentHandle struct {
 
 type taskChannel struct {
 	taskID uuid.UUID
-	events chan *output_itf.TaskEvent
+	events chan *core_itf.TaskEvent
 }
 
 type queueChannel struct {
 	queueID uuid.UUID
-	events  chan *output_itf.QueueEvent
+	events  chan *core_itf.QueueEvent
 }
 
 type V1Config struct {
@@ -60,7 +61,7 @@ func InitV1(
 	db input_itf.TaskStorage,
 	wal input_itf.TaskWAL,
 	logger output_itf.Logger,
-) (output_itf.TaskManager, error) {
+) (core_itf.TaskManager, error) {
 	uid, err := uuid.NewV7()
 	if err != nil {
 		return nil, err
@@ -204,7 +205,7 @@ func (q *v1) dropTask(taskID uuid.UUID, deadline int64) error {
 	}
 
 	q.raceSafe(func() {
-		q.publishTaskEvent(taskID, enums.EventTaskDropped, &output_itf.TaskEventData{
+		q.publishTaskEvent(taskID, enums.EventTaskDropped, &core_itf.TaskEventData{
 			AgentID:    workingAgent.AgentID,
 			Status:     taskSnapshot.Status,
 			RetryCount: taskSnapshot.RetryCount,
@@ -214,7 +215,7 @@ func (q *v1) dropTask(taskID uuid.UUID, deadline int64) error {
 	return nil
 }
 
-func (q *v1) Add(task *output_itf.AddTask) error {
+func (q *v1) Add(task *core_itf.AddTask) error {
 	uid, err := uuid.NewV7()
 	if err != nil {
 		return err
@@ -259,7 +260,7 @@ func (q *v1) Add(task *output_itf.AddTask) error {
 	}
 
 	q.raceSafe(func() {
-		q.publishTaskEvent(uid, enums.EventTaskCreated, &output_itf.TaskEventData{
+		q.publishTaskEvent(uid, enums.EventTaskCreated, &core_itf.TaskEventData{
 			Status:     t.Status,
 			RetryCount: t.RetryCount,
 		})
@@ -321,7 +322,7 @@ func (q *v1) Assign(agentID, taskID uuid.UUID) error {
 	}
 
 	q.raceSafe(func() {
-		q.publishTaskEvent(taskID, enums.EventTaskStatusChanged, &output_itf.TaskEventData{
+		q.publishTaskEvent(taskID, enums.EventTaskStatusChanged, &core_itf.TaskEventData{
 			AgentID:    agentID,
 			Status:     t.Status,
 			RetryCount: t.RetryCount,
@@ -333,8 +334,8 @@ func (q *v1) Assign(agentID, taskID uuid.UUID) error {
 
 func (q *v1) Report(
 	agentID, taskID uuid.UUID,
-	report *output_itf.TaskReport,
-	fileChanges []*output_itf.FileChange,
+	report *core_itf.TaskReport,
+	fileChanges []*core_itf.FileChange,
 ) error {
 	var err error
 	var t *input_itf.TaskEntity
@@ -456,7 +457,7 @@ func (q *v1) Report(
 	q.raceSafe(func() {
 		delete(q.agentsInCharge, taskID)
 
-		q.publishTaskEvent(taskID, enums.EventTaskReported, &output_itf.TaskEventData{
+		q.publishTaskEvent(taskID, enums.EventTaskReported, &core_itf.TaskEventData{
 			AgentID:     agentID,
 			Status:      taskSnapshot.Status,
 			RetryCount:  taskSnapshot.RetryCount,
@@ -491,7 +492,7 @@ func (q *v1) Report(
 		}
 
 		q.raceSafe(func() {
-			q.publishQueueEvent(enums.EventQueueDrained, &output_itf.QueueEventData{
+			q.publishQueueEvent(enums.EventQueueDrained, &core_itf.QueueEventData{
 				TotalTasks:  infoSnapshot.TotalTask,
 				TotalRetry:  infoSnapshot.TotalRetry,
 				StartedAt:   infoSnapshot.StartedAt,
@@ -515,8 +516,8 @@ func (q *v1) HeartBeat(agentID, taskID uuid.UUID) {
 	})
 }
 
-func (q *v1) SubscribeTaskEvent(taskID uuid.UUID) (uuid.UUID, <-chan *output_itf.TaskEvent) {
-	events := make(chan *output_itf.TaskEvent, eventBufferSize)
+func (q *v1) SubscribeTaskEvent(taskID uuid.UUID) (uuid.UUID, <-chan *core_itf.TaskEvent) {
+	events := make(chan *core_itf.TaskEvent, eventBufferSize)
 
 	channelID, err := uuid.NewV7()
 	if err != nil {
@@ -535,8 +536,8 @@ func (q *v1) SubscribeTaskEvent(taskID uuid.UUID) (uuid.UUID, <-chan *output_itf
 	return channelID, events
 }
 
-func (q *v1) SubscribeQueueEvent(queueID uuid.UUID) (uuid.UUID, <-chan *output_itf.QueueEvent) {
-	events := make(chan *output_itf.QueueEvent, eventBufferSize)
+func (q *v1) SubscribeQueueEvent(queueID uuid.UUID) (uuid.UUID, <-chan *core_itf.QueueEvent) {
+	events := make(chan *core_itf.QueueEvent, eventBufferSize)
 
 	channelID, err := uuid.NewV7()
 	if err != nil {
@@ -572,7 +573,7 @@ func (q *v1) Unsubscribe(channelID uuid.UUID) {
 func (q *v1) publishTaskEvent(
 	taskID uuid.UUID,
 	event enums.TaskQueueEvent,
-	data *output_itf.TaskEventData,
+	data *core_itf.TaskEventData,
 ) {
 	emittedAt := helpers.NewUTC()
 
@@ -582,7 +583,7 @@ func (q *v1) publishTaskEvent(
 		}
 
 		select {
-		case sub.events <- &output_itf.TaskEvent{
+		case sub.events <- &core_itf.TaskEvent{
 			ChannelID: channelID,
 			QueueID:   q.info.ID,
 			TaskID:    taskID,
@@ -598,7 +599,7 @@ func (q *v1) publishTaskEvent(
 
 func (q *v1) publishQueueEvent(
 	event enums.TaskQueueEvent,
-	data *output_itf.QueueEventData,
+	data *core_itf.QueueEventData,
 ) {
 	emittedAt := helpers.NewUTC()
 
@@ -608,7 +609,7 @@ func (q *v1) publishQueueEvent(
 		}
 
 		select {
-		case sub.events <- &output_itf.QueueEvent{
+		case sub.events <- &core_itf.QueueEvent{
 			ChannelID: channelID,
 			QueueID:   q.info.ID,
 			Event:     event,

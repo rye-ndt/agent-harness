@@ -21,7 +21,7 @@ const (
 type API struct {
 	ctx          context.Context
 	agentManager core_itf.AgentManager
-	mcpProxy     output_itf.MCPProxyServer
+	mcpProxy     core_itf.MCPProxyServer
 	dataWarning  string
 }
 
@@ -29,7 +29,7 @@ var _ output_itf.FEAPI = (*API)(nil)
 
 func New(
 	agentManager core_itf.AgentManager,
-	mcpProxy output_itf.MCPProxyServer,
+	mcpProxy core_itf.MCPProxyServer,
 	dataWarning string,
 ) *API {
 	return &API{

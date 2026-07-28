@@ -1,4 +1,4 @@
-package output_itf
+package core_itf
 
 import (
 	"io"

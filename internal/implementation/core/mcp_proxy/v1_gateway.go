@@ -11,7 +11,7 @@ import (
 	"hexago/internal/helpers/constances"
 	"hexago/internal/helpers/enums"
 	"hexago/internal/implementation/core/custom_error"
-	output_itf "hexago/internal/interface/output"
+	core_itf "hexago/internal/interface/core"
 
 	"github.com/google/uuid"
 )
@@ -21,7 +21,7 @@ const (
 	gatewayTokenHeader = "X-Harness-Gateway-Token"
 )
 
-func (s *v1) Serve() (*output_itf.MCPGateway, error) {
+func (s *v1) Serve() (*core_itf.MCPGateway, error) {
 	s.locker.Lock()
 	defer s.locker.Unlock()
 
@@ -39,10 +39,10 @@ func (s *v1) Serve() (*output_itf.MCPGateway, error) {
 		return nil, custom_error.Critical("cannot start mcp gateway listener: %v", err)
 	}
 
-	servers := []output_itf.MCPGatewayServer{}
+	servers := []core_itf.MCPGatewayServer{}
 
 	for _, m := range s.cfg.SupportedServers {
-		servers = append(servers, output_itf.MCPGatewayServer{
+		servers = append(servers, core_itf.MCPGatewayServer{
 			Name:        m.Name,
 			AuthKeyName: m.AuthKeyName,
 		})
@@ -51,7 +51,7 @@ func (s *v1) Serve() (*output_itf.MCPGateway, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc(gatewayPath, s.forward)
 
-	s.gateway = &output_itf.MCPGateway{
+	s.gateway = &core_itf.MCPGateway{
 		BaseURL:     "http://" + ln.Addr().String(),
 		Token:       uid.String(),
 		TokenHeader: gatewayTokenHeader,
