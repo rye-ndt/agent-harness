@@ -15,7 +15,7 @@ itself, so using it never requires knowing a CLI is involved.
 ## The ideas that shape the code
 
 **Nodes form a DAG, not a queue.** `TaskEntity` carries `PrevTaskID`,
-`NextTaskID` and `ChildrenTaskIDs`. Chaining is the point; the queue is just
+`NextTaskID` and `ChildrenTaskIDs`. Chaining is the point; the session is just
 how a node gets picked up.
 
 **Context is the hard part, not scheduling.** When a node finishes it produces a
@@ -39,7 +39,7 @@ way out, refusing any request aimed at an authorization endpoint.
 ## Status
 
 The backend is ahead of the UI. Built and tested: the task graph, the WAL and
-WAL-to-SQLite sync, task/queue event pub-sub, heartbeat-drop, agent
+WAL-to-SQLite sync, task/session event pub-sub, heartbeat-drop, agent
 install/auth/spawn for Claude Code and OpenCode, and the MCP proxy including
 request forwarding.
 
@@ -66,17 +66,17 @@ interface, and only `wire.go` knows which implementation fills which interface.
 ```
 main.go                        entrypoint: wire, then run the app builder
 wire.go                        composition root: the only place implementations are chosen
-config.yaml                    app, task_queue, mcp_servers, agent_harness settings
+config.yaml                    app, session, mcp_servers, agent_harness settings
 Makefile                       dev / build / run / test
 internal/
   interface/                   ports — pure contracts, no tech
-    core/    agent_manager, task_manager, mcp_proxy
+    core/    agent_manager, session_manager, mcp_proxy
     input/   config, http_cli, harness, cache (WAL), storage_{harness,task,mcp}
-    output/  logger, app_builder, fe_api
+    output/  logger, app_builder, fe_api, message_queue
   implementation/              one package per technology
     core/
       agent_manager/           resolves a configured harness by name
-      task_manager/v1.go       assign / report / heartbeat / events
+      session_manager/v1.go    add task / report / heartbeat / events
       mcp_proxy/v1.go          OAuth broker + request forwarding (helpers/)
       wal_sync/                startup replay: WAL -> SQLite -> reset
       custom_error/            severity- and type-tagged errors

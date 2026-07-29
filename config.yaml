@@ -7,7 +7,7 @@ app:
 version: 0.0.1
 log_level: info # debug | info | warn | error
 
-task_queue:
+session:
   heartbeat_timeout: 30m
   heartbeat_scan_interval: 1m
 

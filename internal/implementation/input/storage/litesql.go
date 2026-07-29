@@ -23,7 +23,7 @@ var migrations = []string{
 		platform TEXT NOT NULL,
 		path TEXT NOT NULL
 	)`,
-	`CREATE TABLE queues (
+	`CREATE TABLE sessions (
 		id TEXT PRIMARY KEY,
 		started_at TEXT NOT NULL,
 		completed_at TEXT NOT NULL,
@@ -35,7 +35,7 @@ var migrations = []string{
 	)`,
 	`CREATE TABLE tasks (
 		id TEXT PRIMARY KEY,
-		queue_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
 		name TEXT NOT NULL,
 		agent_role TEXT NOT NULL,
 		preferred_model_family TEXT NOT NULL,
@@ -274,17 +274,17 @@ func (s *taskStore) CreateImplementRecord(implement *input_itf.TaskReportEntity)
 func (s *taskStore) Find(taskID uuid.UUID) (*input_itf.TaskEntity, error) {
 	t := &input_itf.TaskEntity{}
 
-	var id, queueID, modelFamily, allowance string
+	var id, sessionID, modelFamily, allowance string
 	var allowedPaths, templatePaths, childrenIDs string
 	var status, prevID, nextID, lastReportID string
 	var createdAt, updatedAt string
 
-	err := s.db.QueryRow(`SELECT id, queue_id, name, agent_role, preferred_model_family,
+	err := s.db.QueryRow(`SELECT id, session_id, name, agent_role, preferred_model_family,
 		file_write_allowance, allowed_file_paths, template_file_paths, extra_guidance,
 		retry_count, status, prev_task_id, next_task_id, children_task_ids,
 		last_report_id, created_at, updated_at
 		FROM tasks WHERE id = ?`, taskID.String()).
-		Scan(&id, &queueID, &t.Name, &t.AgentRole, &modelFamily,
+		Scan(&id, &sessionID, &t.Name, &t.AgentRole, &modelFamily,
 			&allowance, &allowedPaths, &templatePaths, &t.ExtraGuidance,
 			&t.RetryCount, &status, &prevID, &nextID, &childrenIDs,
 			&lastReportID, &createdAt, &updatedAt)
@@ -296,7 +296,7 @@ func (s *taskStore) Find(taskID uuid.UUID) (*input_itf.TaskEntity, error) {
 	}
 
 	t.ID = parseUUID(id)
-	t.QueueID = parseUUID(queueID)
+	t.SessionID = parseUUID(sessionID)
 	t.PreferredModelFamily = enums.ModelFamily(modelFamily)
 	t.FileWriteAllowance = enums.FileAllowance(allowance)
 	t.Status = enums.TaskStatus(status)
@@ -343,17 +343,17 @@ func (s *taskStore) FindLastImplementRecord(taskID uuid.UUID) *input_itf.TaskRep
 	r.CreatedAt = parseTime(createdAt)
 	r.UpdatedAt = parseTime(updatedAt)
 
-	doc := &input_itf.HandoverDocEntity{}
-	if err := json.Unmarshal([]byte(handoverDoc), doc); err != nil {
+	docs := []*input_itf.HandoverDocEntity{}
+	if err := json.Unmarshal([]byte(handoverDoc), &docs); err != nil {
 		return nil
 	}
-	r.HandoverDoc = doc
+	r.HandoverDocs = docs
 
 	return r
 }
 
 func (s *taskStore) SaveTaskHistory(
-	queues []*input_itf.QueueEntity,
+	sessions []*input_itf.SessionEntity,
 	tasks []*input_itf.TaskEntity,
 	reports []*input_itf.TaskReportEntity,
 	fileChanges []*input_itf.FileChangeEntity,
@@ -364,8 +364,8 @@ func (s *taskStore) SaveTaskHistory(
 	}
 	defer tx.Rollback()
 
-	for _, q := range queues {
-		if err := saveQueue(tx, q); err != nil {
+	for _, sess := range sessions {
+		if err := saveSession(tx, sess); err != nil {
 			return err
 		}
 	}
@@ -391,18 +391,18 @@ func (s *taskStore) SaveTaskHistory(
 	return tx.Commit()
 }
 
-func saveQueue(e execer, q *input_itf.QueueEntity) error {
-	_, err := e.Exec(`INSERT OR REPLACE INTO queues
+func saveSession(e execer, sess *input_itf.SessionEntity) error {
+	_, err := e.Exec(`INSERT OR REPLACE INTO sessions
 		(id, started_at, completed_at, total_task, total_retry, revert_count, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		q.ID.String(),
-		formatTime(q.StartedAt),
-		formatTime(q.CompletedAt),
-		q.TotalTask,
-		q.TotalRetry,
-		q.RevertCount,
-		formatTime(q.CreatedAt),
-		formatTime(q.UpdatedAt),
+		sess.ID.String(),
+		formatTime(sess.StartedAt),
+		formatTime(sess.CompletedAt),
+		sess.TotalTask,
+		sess.TotalRetry,
+		sess.RevertCount,
+		formatTime(sess.CreatedAt),
+		formatTime(sess.UpdatedAt),
 	)
 	return err
 }
@@ -424,12 +424,12 @@ func saveTask(e execer, t *input_itf.TaskEntity) error {
 	}
 
 	_, err = e.Exec(`INSERT OR REPLACE INTO tasks
-		(id, queue_id, name, agent_role, preferred_model_family, file_write_allowance,
+		(id, session_id, name, agent_role, preferred_model_family, file_write_allowance,
 		allowed_file_paths, template_file_paths, extra_guidance, retry_count, status,
 		prev_task_id, next_task_id, children_task_ids, last_report_id, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID.String(),
-		t.QueueID.String(),
+		t.SessionID.String(),
 		t.Name,
 		t.AgentRole,
 		string(t.PreferredModelFamily),
@@ -450,7 +450,7 @@ func saveTask(e execer, t *input_itf.TaskEntity) error {
 }
 
 func saveReport(e execer, r *input_itf.TaskReportEntity) error {
-	doc, err := json.Marshal(r.HandoverDoc)
+	doc, err := json.Marshal(r.HandoverDocs)
 	if err != nil {
 		return err
 	}

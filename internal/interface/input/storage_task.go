@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type QueueEntity struct {
+type SessionEntity struct {
 	ID          uuid.UUID
 	StartedAt   time.Time
 	CompletedAt time.Time
@@ -47,7 +47,7 @@ type TaskReportEntity struct {
 	TaskID        uuid.UUID
 	AgentID       uuid.UUID
 	AttemptStatus enums.TaskStatus
-	HandoverDoc   *HandoverDocEntity
+	HandoverDocs  []*HandoverDocEntity
 	StartedAt     time.Time
 	CompletedAt   time.Time
 	CreatedAt     time.Time
@@ -56,7 +56,7 @@ type TaskReportEntity struct {
 
 type TaskEntity struct {
 	ID                   uuid.UUID
-	QueueID              uuid.UUID
+	SessionID            uuid.UUID
 	Name                 string
 	AgentRole            string
 	PreferredModelFamily enums.ModelFamily
@@ -80,7 +80,7 @@ type TaskStorage interface {
 	Find(taskID uuid.UUID) (*TaskEntity, error)
 	FindLastImplementRecord(taskID uuid.UUID) *TaskReportEntity
 	SaveTaskHistory(
-		queues []*QueueEntity,
+		sessions []*SessionEntity,
 		tasks []*TaskEntity,
 		reports []*TaskReportEntity,
 		fileChanges []*FileChangeEntity,

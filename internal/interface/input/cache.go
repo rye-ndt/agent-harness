@@ -7,14 +7,14 @@ import (
 )
 
 type TaskWALRecord struct {
-	Kind        enums.TaskQueueEvent `json:"kind"`
-	Queue       *QueueEntity         `json:"queue,omitempty"`
-	Task        *TaskEntity          `json:"task,omitempty"`
-	TaskID      uuid.UUID            `json:"task_id,omitempty"`
-	AgentID     uuid.UUID            `json:"agent_id,omitempty"`
-	Status      enums.TaskStatus     `json:"status,omitempty"`
-	Report      *TaskReportEntity    `json:"report,omitempty"`
-	FileChanges []*FileChangeEntity  `json:"file_changes,omitempty"`
+	Kind        enums.SessionEvent  `json:"kind"`
+	Session     *SessionEntity      `json:"session,omitempty"`
+	Task        *TaskEntity         `json:"task,omitempty"`
+	TaskID      uuid.UUID           `json:"task_id,omitempty"`
+	AgentID     uuid.UUID           `json:"agent_id,omitempty"`
+	Status      enums.TaskStatus    `json:"status,omitempty"`
+	Report      *TaskReportEntity   `json:"report,omitempty"`
+	FileChanges []*FileChangeEntity `json:"file_changes,omitempty"`
 }
 
 type TaskWAL interface {

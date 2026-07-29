@@ -41,22 +41,27 @@ func (s TaskStatus) Removable() bool {
 	return false
 }
 
-type TaskQueueEvent string
+type SessionEvent string
 
 const (
-	EventQueueCreated      TaskQueueEvent = "queue_created"
-	EventQueueDrained      TaskQueueEvent = "queue_drained"
-	EventTaskCreated       TaskQueueEvent = "task_created"
-	EventTaskStatusChanged TaskQueueEvent = "task_status_changed"
-	EventTaskReported      TaskQueueEvent = "task_reported"
-	EventTaskDropped       TaskQueueEvent = "task_dropped"
+	SessionCreated           SessionEvent = "session_created"
+	SessionDrained           SessionEvent = "session_drained"
+	SessionTaskCreated       SessionEvent = "task_created"
+	SessionTaskStatusChanged SessionEvent = "task_status_changed"
+	SessionTaskReported      SessionEvent = "task_reported"
+	SessionTaskDropped       SessionEvent = "task_dropped"
 )
 
-type TaskQueueStatus string
+func (se SessionEvent) Event() string {
+	return string(se)
+}
+
+type SessionStatus string
 
 const (
-	TaskQueueInit      TaskQueueStatus = "init"
-	TaskQueueCompleted TaskQueueStatus = "completed"
+	SessionInit       SessionStatus = "init"
+	SessionProcessing SessionStatus = "processing"
+	SessionCompleted  SessionStatus = "completed"
 )
 
 type FileAllowance string

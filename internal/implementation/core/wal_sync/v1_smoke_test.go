@@ -23,26 +23,26 @@ func TestSyncSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	queueID := uuid.Must(uuid.NewV7())
+	sessionID := uuid.Must(uuid.NewV7())
 	taskID := uuid.Must(uuid.NewV7())
 	agentID := uuid.Must(uuid.NewV7())
 	reportID := uuid.Must(uuid.NewV7())
 
-	queue := &input_itf.QueueEntity{ID: queueID, CreatedAt: helpers.NewUTC(), UpdatedAt: helpers.NewUTC()}
+	session := &input_itf.SessionEntity{ID: sessionID, CreatedAt: helpers.NewUTC(), UpdatedAt: helpers.NewUTC()}
 	task := &input_itf.TaskEntity{
-		ID: taskID, QueueID: queueID, Name: "smoke", AgentRole: "dev",
+		ID: taskID, SessionID: sessionID, Name: "smoke", AgentRole: "dev",
 		AllowedFilePaths: []string{"a.go"}, TemplateFilePaths: []string{},
 		Status: enums.TaskNotTaken, CreatedAt: helpers.NewUTC(), UpdatedAt: helpers.NewUTC(),
 	}
 
-	if err := w.Append(&input_itf.TaskWALRecord{Kind: enums.EventQueueCreated, Queue: queue}); err != nil {
+	if err := w.Append(&input_itf.TaskWALRecord{Kind: enums.SessionCreated, Session: session}); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.Append(&input_itf.TaskWALRecord{Kind: enums.EventTaskCreated, Task: task, Queue: queue}); err != nil {
+	if err := w.Append(&input_itf.TaskWALRecord{Kind: enums.SessionTaskCreated, Task: task, Session: session}); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.Append(&input_itf.TaskWALRecord{
-		Kind: enums.EventTaskStatusChanged, TaskID: taskID, AgentID: agentID, Status: enums.TaskProcessing,
+		Kind: enums.SessionTaskStatusChanged, TaskID: taskID, AgentID: agentID, Status: enums.TaskProcessing,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +53,8 @@ func TestSyncSmoke(t *testing.T) {
 
 	report := &input_itf.TaskReportEntity{
 		ID: reportID, TaskID: taskID, AgentID: agentID, AttemptStatus: enums.TaskCompleted,
-		HandoverDoc: &input_itf.HandoverDocEntity{Task: "smoke", Outcome: "ok"},
-		CreatedAt:   helpers.NewUTC(), UpdatedAt: helpers.NewUTC(),
+		HandoverDocs: []*input_itf.HandoverDocEntity{{Task: "smoke", Outcome: "ok"}},
+		CreatedAt:    helpers.NewUTC(), UpdatedAt: helpers.NewUTC(),
 	}
 	fc := &input_itf.FileChangeEntity{
 		ID: uuid.Must(uuid.NewV7()), ReportID: reportID, Path: "a.go",
@@ -62,9 +62,9 @@ func TestSyncSmoke(t *testing.T) {
 	}
 
 	if err := w.Append(&input_itf.TaskWALRecord{
-		Kind: enums.EventTaskReported, TaskID: taskID, AgentID: agentID,
+		Kind: enums.SessionTaskReported, TaskID: taskID, AgentID: agentID,
 		Status: enums.TaskCompleted, Task: &done, Report: report,
-		FileChanges: []*input_itf.FileChangeEntity{fc}, Queue: queue,
+		FileChanges: []*input_itf.FileChangeEntity{fc}, Session: session,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,8 @@ func TestSyncSmoke(t *testing.T) {
 	}
 
 	lastReport := taskStore.FindLastImplementRecord(taskID)
-	if lastReport == nil || lastReport.ID != reportID || lastReport.HandoverDoc.Outcome != "ok" {
+	if lastReport == nil || lastReport.ID != reportID || len(lastReport.HandoverDocs) != 1 ||
+		lastReport.HandoverDocs[0].Outcome != "ok" {
 		t.Fatalf("unexpected report after sync: %+v", lastReport)
 	}
 
@@ -107,7 +108,7 @@ func TestSyncSmoke(t *testing.T) {
 		t.Fatalf("empty wal sync returned error: %v", err)
 	}
 
-	if err := w.Append(&input_itf.TaskWALRecord{Kind: enums.EventQueueCreated, Queue: queue}); err != nil {
+	if err := w.Append(&input_itf.TaskWALRecord{Kind: enums.SessionCreated, Session: session}); err != nil {
 		t.Fatal(err)
 	}
 	f, err := os.OpenFile(walPath, os.O_APPEND|os.O_WRONLY, 0o644)

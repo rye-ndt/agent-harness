@@ -40,17 +40,12 @@ type HandoverDoc struct {
 }
 
 type TaskReport struct {
-	AttemptStatus enums.TaskStatus
-	HandoverDoc   *HandoverDoc
-	StartedAt     time.Time
-	CompletedAt   time.Time
+	TaskID       uuid.UUID
+	Status       enums.TaskStatus
+	FileChanges  []*FileChange
+	HandoverDocs []*HandoverDoc
 }
 
-type QueueReport struct {
-	ID     uuid.UUID
-	Status enums.TaskQueueStatus
-	Tasks  []*AddTask
-}
 type TaskEventData struct {
 	AgentID     uuid.UUID
 	Status      enums.TaskStatus
@@ -58,38 +53,40 @@ type TaskEventData struct {
 	Report      *TaskReport
 	FileChanges []*FileChange
 }
+
 type TaskEvent struct {
-	ChannelID uuid.UUID
-	QueueID   uuid.UUID
+	SessionID uuid.UUID
 	TaskID    uuid.UUID
-	Event     enums.TaskQueueEvent
+	Event     enums.SessionEvent
 	Data      *TaskEventData
 	EmittedAt time.Time
 }
-type QueueEventData struct {
+
+type SessionEventData struct {
 	TotalTasks  int
 	TotalRetry  int
 	StartedAt   time.Time
 	CompletedAt time.Time
 }
-type QueueEvent struct {
-	ChannelID uuid.UUID
-	QueueID   uuid.UUID
-	Event     enums.TaskQueueEvent
-	Data      *QueueEventData
+
+type SessionEvent struct {
+	SessionID uuid.UUID
+	Event     enums.SessionEvent
+	Data      *SessionEventData
 	EmittedAt time.Time
 }
-type TaskManager interface {
-	Add(task *AddTask) error
-	Assign(agentID, taskID uuid.UUID) error
-	Report(
-		agentID, taskID uuid.UUID,
-		report *TaskReport,
-		fileChanges []*FileChange,
-	) error
-	HeartBeat(agentID, taskID uuid.UUID)
-	SubscribeTaskEvent(taskID uuid.UUID) (channelID uuid.UUID, channel <-chan *TaskEvent)
-	SubscribeQueueEvent(queueID uuid.UUID) (channelID uuid.UUID, channel <-chan *QueueEvent)
-	Unsubscribe(channelID uuid.UUID)
+
+type SessionStatus struct {
+	ID     uuid.UUID
+	Status enums.SessionStatus
+	Tasks  map[uuid.UUID]*TaskReport
+}
+
+type SessionManager interface {
+	NewSession() (uuid.UUID, error)
+	AddTask(session uuid.UUID, task *AddTask) error
+	Execute(session uuid.UUID) error
+	Status(id uuid.UUID) (*SessionStatus, error)
+	HeartBeat(agentID, taskID uuid.UUID) error
 	Stop()
 }

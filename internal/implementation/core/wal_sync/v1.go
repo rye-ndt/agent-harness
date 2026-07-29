@@ -16,35 +16,35 @@ func Run(wal input_itf.TaskWAL, db input_itf.TaskStorage) error {
 
 	corrupted := replayErr != nil
 
-	queues := map[uuid.UUID]*input_itf.QueueEntity{}
+	sessions := map[uuid.UUID]*input_itf.SessionEntity{}
 	tasks := map[uuid.UUID]*input_itf.TaskEntity{}
 	reports := []*input_itf.TaskReportEntity{}
 	fileChanges := []*input_itf.FileChangeEntity{}
 
 	for _, r := range records {
-		if r.Queue != nil {
-			queues[r.Queue.ID] = r.Queue
+		if r.Session != nil {
+			sessions[r.Session.ID] = r.Session
 		}
 
 		switch r.Kind {
-		case enums.EventQueueCreated, enums.EventQueueDrained:
-			if r.Queue == nil {
+		case enums.SessionCreated, enums.SessionDrained:
+			if r.Session == nil {
 				corrupted = true
 			}
-		case enums.EventTaskCreated:
+		case enums.SessionTaskCreated:
 			if r.Task == nil {
 				corrupted = true
 				continue
 			}
 			tasks[r.Task.ID] = r.Task
-		case enums.EventTaskStatusChanged, enums.EventTaskDropped:
+		case enums.SessionTaskStatusChanged, enums.SessionTaskDropped:
 			t, found := tasks[r.TaskID]
 			if !found {
 				corrupted = true
 				continue
 			}
 			t.Status = r.Status
-		case enums.EventTaskReported:
+		case enums.SessionTaskReported:
 			if r.Task == nil || r.Report == nil {
 				corrupted = true
 				continue
@@ -57,9 +57,9 @@ func Run(wal input_itf.TaskWAL, db input_itf.TaskStorage) error {
 		}
 	}
 
-	queueList := make([]*input_itf.QueueEntity, 0, len(queues))
-	for _, q := range queues {
-		queueList = append(queueList, q)
+	sessionList := make([]*input_itf.SessionEntity, 0, len(sessions))
+	for _, s := range sessions {
+		sessionList = append(sessionList, s)
 	}
 
 	taskList := make([]*input_itf.TaskEntity, 0, len(tasks))
@@ -67,7 +67,7 @@ func Run(wal input_itf.TaskWAL, db input_itf.TaskStorage) error {
 		taskList = append(taskList, t)
 	}
 
-	if err := db.SaveTaskHistory(queueList, taskList, reports, fileChanges); err != nil {
+	if err := db.SaveTaskHistory(sessionList, taskList, reports, fileChanges); err != nil {
 		return custom_error.Critical("cannot save wal history to db: %v", err)
 	}
 

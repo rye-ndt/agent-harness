@@ -13,7 +13,7 @@ type AppConfig struct {
 	Bg   string `mapstructure:"bg" validate:"required,hexcolor"`
 }
 
-type TaskQueueConfig struct {
+type SessionConfig struct {
 	HeartbeatTimeout      time.Duration `mapstructure:"heartbeat_timeout" validate:"gt=0"`
 	HeartbeatScanInterval time.Duration `mapstructure:"heartbeat_scan_interval" validate:"gt=0,ltefield=HeartbeatTimeout"`
 }
@@ -44,7 +44,7 @@ type ConfigStruct struct {
 	App          *AppConfig                            `mapstructure:"app" validate:"required"`
 	Version      string                                `mapstructure:"version" validate:"required"`
 	LogLevel     string                                `mapstructure:"log_level" validate:"required,oneof=debug info warn error"`
-	TaskQueue    *TaskQueueConfig                      `mapstructure:"task_queue" validate:"required"`
+	Session      *SessionConfig                        `mapstructure:"session" validate:"required"`
 	MCPServers   *MCPServersConfig                     `mapstructure:"mcp_servers" validate:"required"`
 	AgentHarness map[enums.AgentHarness]map[string]any `mapstructure:"agent_harness" validate:"required,gt=0"`
 }
