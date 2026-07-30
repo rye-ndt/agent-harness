@@ -55,23 +55,26 @@ type TaskReportEntity struct {
 }
 
 type TaskEntity struct {
-	ID                   uuid.UUID
-	SessionID            uuid.UUID
-	Name                 string
-	AgentRole            string
-	PreferredModelFamily enums.ModelFamily
-	FileWriteAllowance   enums.FileAllowance
-	AllowedFilePaths     []string
-	TemplateFilePaths    []string
-	ExtraGuidance        string
-	RetryCount           int
-	Status               enums.TaskStatus
-	PrevTaskID           uuid.UUID
-	NextTaskID           uuid.UUID
-	ChildrenTaskIDs      uuid.UUIDs
-	LastReportID         uuid.UUID
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID                 uuid.UUID
+	SessionID          uuid.UUID
+	Name               string
+	AgentRole          string
+	PreferredModel     enums.ModelName
+	ThinkingLevel      enums.ThinkingLevel
+	SystemPrompts      []string
+	AutoRetry          bool
+	FileWriteAllowance enums.FileAllowance
+	AllowedFilePaths   []string
+	TemplateFilePaths  []string
+	ExtraGuidance      string
+	RetryCount         int
+	Status             enums.TaskStatus
+	PrevTaskID         uuid.UUID
+	NextTaskID         uuid.UUID
+	ChildrenTaskIDs    uuid.UUIDs
+	LastReportID       uuid.UUID
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type TaskStorage interface {

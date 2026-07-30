@@ -1,6 +1,7 @@
 package helpers
 
 import (
+	"hexago/internal/helpers/enums"
 	"reflect"
 	"strings"
 
@@ -22,6 +23,10 @@ func newConfigValidator() *validator.Validate {
 		}
 
 		return name
+	})
+
+	v.RegisterValidation("model_name", func(fl validator.FieldLevel) bool {
+		return enums.ModelName(fl.Field().String()).Valid()
 	})
 
 	return v

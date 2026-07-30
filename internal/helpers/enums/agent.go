@@ -1,13 +1,50 @@
 package enums
 
-type ModelFamily string
+type ModelName string
 
 const (
-	Claude   ModelFamily = "claude"
-	GPT      ModelFamily = "gpt"
-	Gwen     ModelFamily = "gwen"
-	Deepseek ModelFamily = "deepseek"
+	Fable          ModelName = "fable"
+	Opus           ModelName = "opus"
+	Sonnet         ModelName = "sonnet"
+	Haiku          ModelName = "haiku"
+	Deepseek4Flash ModelName = "opencode/deepseek-v4-flash-free"
+	ModelUnknown   ModelName = "unknown"
 )
+
+func (m ModelName) Valid() bool {
+	switch m {
+	case Fable, Opus, Sonnet, Haiku, Deepseek4Flash:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m ModelName) DisplayName() string {
+	switch m {
+	case Fable:
+		return "Claude Fable"
+	case Opus:
+		return "Claude Opus"
+	case Sonnet:
+		return "Claude Sonnet"
+	case Haiku:
+		return "Claude Haiku"
+	case Deepseek4Flash:
+		return "Deepseek V4 Flash"
+	default:
+		return "Unknown Model"
+	}
+}
+
+func (m ModelName) HarnessTool() AgentHarness {
+	switch m {
+	case Deepseek4Flash:
+		return OpenCode
+	default:
+		return ClaudeCode
+	}
+}
 
 type AgentHarness string
 
@@ -15,6 +52,16 @@ const (
 	ClaudeCode AgentHarness = "claude_code"
 	Codex      AgentHarness = "codex"
 	OpenCode   AgentHarness = "open_code"
+)
+
+type ThinkingLevel string
+
+const (
+	LowThinking   ThinkingLevel = "low"
+	MedThinking   ThinkingLevel = "medium"
+	HighThinking  ThinkingLevel = "high"
+	XHighThinking ThinkingLevel = "xhigh"
+	MaxThinking   ThinkingLevel = "max"
 )
 
 func (a AgentHarness) String() string {

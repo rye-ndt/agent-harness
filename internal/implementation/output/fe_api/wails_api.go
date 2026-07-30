@@ -6,7 +6,10 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/google/uuid"
+
 	"hexago/internal/helpers/enums"
+	"hexago/internal/implementation/core/custom_error"
 	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
 	output_itf "hexago/internal/interface/output"
@@ -61,8 +64,8 @@ func (a *API) Shutdown(ctx context.Context) {
 		return
 	}
 
-	for _, agent := range agents {
-		h, err := a.agentManager.Harness(agent)
+	for agent := range agents {
+		h, err := a.agentManager.Admin(agent)
 		if err != nil {
 			continue
 		}
@@ -72,8 +75,17 @@ func (a *API) Shutdown(ctx context.Context) {
 	a.mcpProxy.Close()
 }
 
-func (a *API) harness(id string) (input_itf.AgentHarness, error) {
-	return a.agentManager.Harness(enums.AgentHarness(id))
+func (a *API) admin(id string) (input_itf.AgentAdmin, error) {
+	return a.agentManager.Admin(enums.AgentHarness(id))
+}
+
+func agentUUID(agentID string) (uuid.UUID, error) {
+	parsed, err := uuid.Parse(agentID)
+	if err != nil {
+		return uuid.Nil, custom_error.Critical("invalid agent id %s: %v", agentID, err)
+	}
+
+	return parsed, nil
 }
 
 func (a *API) AgentStatuses() ([]output_itf.AgentInfo, error) {
@@ -83,8 +95,8 @@ func (a *API) AgentStatuses() ([]output_itf.AgentInfo, error) {
 	}
 
 	infos := make([]output_itf.AgentInfo, 0, len(agents))
-	for _, agent := range agents {
-		h, err := a.agentManager.Harness(agent)
+	for agent := range agents {
+		h, err := a.agentManager.Admin(agent)
 		if err != nil {
 			return nil, err
 		}
@@ -103,7 +115,7 @@ func (a *API) AgentStatuses() ([]output_itf.AgentInfo, error) {
 }
 
 func (a *API) InstallAgent(id string) error {
-	h, err := a.harness(id)
+	h, err := a.admin(id)
 	if err != nil {
 		return err
 	}
@@ -114,7 +126,7 @@ func (a *API) InstallAgent(id string) error {
 }
 
 func (a *API) AuthAgent(id string) (string, error) {
-	h, err := a.harness(id)
+	h, err := a.admin(id)
 	if err != nil {
 		return "", err
 	}
@@ -123,7 +135,7 @@ func (a *API) AuthAgent(id string) (string, error) {
 }
 
 func (a *API) SubmitAuthCode(id string, code string) error {
-	h, err := a.harness(id)
+	h, err := a.admin(id)
 	if err != nil {
 		return err
 	}
@@ -132,51 +144,61 @@ func (a *API) SubmitAuthCode(id string, code string) error {
 }
 
 func (a *API) SpawnAgent(id string) (string, error) {
-	h, err := a.harness(id)
+	h, err := a.admin(id)
 	if err != nil {
 		return "", err
 	}
 
-	agent, err := h.Spawn()
+	models := h.SupportedModels()
+	if len(models) == 0 {
+		return "", custom_error.Critical("harness %s has no enabled model", id)
+	}
+
+	agent, err := a.agentManager.RequestInstance(&core_itf.AgentRequest{
+		Name:          models[0],
+		ThinkingLevel: enums.MedThinking,
+	})
 	if err != nil {
 		return "", err
 	}
 
-	out, err := h.Listen(agent.ID)
+	out, err := a.agentManager.Listen(agent.ID)
 	if err != nil {
 		return "", err
 	}
+
+	agentID := agent.ID.String()
 
 	go func() {
 		for line := range out {
-			runtime.EventsEmit(a.ctx, agentOutputEvent, id, agent.ID, line)
+			runtime.EventsEmit(a.ctx, agentOutputEvent, id, agentID, line)
 		}
-		runtime.EventsEmit(a.ctx, agentClosedEvent, id, agent.ID)
+		runtime.EventsEmit(a.ctx, agentClosedEvent, id, agentID)
 	}()
 
-	return agent.ID, nil
+	return agentID, nil
 }
 
 func (a *API) SendToAgent(id string, agentID string, message string) error {
-	h, err := a.harness(id)
+	parsed, err := agentUUID(agentID)
 	if err != nil {
 		return err
 	}
 
-	return h.Send(agentID, message)
+	return a.agentManager.Send(parsed, message)
 }
 
 func (a *API) KillAgent(id string, agentID string) error {
-	h, err := a.harness(id)
+	parsed, err := agentUUID(agentID)
 	if err != nil {
 		return err
 	}
 
-	return h.Kill(agentID)
+	return a.agentManager.Kill(parsed)
 }
 
 func (a *API) UninstallAgent(id string) error {
-	h, err := a.harness(id)
+	h, err := a.admin(id)
 	if err != nil {
 		return err
 	}

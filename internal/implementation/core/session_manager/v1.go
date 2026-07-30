@@ -14,6 +14,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const progressBufferSize = 32
+
 type AgentHandle struct {
 	AgentID       uuid.UUID
 	TaskID        uuid.UUID
@@ -209,8 +211,11 @@ func (s *v1) dropTask(sessionID, agentID uuid.UUID, deadline int64) error {
 		return custom_error.Critical("cannot append task drop to wal: %v", err)
 	}
 
-	publishErr := s.publishTaskEvent(sessionID, taskID, enums.SessionTaskDropped, &core_itf.TaskEventData{
+	publishErr := s.publish(&core_itf.SessionProgress{
+		SessionID:  sessionID,
+		TaskID:     taskID,
 		AgentID:    agentID,
+		Event:      enums.SessionTaskDropped,
 		Status:     taskSnapshot.Status,
 		RetryCount: taskSnapshot.RetryCount,
 	})
@@ -223,25 +228,32 @@ func (s *v1) dropTask(sessionID, agentID uuid.UUID, deadline int64) error {
 }
 
 func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) error {
+	if task.AgentSpecs == nil {
+		return custom_error.Critical("task %s is missing its agent specs", task.Name)
+	}
+
 	uid, err := uuid.NewV7()
 	if err != nil {
 		return err
 	}
 
 	t := &input_itf.TaskEntity{
-		ID:                   uid,
-		SessionID:            sessionID,
-		Name:                 task.Name,
-		AgentRole:            task.AgentRole,
-		PreferredModelFamily: task.PreferredModelFamily,
-		FileWriteAllowance:   task.FileWriteAllowance,
-		AllowedFilePaths:     task.AllowedFilePaths,
-		TemplateFilePaths:    task.TemplateFilePaths,
-		ExtraGuidance:        task.ExtraGuidance,
-		RetryCount:           0,
-		Status:               enums.TaskNotTaken,
-		CreatedAt:            helpers.NewUTC(),
-		UpdatedAt:            helpers.NewUTC(),
+		ID:                 uid,
+		SessionID:          sessionID,
+		Name:               task.Name,
+		AgentRole:          task.AgentSpecs.Role,
+		PreferredModel:     task.AgentSpecs.Name,
+		ThinkingLevel:      task.AgentSpecs.ThinkingLevel,
+		SystemPrompts:      task.AgentSpecs.SystemPrompts,
+		AutoRetry:          task.AutoRetry,
+		FileWriteAllowance: task.FileWriteAllowance,
+		AllowedFilePaths:   task.AllowedFilePaths,
+		TemplateFilePaths:  task.TemplateFilePaths,
+		ExtraGuidance:      task.ExtraGuidance,
+		RetryCount:         0,
+		Status:             enums.TaskNotTaken,
+		CreatedAt:          helpers.NewUTC(),
+		UpdatedAt:          helpers.NewUTC(),
 	}
 
 	var session *sessionMetadata
@@ -281,7 +293,10 @@ func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) error {
 		return custom_error.Critical("cannot append new task to wal: %v", err)
 	}
 
-	return s.publishTaskEvent(sessionID, uid, enums.SessionTaskCreated, &core_itf.TaskEventData{
+	return s.publish(&core_itf.SessionProgress{
+		SessionID:  sessionID,
+		TaskID:     uid,
+		Event:      enums.SessionTaskCreated,
 		Status:     t.Status,
 		RetryCount: t.RetryCount,
 	})
@@ -429,12 +444,14 @@ func (s *v1) reportTask(report *core_itf.TaskReport) error {
 		session.keepReport(report)
 	})
 
-	publishErr := s.publishTaskEvent(session.info.ID, taskID, enums.SessionTaskReported, &core_itf.TaskEventData{
-		AgentID:     agentID,
-		Status:      taskSnapshot.Status,
-		RetryCount:  taskSnapshot.RetryCount,
-		Report:      report,
-		FileChanges: report.FileChanges,
+	publishErr := s.publish(&core_itf.SessionProgress{
+		SessionID:  infoSnapshot.ID,
+		TaskID:     taskID,
+		AgentID:    agentID,
+		Event:      enums.SessionTaskReported,
+		Status:     taskSnapshot.Status,
+		RetryCount: taskSnapshot.RetryCount,
+		Report:     report,
 	})
 
 	if err := s.drainIfDone(session); err != nil && publishErr == nil {
@@ -487,19 +504,13 @@ func (s *v1) Status(id uuid.UUID) (*core_itf.SessionStatus, error) {
 	return status, nil
 }
 
-func (s *v1) HeartBeat(agentID, taskID uuid.UUID) error {
+func (s *v1) HeartBeat(agentID uuid.UUID) error {
 	var err error
 
 	s.raceSafe(func() {
-		session, _, found := s.findTask(taskID)
+		handle, found := s.findAgent(agentID)
 		if !found {
-			err = custom_error.Critical("task %v not found", taskID)
-			return
-		}
-
-		handle, found := session.agentIDToHandle[agentID]
-		if !found || handle.TaskID != taskID {
-			err = custom_error.Critical("agent %v is not assigned to task %v", agentID, taskID)
+			err = custom_error.Critical("agent %v is not assigned to any task", agentID)
 			return
 		}
 
@@ -509,8 +520,143 @@ func (s *v1) HeartBeat(agentID, taskID uuid.UUID) error {
 	return err
 }
 
-func (s *v1) Execute(session uuid.UUID) error {
-	return nil
+func (s *v1) findAgent(agentID uuid.UUID) (*AgentHandle, bool) {
+	for _, session := range s.sessions {
+		if handle, found := session.agentIDToHandle[agentID]; found {
+			return handle, true
+		}
+	}
+
+	return nil, false
+}
+
+func (s *v1) Execute(session uuid.UUID) (<-chan *core_itf.SessionProgress, error) {
+	exists := false
+
+	s.raceSafe(func() {
+		_, exists = s.sessions[session]
+	})
+
+	if !exists {
+		return nil, custom_error.Critical("session %v not found", session)
+	}
+
+	events := enums.SessionEvents()
+	streams := make([]<-chan any, 0, len(events))
+
+	for i, event := range events {
+		stream, err := s.mq.Subscribe(session, event)
+		if err != nil {
+			for _, subscribed := range events[:i] {
+				s.mq.Unsubscribe(session, subscribed)
+			}
+
+			return nil, custom_error.Critical("cannot watch session %v: %v", session, err)
+		}
+
+		streams = append(streams, stream)
+	}
+
+	out := make(chan *core_itf.SessionProgress, progressBufferSize)
+
+	wg := sync.WaitGroup{}
+
+	for _, stream := range streams {
+		wg.Add(1)
+
+		go func(stream <-chan any) {
+			defer wg.Done()
+
+			for {
+				select {
+				case <-s.stop:
+					return
+				case data, open := <-stream:
+					if !open {
+						return
+					}
+
+					progress, ok := data.(*core_itf.SessionProgress)
+					if !ok {
+						continue
+					}
+
+					select {
+					case out <- progress:
+					case <-s.stop:
+						return
+					}
+				}
+			}
+		}(stream)
+	}
+
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	return out, nil
+}
+
+func (s *v1) RetryTask(taskID uuid.UUID) error {
+	var err error
+	var session *sessionMetadata
+	var t *input_itf.TaskEntity
+	var prevTask, taskSnapshot input_itf.TaskEntity
+	var prevInfo, infoSnapshot input_itf.SessionEntity
+
+	s.raceSafe(func() {
+		found := false
+
+		session, t, found = s.findTask(taskID)
+		if !found {
+			err = custom_error.Critical("task %v not found to retry", taskID)
+			return
+		}
+
+		if !t.Status.Takeable() {
+			err = custom_error.Critical("task %v is %s and cannot be retried", taskID, t.Status)
+			return
+		}
+
+		prevTask = *t
+		t.Status = enums.TaskNotTaken
+		t.UpdatedAt = helpers.NewUTC()
+		taskSnapshot = *t
+
+		prevInfo = *session.info
+		session.info.CompletedAt = time.Time{}
+		session.info.UpdatedAt = helpers.NewUTC()
+		infoSnapshot = *session.info
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if err := s.wal.Append(&input_itf.TaskWALRecord{
+		Kind:    enums.SessionTaskStatusChanged,
+		TaskID:  taskID,
+		Status:  taskSnapshot.Status,
+		Task:    &taskSnapshot,
+		Session: &infoSnapshot,
+	}); err != nil {
+		s.raceSafe(func() {
+			*t = prevTask
+			*session.info = prevInfo
+		})
+
+		return custom_error.Critical("cannot append task retry to wal: %v", err)
+	}
+
+	return s.publish(&core_itf.SessionProgress{
+		SessionID:  infoSnapshot.ID,
+		TaskID:     taskID,
+		Event:      enums.SessionTaskStatusChanged,
+		Status:     taskSnapshot.Status,
+		RetryCount: taskSnapshot.RetryCount,
+	})
 }
 
 func (s *v1) drainIfDone(session *sessionMetadata) error {
@@ -552,7 +698,9 @@ func (s *v1) drainIfDone(session *sessionMetadata) error {
 		return custom_error.Critical("cannot append session drained to wal: %v", err)
 	}
 
-	return s.publishSessionEvent(infoSnapshot.ID, enums.SessionDrained, &core_itf.SessionEventData{
+	return s.publish(&core_itf.SessionProgress{
+		SessionID:   infoSnapshot.ID,
+		Event:       enums.SessionDrained,
 		TotalTasks:  infoSnapshot.TotalTask,
 		TotalRetry:  infoSnapshot.TotalRetry,
 		StartedAt:   infoSnapshot.StartedAt,
@@ -560,31 +708,10 @@ func (s *v1) drainIfDone(session *sessionMetadata) error {
 	})
 }
 
-func (s *v1) publishTaskEvent(
-	sessionID, taskID uuid.UUID,
-	event enums.SessionEvent,
-	data *core_itf.TaskEventData,
-) error {
-	return s.mq.Emit(sessionID, event, &core_itf.TaskEvent{
-		SessionID: sessionID,
-		TaskID:    taskID,
-		Event:     event,
-		Data:      data,
-		EmittedAt: helpers.NewUTC(),
-	})
-}
+func (s *v1) publish(progress *core_itf.SessionProgress) error {
+	progress.EmittedAt = helpers.NewUTC()
 
-func (s *v1) publishSessionEvent(
-	sessionID uuid.UUID,
-	event enums.SessionEvent,
-	data *core_itf.SessionEventData,
-) error {
-	return s.mq.Emit(sessionID, event, &core_itf.SessionEvent{
-		SessionID: sessionID,
-		Event:     event,
-		Data:      data,
-		EmittedAt: helpers.NewUTC(),
-	})
+	return s.mq.Emit(progress.SessionID, progress.Event, progress)
 }
 
 func (s *v1) findTask(taskID uuid.UUID) (*sessionMetadata, *input_itf.TaskEntity, bool) {

@@ -7,19 +7,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 
+	"hexago/internal/helpers"
 	"hexago/internal/helpers/constances"
 	"hexago/internal/helpers/enums"
 	"hexago/internal/helpers/prompts"
@@ -53,13 +57,16 @@ type openCodeProc struct {
 	session string
 	done    chan struct{}
 	exited  chan struct{}
+	lastOut atomic.Int64
 }
 
 type OpenCodeCfg struct {
-	Name         string        `mapstructure:"name" validate:"required"`
-	BinName      string        `mapstructure:"bin_name" validate:"required"`
-	ReleaseBase  string        `mapstructure:"release_base" validate:"required,http_url"`
-	LoginTimeout time.Duration `mapstructure:"login_timeout" validate:"gt=0"`
+	Name          string            `mapstructure:"name" validate:"required"`
+	BinName       string            `mapstructure:"bin_name" validate:"required"`
+	ReleaseBase   string            `mapstructure:"release_base" validate:"required,http_url"`
+	LoginTimeout  time.Duration     `mapstructure:"login_timeout" validate:"gt=0"`
+	MaxInstance   int               `mapstructure:"max_instance" validate:"required,gt=0"`
+	EnabledModels []enums.ModelName `mapstructure:"enabled_models" validate:"required,dive,model_name"`
 }
 
 type openCode struct {
@@ -76,7 +83,7 @@ type openCode struct {
 	cfg          *OpenCodeCfg
 	httpCli      input_itf.HttpCli
 	storage      input_itf.HarnessStorage
-	agentCfg     []byte
+	agentCfg     map[string]any
 	systemPrompt []byte
 	env          []string
 	sessionCli   *http.Client
@@ -105,11 +112,6 @@ func NewOpenCode(
 		cfg["mcp"] = block
 	}
 
-	agentCfg, err := json.Marshal(cfg)
-	if err != nil {
-		return nil, custom_error.Critical("build open code config: %v", err)
-	}
-
 	return &openCode{
 		dir:           dir,
 		binPath:       binPath(dir, openCodeCfg.BinName),
@@ -121,11 +123,23 @@ func NewOpenCode(
 		cfg:          openCodeCfg,
 		httpCli:      httpCli,
 		storage:      db,
-		agentCfg:     agentCfg,
+		agentCfg:     cfg,
 		systemPrompt: prompts.System(),
 		env:          append(cleanEnv("XDG_DATA_HOME=", "OPENCODE_"), "XDG_DATA_HOME="+dataDir),
 		sessionCli:   &http.Client{Timeout: 2 * time.Second},
 	}, nil
+}
+
+func (o *openCode) SupportedModels() []enums.ModelName {
+	return slices.Clone(o.cfg.EnabledModels)
+}
+
+func (o *openCode) Support(name enums.ModelName) bool {
+	return slices.Contains(o.cfg.EnabledModels, name)
+}
+
+func (o *openCode) atLimit() bool {
+	return len(o.agents) >= o.cfg.MaxInstance
 }
 
 func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
@@ -298,46 +312,71 @@ func (o *openCode) Status() (*input_itf.AgentStatus, error) {
 	return status, nil
 }
 
-func (o *openCode) Spawn() (*input_itf.Agent, error) {
+func (o *openCode) Spawn(
+	name enums.ModelName,
+	thinkingLevel enums.ThinkingLevel,
+	systemPrompts []string,
+) (uuid.UUID, error) {
+	if !o.Support(name) {
+		return uuid.Nil, custom_error.Critical("open code does not support model %s", name)
+	}
+
 	if _, err := os.Stat(o.binPath); err != nil {
-		return nil, custom_error.Critical("open code is not installed, run Install first")
+		return uuid.Nil, custom_error.Critical("open code is not installed, run Install first")
 	}
 
 	if _, err := os.Stat(o.authPath); err != nil {
-		return nil, custom_error.Critical("not authenticated, run Auth first")
+		return uuid.Nil, custom_error.Critical("not authenticated, run Auth first")
+	}
+
+	o.mu.Lock()
+	limited := o.atLimit()
+	o.mu.Unlock()
+
+	if limited {
+		return uuid.Nil, custom_error.Critical("open code is at its limit of %d instances", o.cfg.MaxInstance)
 	}
 
 	uid, err := uuid.NewV7()
 	if err != nil {
-		return nil, custom_error.Critical("%v", err)
+		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 	id := uid.String()
 
 	workdir := filepath.Join(o.workspacesDir, id)
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
-		return nil, custom_error.Critical("%v", err)
+		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 
-	if err := harness_helper.WriteNewFile(filepath.Join(workdir, "opencode.json"), o.agentCfg, 0o600); err != nil {
+	agentCfg := maps.Clone(o.agentCfg)
+	agentCfg["model"] = string(name)
+
+	rawCfg, err := json.Marshal(agentCfg)
+	if err != nil {
 		os.RemoveAll(workdir)
-		return nil, custom_error.Critical("write opencode config: %v", err)
+		return uuid.Nil, custom_error.Critical("build open code config: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(workdir, "AGENTS.md"), o.systemPrompt, 0o644); err != nil {
+	if err := harness_helper.WriteNewFile(filepath.Join(workdir, "opencode.json"), rawCfg, 0o600); err != nil {
 		os.RemoveAll(workdir)
-		return nil, custom_error.Critical("%v", err)
+		return uuid.Nil, custom_error.Critical("write opencode config: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(workdir, "AGENTS.md"), agentsFile(o.systemPrompt, systemPrompts), 0o644); err != nil {
+		os.RemoveAll(workdir)
+		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 
 	port, err := freePort(constances.GlobalLocalHost)
 	if err != nil {
 		os.RemoveAll(workdir)
-		return nil, err
+		return uuid.Nil, err
 	}
 
 	logFile, err := os.Create(filepath.Join(workdir, "serve.log"))
 	if err != nil {
 		os.RemoveAll(workdir)
-		return nil, custom_error.Critical("%v", err)
+		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 
 	cmd := exec.Command(
@@ -356,7 +395,7 @@ func (o *openCode) Spawn() (*input_itf.Agent, error) {
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
 		os.RemoveAll(workdir)
-		return nil, custom_error.Critical("start open code: %v", err)
+		return uuid.Nil, custom_error.Critical("start open code: %v", err)
 	}
 
 	session, err := o.createSession(port)
@@ -367,28 +406,41 @@ func (o *openCode) Spawn() (*input_itf.Agent, error) {
 			logFile.Close()
 			os.RemoveAll(workdir)
 		}()
-		return nil, err
+		return uuid.Nil, err
 	}
 
 	out := make(chan string, 64)
 	done := make(chan struct{})
 	exited := make(chan struct{})
 
-	o.mu.Lock()
-	if o.uninstalled {
-		o.mu.Unlock()
+	abort := func() {
 		harness_helper.KillProc(cmd)
 		cmd.Wait()
 		logFile.Close()
 		os.RemoveAll(workdir)
-		return nil, custom_error.Critical("open code was uninstalled")
 	}
-	o.agents[id] = &openCodeProc{cmd: cmd, out: out, port: port, session: session, done: done, exited: exited}
+
+	o.mu.Lock()
+	if o.uninstalled {
+		o.mu.Unlock()
+		abort()
+		return uuid.Nil, custom_error.Critical("open code was uninstalled")
+	}
+
+	if o.atLimit() {
+		o.mu.Unlock()
+		abort()
+		return uuid.Nil, custom_error.Critical("open code is at its limit of %d instances", o.cfg.MaxInstance)
+	}
+	proc := &openCodeProc{cmd: cmd, out: out, port: port, session: session, done: done, exited: exited}
+	proc.lastOut.Store(helpers.NewUTCUnix())
+
+	o.agents[id] = proc
 	o.mu.Unlock()
 
 	streamClosed := make(chan struct{})
 
-	go streamEvents(o.baseURL(port), out, done, streamClosed)
+	go streamEvents(o.baseURL(port), out, done, streamClosed, &proc.lastOut)
 
 	go func() {
 		select {
@@ -405,7 +457,7 @@ func (o *openCode) Spawn() (*input_itf.Agent, error) {
 		close(exited)
 	}()
 
-	return &input_itf.Agent{ID: id}, nil
+	return uid, nil
 }
 
 func (o *openCode) baseURL(port int) string {
@@ -442,7 +494,13 @@ func (o *openCode) createSession(port int) (string, error) {
 	return "", custom_error.Critical("open code server did not become ready on port %d", port)
 }
 
-func streamEvents(baseURL string, out chan string, done <-chan struct{}, closed chan<- struct{}) {
+func streamEvents(
+	baseURL string,
+	out chan string,
+	done <-chan struct{},
+	closed chan<- struct{},
+	lastOut *atomic.Int64,
+) {
 	defer close(closed)
 	defer close(out)
 
@@ -455,6 +513,8 @@ func streamEvents(baseURL string, out chan string, done <-chan struct{}, closed 
 	sc := bufio.NewScanner(res.Body)
 	sc.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	for sc.Scan() {
+		lastOut.Store(helpers.NewUTCUnix())
+
 		data, ok := strings.CutPrefix(sc.Text(), "data: ")
 		if !ok || data == "" {
 			continue
@@ -496,6 +556,23 @@ func (o *openCode) Send(id string, message string) error {
 		return custom_error.Critical("send to agent %s: %s", id, res.Status)
 	}
 	return nil
+}
+
+func (o *openCode) Alive(id string) (time.Time, error) {
+	o.mu.Lock()
+	a, ok := o.agents[id]
+	o.mu.Unlock()
+	if !ok {
+		return time.Time{}, custom_error.Critical("no running agent with id %s", id)
+	}
+
+	select {
+	case <-a.exited:
+		return time.Time{}, custom_error.Critical("agent %s has exited", id)
+	default:
+	}
+
+	return time.Unix(a.lastOut.Load(), 0).UTC(), nil
 }
 
 func (o *openCode) Listen(id string) (<-chan string, error) {
@@ -559,6 +636,18 @@ func (o *openCode) Kill(id string) error {
 	}
 	close(a.done)
 	return nil
+}
+
+func agentsFile(base []byte, extra []string) []byte {
+	parts := []string{strings.TrimSpace(string(base))}
+
+	for _, prompt := range extra {
+		if trimmed := strings.TrimSpace(prompt); trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+
+	return []byte(strings.Join(slices.DeleteFunc(parts, func(s string) bool { return s == "" }), "\n\n"))
 }
 
 func freePort(host string) (int, error) {

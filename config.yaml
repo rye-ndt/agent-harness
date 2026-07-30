@@ -11,6 +11,11 @@ session:
   heartbeat_timeout: 30m
   heartbeat_scan_interval: 1m
 
+agent_manager:
+  freeze_timeout: 5m
+  connectivity_probe_url: https://api.anthropic.com
+  connectivity_cache_ttl: 15s
+
 mcp_servers:
   auth_timeout: 5m
   client_name: master_harness
@@ -38,8 +43,17 @@ agent_harness:
     login_timeout: 5m
     token_regex: sk-ant-oat[0-9]{2}-[A-Za-z0-9_-]{20,}
     ansi_regex: \x1b\[[0-9;?]*[a-zA-Z]
+    max_instance: 3
+    enabled_models:
+      - fable
+      - opus
+      - sonnet
+
   open_code:
     name: Open Code
     bin_name: open_code
     release_base: https://api.github.com/repos/sst/opencode
     login_timeout: 5m
+    max_instance: 3
+    enabled_models:
+      - opencode/deepseek-v4-flash-free

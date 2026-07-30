@@ -8,13 +8,13 @@ import (
 )
 
 type AddTask struct {
-	Name                 string
-	AgentRole            string
-	PreferredModelFamily enums.ModelFamily
-	FileWriteAllowance   enums.FileAllowance
-	AllowedFilePaths     []string
-	TemplateFilePaths    []string
-	ExtraGuidance        string
+	Name               string
+	AutoRetry          bool
+	FileWriteAllowance enums.FileAllowance
+	AllowedFilePaths   []string
+	TemplateFilePaths  []string
+	ExtraGuidance      string
+	AgentSpecs         *AgentRequest
 }
 
 type FileChange struct {
@@ -46,34 +46,19 @@ type TaskReport struct {
 	HandoverDocs []*HandoverDoc
 }
 
-type TaskEventData struct {
+type SessionProgress struct {
+	SessionID   uuid.UUID
+	TaskID      uuid.UUID
 	AgentID     uuid.UUID
+	Event       enums.SessionEvent
 	Status      enums.TaskStatus
 	RetryCount  int
 	Report      *TaskReport
-	FileChanges []*FileChange
-}
-
-type TaskEvent struct {
-	SessionID uuid.UUID
-	TaskID    uuid.UUID
-	Event     enums.SessionEvent
-	Data      *TaskEventData
-	EmittedAt time.Time
-}
-
-type SessionEventData struct {
 	TotalTasks  int
 	TotalRetry  int
 	StartedAt   time.Time
 	CompletedAt time.Time
-}
-
-type SessionEvent struct {
-	SessionID uuid.UUID
-	Event     enums.SessionEvent
-	Data      *SessionEventData
-	EmittedAt time.Time
+	EmittedAt   time.Time
 }
 
 type SessionStatus struct {
@@ -85,8 +70,9 @@ type SessionStatus struct {
 type SessionManager interface {
 	NewSession() (uuid.UUID, error)
 	AddTask(session uuid.UUID, task *AddTask) error
-	Execute(session uuid.UUID) error
+	Execute(session uuid.UUID) (<-chan *SessionProgress, error)
+	RetryTask(taskID uuid.UUID) error
 	Status(id uuid.UUID) (*SessionStatus, error)
-	HeartBeat(agentID, taskID uuid.UUID) error
+	HeartBeat(agentID uuid.UUID) error
 	Stop()
 }

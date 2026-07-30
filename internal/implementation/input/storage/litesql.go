@@ -83,6 +83,10 @@ var migrations = []string{
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	)`,
+	`ALTER TABLE tasks RENAME COLUMN preferred_model_family TO preferred_model`,
+	`ALTER TABLE tasks ADD COLUMN thinking_level TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tasks ADD COLUMN system_prompts TEXT NOT NULL DEFAULT '[]'`,
+	`ALTER TABLE tasks ADD COLUMN auto_retry INTEGER NOT NULL DEFAULT 0`,
 }
 
 type litesql struct {
@@ -274,17 +278,19 @@ func (s *taskStore) CreateImplementRecord(implement *input_itf.TaskReportEntity)
 func (s *taskStore) Find(taskID uuid.UUID) (*input_itf.TaskEntity, error) {
 	t := &input_itf.TaskEntity{}
 
-	var id, sessionID, modelFamily, allowance string
-	var allowedPaths, templatePaths, childrenIDs string
+	var id, sessionID, model, thinkingLevel, allowance string
+	var systemPrompts, allowedPaths, templatePaths, childrenIDs string
 	var status, prevID, nextID, lastReportID string
 	var createdAt, updatedAt string
 
-	err := s.db.QueryRow(`SELECT id, session_id, name, agent_role, preferred_model_family,
+	err := s.db.QueryRow(`SELECT id, session_id, name, agent_role, preferred_model,
+		thinking_level, system_prompts, auto_retry,
 		file_write_allowance, allowed_file_paths, template_file_paths, extra_guidance,
 		retry_count, status, prev_task_id, next_task_id, children_task_ids,
 		last_report_id, created_at, updated_at
 		FROM tasks WHERE id = ?`, taskID.String()).
-		Scan(&id, &sessionID, &t.Name, &t.AgentRole, &modelFamily,
+		Scan(&id, &sessionID, &t.Name, &t.AgentRole, &model,
+			&thinkingLevel, &systemPrompts, &t.AutoRetry,
 			&allowance, &allowedPaths, &templatePaths, &t.ExtraGuidance,
 			&t.RetryCount, &status, &prevID, &nextID, &childrenIDs,
 			&lastReportID, &createdAt, &updatedAt)
@@ -297,7 +303,8 @@ func (s *taskStore) Find(taskID uuid.UUID) (*input_itf.TaskEntity, error) {
 
 	t.ID = parseUUID(id)
 	t.SessionID = parseUUID(sessionID)
-	t.PreferredModelFamily = enums.ModelFamily(modelFamily)
+	t.PreferredModel = enums.ModelName(model)
+	t.ThinkingLevel = enums.ThinkingLevel(thinkingLevel)
 	t.FileWriteAllowance = enums.FileAllowance(allowance)
 	t.Status = enums.TaskStatus(status)
 	t.PrevTaskID = parseUUID(prevID)
@@ -306,6 +313,9 @@ func (s *taskStore) Find(taskID uuid.UUID) (*input_itf.TaskEntity, error) {
 	t.CreatedAt = parseTime(createdAt)
 	t.UpdatedAt = parseTime(updatedAt)
 
+	if err := json.Unmarshal([]byte(systemPrompts), &t.SystemPrompts); err != nil {
+		return nil, err
+	}
 	if err := json.Unmarshal([]byte(allowedPaths), &t.AllowedFilePaths); err != nil {
 		return nil, err
 	}
@@ -408,6 +418,11 @@ func saveSession(e execer, sess *input_itf.SessionEntity) error {
 }
 
 func saveTask(e execer, t *input_itf.TaskEntity) error {
+	systemPrompts, err := json.Marshal(t.SystemPrompts)
+	if err != nil {
+		return err
+	}
+
 	allowedPaths, err := json.Marshal(t.AllowedFilePaths)
 	if err != nil {
 		return err
@@ -424,15 +439,19 @@ func saveTask(e execer, t *input_itf.TaskEntity) error {
 	}
 
 	_, err = e.Exec(`INSERT OR REPLACE INTO tasks
-		(id, session_id, name, agent_role, preferred_model_family, file_write_allowance,
+		(id, session_id, name, agent_role, preferred_model, thinking_level, system_prompts,
+		auto_retry, file_write_allowance,
 		allowed_file_paths, template_file_paths, extra_guidance, retry_count, status,
 		prev_task_id, next_task_id, children_task_ids, last_report_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID.String(),
 		t.SessionID.String(),
 		t.Name,
 		t.AgentRole,
-		string(t.PreferredModelFamily),
+		string(t.PreferredModel),
+		string(t.ThinkingLevel),
+		string(systemPrompts),
+		t.AutoRetry,
 		string(t.FileWriteAllowance),
 		string(allowedPaths),
 		string(templatePaths),

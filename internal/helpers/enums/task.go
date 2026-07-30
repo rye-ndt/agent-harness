@@ -1,5 +1,7 @@
 package enums
 
+import "slices"
+
 type TaskStatus string
 
 const (
@@ -51,6 +53,19 @@ const (
 	SessionTaskReported      SessionEvent = "task_reported"
 	SessionTaskDropped       SessionEvent = "task_dropped"
 )
+
+var sessionEvents = []SessionEvent{
+	SessionCreated,
+	SessionDrained,
+	SessionTaskCreated,
+	SessionTaskStatusChanged,
+	SessionTaskReported,
+	SessionTaskDropped,
+}
+
+func SessionEvents() []SessionEvent {
+	return slices.Clone(sessionEvents)
+}
 
 func (se SessionEvent) Event() string {
 	return string(se)

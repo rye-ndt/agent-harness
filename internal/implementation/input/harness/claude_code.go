@@ -12,10 +12,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 
+	"hexago/internal/helpers"
 	"hexago/internal/helpers/enums"
 	"hexago/internal/helpers/prompts"
 	"hexago/internal/implementation/core/custom_error"
@@ -101,15 +103,18 @@ type agentProc struct {
 	out     chan string
 	done    chan struct{}
 	exited  chan struct{}
+	lastOut atomic.Int64
 }
 
 type ClaudeCodeCfg struct {
-	Name         string        `mapstructure:"name" validate:"required"`
-	BinName      string        `mapstructure:"bin_name" validate:"required"`
-	ReleaseBase  string        `mapstructure:"release_base" validate:"required,http_url"`
-	LoginTimeout time.Duration `mapstructure:"login_timeout" validate:"gt=0"`
-	TokenRegex   string        `mapstructure:"token_regex" validate:"required"`
-	AnsiRegex    string        `mapstructure:"ansi_regex" validate:"required"`
+	Name          string            `mapstructure:"name" validate:"required"`
+	BinName       string            `mapstructure:"bin_name" validate:"required"`
+	ReleaseBase   string            `mapstructure:"release_base" validate:"required,http_url"`
+	LoginTimeout  time.Duration     `mapstructure:"login_timeout" validate:"gt=0"`
+	TokenRegex    string            `mapstructure:"token_regex" validate:"required"`
+	AnsiRegex     string            `mapstructure:"ansi_regex" validate:"required"`
+	MaxInstance   int               `mapstructure:"max_instance" validate:"required,gt=0"`
+	EnabledModels []enums.ModelName `mapstructure:"enabled_models" validate:"required,dive,model_name"`
 }
 
 type claudeCode struct {
@@ -189,6 +194,18 @@ func NewClaudeCode(
 			"--append-system-prompt", string(prompts.System()),
 		},
 	}, nil
+}
+
+func (c *claudeCode) SupportedModels() []enums.ModelName {
+	return slices.Clone(c.cfg.EnabledModels)
+}
+
+func (c *claudeCode) Support(name enums.ModelName) bool {
+	return slices.Contains(c.cfg.EnabledModels, name)
+}
+
+func (c *claudeCode) atLimit() bool {
+	return len(c.agents) >= c.cfg.MaxInstance
 }
 
 func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
@@ -440,35 +457,58 @@ func (c *claudeCode) Status() (*input_itf.AgentStatus, error) {
 	return status, nil
 }
 
-func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
+func (c *claudeCode) Spawn(
+	name enums.ModelName,
+	thinkingLevel enums.ThinkingLevel,
+	systemPrompts []string,
+) (uuid.UUID, error) {
+	if !c.Support(name) {
+		return uuid.Nil, custom_error.Critical("claude code does not support model %s", name)
+	}
+
 	if _, err := os.Stat(c.binPath); err != nil {
-		return nil, custom_error.Critical("claude code is not installed, run Install first")
+		return uuid.Nil, custom_error.Critical("claude code is not installed, run Install first")
 	}
 
 	token, err := os.ReadFile(c.tokenPath)
 	if err != nil {
-		return nil, custom_error.Critical("not authenticated, run Auth first")
+		return uuid.Nil, custom_error.Critical("not authenticated, run Auth first")
+	}
+
+	c.mu.Lock()
+	limited := c.atLimit()
+	c.mu.Unlock()
+
+	if limited {
+		return uuid.Nil, custom_error.Critical("claude code is at its limit of %d instances", c.cfg.MaxInstance)
 	}
 
 	uid, err := uuid.NewV7()
 	if err != nil {
-		return nil, custom_error.Critical("%v", err)
+		return uuid.Nil, custom_error.Critical("%v", err)
 	}
+
 	id := uid.String()
 
 	workdir := filepath.Join(c.workspacesDir, id)
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
-		return nil, custom_error.Critical("%v", err)
+		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 
-	args := slices.Clone(c.spawnArgs)
+	args := append(slices.Clone(c.spawnArgs), "--model", string(name))
+
+	for _, prompt := range systemPrompts {
+		if trimmed := strings.TrimSpace(prompt); trimmed != "" {
+			args = append(args, "--append-system-prompt", trimmed)
+		}
+	}
 
 	if c.mcpCfg != nil {
 		mcpPath := filepath.Join(workdir, "mcp.json")
 
 		if err := harness_helper.WriteNewFile(mcpPath, c.mcpCfg, 0o600); err != nil {
 			os.RemoveAll(workdir)
-			return nil, custom_error.Critical("write mcp config: %v", err)
+			return uuid.Nil, custom_error.Critical("write mcp config: %v", err)
 		}
 
 		args = append(args, "--mcp-config", mcpPath, "--strict-mcp-config")
@@ -482,20 +522,20 @@ func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		os.RemoveAll(workdir)
-		return nil, custom_error.Critical("%v", err)
+		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		stdin.Close()
 		os.RemoveAll(workdir)
-		return nil, custom_error.Critical("%v", err)
+		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 	stderr, err := os.Create(filepath.Join(workdir, "stderr.log"))
 	if err != nil {
 		stdin.Close()
 		stdout.Close()
 		os.RemoveAll(workdir)
-		return nil, custom_error.Critical("%v", err)
+		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 	cmd.Stderr = stderr
 	harness_helper.SetProcAttrs(cmd)
@@ -503,24 +543,34 @@ func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 	if err := cmd.Start(); err != nil {
 		stderr.Close()
 		os.RemoveAll(workdir)
-		return nil, custom_error.Critical("start claude code: %v", err)
+		return uuid.Nil, custom_error.Critical("start claude code: %v", err)
 	}
 
 	out := make(chan string, 64)
 	done := make(chan struct{})
 	exited := make(chan struct{})
 
-	c.mu.Lock()
-	if c.uninstalled {
-		c.mu.Unlock()
+	abort := func() {
 		harness_helper.KillProc(cmd)
 		cmd.Wait()
 		stderr.Close()
 		os.RemoveAll(workdir)
-		return nil, custom_error.Critical("claude code was uninstalled")
 	}
 
-	c.agents[id] = &agentProc{
+	c.mu.Lock()
+	if c.uninstalled {
+		c.mu.Unlock()
+		abort()
+		return uuid.Nil, custom_error.Critical("claude code was uninstalled")
+	}
+
+	if c.atLimit() {
+		c.mu.Unlock()
+		abort()
+		return uuid.Nil, custom_error.Critical("claude code is at its limit of %d instances", c.cfg.MaxInstance)
+	}
+
+	proc := &agentProc{
 		cmd:    cmd,
 		stdin:  stdin,
 		stdout: stdout,
@@ -529,12 +579,18 @@ func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 		exited: exited,
 	}
 
+	proc.lastOut.Store(helpers.NewUTCUnix())
+
+	c.agents[id] = proc
+
 	c.mu.Unlock()
 
 	go func() {
 		sc := bufio.NewScanner(stdout)
 		sc.Buffer(make([]byte, 64*1024), 8*1024*1024)
 		for sc.Scan() {
+			proc.lastOut.Store(helpers.NewUTCUnix())
+
 			select {
 			case out <- sc.Text():
 			case <-done:
@@ -551,7 +607,7 @@ func (c *claudeCode) Spawn() (*input_itf.Agent, error) {
 		close(exited)
 	}()
 
-	return &input_itf.Agent{ID: id}, nil
+	return uid, nil
 }
 
 func (c *claudeCode) Send(id string, message string) error {
@@ -582,6 +638,23 @@ func (c *claudeCode) Send(id string, message string) error {
 		return custom_error.Critical("write to agent %s: %v", id, err)
 	}
 	return nil
+}
+
+func (c *claudeCode) Alive(id string) (time.Time, error) {
+	c.mu.Lock()
+	a, ok := c.agents[id]
+	c.mu.Unlock()
+	if !ok {
+		return time.Time{}, custom_error.Critical("no running agent with id %s", id)
+	}
+
+	select {
+	case <-a.exited:
+		return time.Time{}, custom_error.Critical("agent %s has exited", id)
+	default:
+	}
+
+	return time.Unix(a.lastOut.Load(), 0).UTC(), nil
 }
 
 func (c *claudeCode) Listen(id string) (<-chan string, error) {
