@@ -7,6 +7,7 @@ import (
 
 	"hexago/internal/implementation/core/agent_manager"
 	"hexago/internal/implementation/core/custom_error"
+	"hexago/internal/implementation/core/manual_approval_broker"
 	"hexago/internal/implementation/core/mcp_proxy"
 	"hexago/internal/implementation/core/wal_sync"
 	viper "hexago/internal/implementation/input/config"
@@ -22,15 +23,16 @@ import (
 )
 
 type App struct {
-	Config       input_itf.Config
-	Logger       output_itf.Logger
-	AppBuilder   output_itf.AppBuilder
-	HttpFetcher  input_itf.HttpCli
-	Storage      input_itf.HarnessStorage
-	TaskStore    input_itf.TaskStorage
-	TaskWAL      input_itf.TaskWAL
-	AgentManager core_itf.AgentManager
-	MCPProxy     core_itf.MCPProxyServer
+	Config         input_itf.Config
+	Logger         output_itf.Logger
+	AppBuilder     output_itf.AppBuilder
+	HttpFetcher    input_itf.HttpCli
+	Storage        input_itf.HarnessStorage
+	TaskStore      input_itf.TaskStorage
+	TaskWAL        input_itf.TaskWAL
+	AgentManager   core_itf.AgentManager
+	MCPProxy       core_itf.MCPProxyServer
+	ApprovalBroker core_itf.ApprovalBroker
 }
 
 func wire() (*App, error) {
@@ -71,7 +73,12 @@ func wire() (*App, error) {
 		return nil, custom_error.Critical("mcp server config not found")
 	}
 
-	mcpProxy, err := mcp_proxy.InitV1(mcpCfg, store.MCPStore(), httpCli)
+	approvalBroker, err := manual_approval_broker.InitV1(cfg.Read().ApprovalBroker)
+	if err != nil {
+		return nil, err
+	}
+
+	mcpProxy, err := mcp_proxy.InitV1(mcpCfg, store.MCPStore(), httpCli, approvalBroker)
 	if err != nil {
 		return nil, err
 	}
@@ -81,25 +88,26 @@ func wire() (*App, error) {
 		return nil, err
 	}
 
-	agentManager, err := agent_manager.InitV1(cfg, httpCli, store, mcpGateway)
+	agentManager, err := agent_manager.InitV1(cfg, httpCli, store, mcpGateway, approvalBroker)
 	if err != nil {
 		mcpProxy.Close()
 		return nil, err
 	}
 
-	feAPI := wails_api.New(agentManager, mcpProxy, dataWarning)
+	feAPI := wails_api.New(agentManager, mcpProxy, approvalBroker, dataWarning)
 
 	appBuilder := wails.New(cfg, feAPI)
 
 	return &App{
-		Config:       cfg,
-		Logger:       logger,
-		AppBuilder:   appBuilder,
-		HttpFetcher:  httpCli,
-		Storage:      store,
-		TaskStore:    taskStore,
-		TaskWAL:      taskWAL,
-		AgentManager: agentManager,
-		MCPProxy:     mcpProxy,
+		Config:         cfg,
+		Logger:         logger,
+		AppBuilder:     appBuilder,
+		HttpFetcher:    httpCli,
+		Storage:        store,
+		TaskStore:      taskStore,
+		TaskWAL:        taskWAL,
+		AgentManager:   agentManager,
+		MCPProxy:       mcpProxy,
+		ApprovalBroker: approvalBroker,
 	}, nil
 }

@@ -3,6 +3,7 @@ package wails_api
 import (
 	"context"
 	"sort"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -25,6 +26,7 @@ type API struct {
 	ctx          context.Context
 	agentManager core_itf.AgentManager
 	mcpProxy     core_itf.MCPProxyServer
+	approvals    core_itf.ApprovalBroker
 	dataWarning  string
 }
 
@@ -33,11 +35,13 @@ var _ output_itf.FEAPI = (*API)(nil)
 func New(
 	agentManager core_itf.AgentManager,
 	mcpProxy core_itf.MCPProxyServer,
+	approvals core_itf.ApprovalBroker,
 	dataWarning string,
 ) *API {
 	return &API{
 		agentManager: agentManager,
 		mcpProxy:     mcpProxy,
+		approvals:    approvals,
 		dataWarning:  dataWarning,
 	}
 }
@@ -59,6 +63,10 @@ func (a *API) Startup(ctx context.Context) {
 
 // Shutdown is wired to Wails OnShutdown; it is not meant to be called from JS.
 func (a *API) Shutdown(ctx context.Context) {
+	if a.approvals != nil {
+		a.approvals.Stop()
+	}
+
 	agents, err := a.agentManager.SupportedAgents()
 	if err != nil {
 		return
@@ -186,6 +194,80 @@ func (a *API) SendToAgent(id string, agentID string, message string) error {
 	}
 
 	return a.agentManager.Send(parsed, message)
+}
+
+func (a *API) AgentContextUsage(agentID string) (*input_itf.ContextUsage, error) {
+	parsed, err := agentUUID(agentID)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.agentManager.ContextUsage(parsed)
+}
+
+func (a *API) PendingApprovals() ([]*output_itf.ApprovalInfo, error) {
+	pending := a.approvals.Pending()
+
+	infos := make([]*output_itf.ApprovalInfo, 0, len(pending))
+
+	for _, request := range pending {
+		item := approvalInfo(request)
+		infos = append(infos, item)
+	}
+
+	return infos, nil
+}
+
+func approvalInfo(request *core_itf.ApprovalRequest) *output_itf.ApprovalInfo {
+	if request == nil {
+		return nil
+	}
+
+	return &output_itf.ApprovalInfo{
+		ID:          request.ID.String(),
+		AgentID:     request.AgentID.String(),
+		TaskID:      request.TaskID.String(),
+		Kind:        request.Kind.String(),
+		Question:    request.Question,
+		Detail:      request.Detail,
+		Options:     request.Options,
+		MultiSelect: request.MultiSelect,
+		RequestedAt: request.RequestedAt.Format(time.RFC3339),
+	}
+}
+
+func (a *API) AnswerApproval(requestID string, approved bool, optionIDs []string, guidance string) error {
+	parsed, err := uuid.Parse(requestID)
+	if err != nil {
+		return custom_error.Critical("invalid approval id %s: %v", requestID, err)
+	}
+
+	agentID := uuid.Nil
+	for _, request := range a.approvals.Pending() {
+		if request.ID == parsed {
+			agentID = request.AgentID
+			break
+		}
+	}
+
+	if err := a.approvals.Answer(&core_itf.ApprovalAnswer{
+		RequestID: parsed,
+		Approved:  approved,
+		OptionIDs: optionIDs,
+		Guidance:  guidance,
+	}); err != nil {
+		return err
+	}
+
+	if approved || guidance == "" {
+		return nil
+	}
+
+	if agentID == uuid.Nil {
+		return custom_error.Critical("approval %s has no agent to send the guidance to", requestID)
+	}
+
+	return a.agentManager.Send(agentID, guidance)
 }
 
 func (a *API) KillAgent(id string, agentID string) error {

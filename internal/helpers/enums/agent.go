@@ -85,6 +85,7 @@ type AgentInstanceStatus string
 
 const (
 	Healthy       AgentInstanceStatus = "healthy"
+	AwaitingHuman AgentInstanceStatus = "awaiting_human"
 	NotResponding AgentInstanceStatus = "not_responding"
 	Terminated    AgentInstanceStatus = "terminated"
 )

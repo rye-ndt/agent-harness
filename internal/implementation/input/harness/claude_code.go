@@ -2,6 +2,7 @@ package harness
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/uuid"
 
 	"hexago/internal/helpers"
+	"hexago/internal/helpers/constances"
 	"hexago/internal/helpers/enums"
 	"hexago/internal/helpers/prompts"
 	"hexago/internal/implementation/core/custom_error"
@@ -96,14 +98,69 @@ type claudeManifest struct {
 }
 
 type agentProc struct {
-	cmd     *exec.Cmd
-	stdin   io.WriteCloser
-	stdinMu sync.Mutex
-	stdout  io.ReadCloser
-	out     chan string
-	done    chan struct{}
-	exited  chan struct{}
-	lastOut atomic.Int64
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdinMu   sync.Mutex
+	stdout    io.ReadCloser
+	out       chan string
+	done      chan struct{}
+	exited    chan struct{}
+	lastOut   atomic.Int64
+	ctxWindow int
+	usageMu   sync.Mutex
+	usage     input_itf.ContextUsage
+}
+
+type claudeUsage struct {
+	Type    string `json:"type"`
+	Message struct {
+		Usage struct {
+			InputTokens              int `json:"input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		} `json:"usage"`
+	} `json:"message"`
+}
+
+func (a *agentProc) trackUsage(line []byte) {
+	event := &claudeUsage{}
+	if err := json.Unmarshal(line, event); err != nil || event.Type != "assistant" {
+		return
+	}
+
+	reported := event.Message.Usage
+
+	used := reported.InputTokens +
+		reported.OutputTokens +
+		reported.CacheReadInputTokens +
+		reported.CacheCreationInputTokens
+
+	if used == 0 {
+		return
+	}
+
+	a.usageMu.Lock()
+	a.usage = input_itf.ContextUsage{
+		Total:      a.ctxWindow,
+		Used:       used,
+		Input:      reported.InputTokens,
+		Output:     reported.OutputTokens,
+		CacheRead:  reported.CacheReadInputTokens,
+		CacheWrite: reported.CacheCreationInputTokens,
+		UpdatedAt:  helpers.NewUTC(),
+	}
+	a.usageMu.Unlock()
+}
+
+func (a *agentProc) snapshotUsage() *input_itf.ContextUsage {
+	a.usageMu.Lock()
+	defer a.usageMu.Unlock()
+
+	snapshot := a.usage
+	snapshot.Total = a.ctxWindow
+
+	return &snapshot
 }
 
 type ClaudeCodeCfg struct {
@@ -138,6 +195,7 @@ type claudeCode struct {
 	spawnArgs   []string
 	mcpCfg      []byte
 	baseEnv     []string
+	ctxWindow   int
 }
 
 func NewClaudeCode(
@@ -184,6 +242,7 @@ func NewClaudeCode(
 		ansiRe:        ansiRe,
 		mcpCfg:        mcpCfg,
 		baseEnv:       append(cleanEnv(), "CLAUDE_CONFIG_DIR="+configDir),
+		ctxWindow:     globalCfg.Read().AgentManager.AllowedAgentContextWindow,
 		spawnArgs: []string{"-p",
 			"--input-format", "stream-json",
 			"--output-format", "stream-json",
@@ -506,7 +565,13 @@ func (c *claudeCode) Spawn(
 	if c.mcpCfg != nil {
 		mcpPath := filepath.Join(workdir, "mcp.json")
 
-		if err := harness_helper.WriteNewFile(mcpPath, c.mcpCfg, 0o600); err != nil {
+		agentCfg := bytes.ReplaceAll(
+			c.mcpCfg,
+			[]byte(constances.GatewayAgentPlaceholder),
+			[]byte(id),
+		)
+
+		if err := harness_helper.WriteNewFile(mcpPath, agentCfg, 0o600); err != nil {
 			os.RemoveAll(workdir)
 			return uuid.Nil, custom_error.Critical("write mcp config: %v", err)
 		}
@@ -571,12 +636,13 @@ func (c *claudeCode) Spawn(
 	}
 
 	proc := &agentProc{
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: stdout,
-		out:    out,
-		done:   done,
-		exited: exited,
+		cmd:       cmd,
+		stdin:     stdin,
+		stdout:    stdout,
+		out:       out,
+		done:      done,
+		exited:    exited,
+		ctxWindow: c.ctxWindow,
 	}
 
 	proc.lastOut.Store(helpers.NewUTCUnix())
@@ -590,6 +656,7 @@ func (c *claudeCode) Spawn(
 		sc.Buffer(make([]byte, 64*1024), 8*1024*1024)
 		for sc.Scan() {
 			proc.lastOut.Store(helpers.NewUTCUnix())
+			proc.trackUsage(sc.Bytes())
 
 			select {
 			case out <- sc.Text():
@@ -655,6 +722,17 @@ func (c *claudeCode) Alive(id string) (time.Time, error) {
 	}
 
 	return time.Unix(a.lastOut.Load(), 0).UTC(), nil
+}
+
+func (c *claudeCode) Usage(id string) (*input_itf.ContextUsage, error) {
+	c.mu.Lock()
+	a, ok := c.agents[id]
+	c.mu.Unlock()
+	if !ok {
+		return nil, custom_error.Critical("no running agent with id %s", id)
+	}
+
+	return a.snapshotUsage(), nil
 }
 
 func (c *claudeCode) Listen(id string) (<-chan string, error) {
@@ -742,13 +820,19 @@ func claudeMCPConfig(gateway *core_itf.MCPGateway) ([]byte, error) {
 	servers := map[string]any{}
 
 	for _, server := range gateway.Servers {
+		headers := map[string]string{
+			gateway.TokenHeader:           gateway.Token,
+			constances.GatewayAgentHeader: constances.GatewayAgentPlaceholder,
+		}
+
+		if server.AuthKeyName != "" {
+			headers["Authorization"] = "Bearer " + server.AuthKeyName
+		}
+
 		servers[server.Name] = map[string]any{
-			"type": "http",
-			"url":  gateway.BaseURL + "/mcp/" + server.Name,
-			"headers": map[string]string{
-				"Authorization":     "Bearer " + server.AuthKeyName,
-				gateway.TokenHeader: gateway.Token,
-			},
+			"type":    "http",
+			"url":     gateway.BaseURL + "/mcp/" + server.Name,
+			"headers": headers,
 		}
 	}
 

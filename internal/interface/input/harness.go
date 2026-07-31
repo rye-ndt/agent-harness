@@ -22,6 +22,16 @@ type AgentStatus struct {
 	Version       string `json:"version"`
 }
 
+type ContextUsage struct {
+	Total      int       `json:"total"`
+	Used       int       `json:"used"`
+	Input      int       `json:"input"`
+	Output     int       `json:"output"`
+	CacheRead  int       `json:"cache_read"`
+	CacheWrite int       `json:"cache_write"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type AgentAdmin interface {
 	Auth() (string, error)
 	SubmitAuthCode(code string) error
@@ -43,5 +53,6 @@ type AgentHarness interface {
 	Send(id string, message string) error
 	Listen(id string) (<-chan string, error)
 	Alive(id string) (time.Time, error)
+	Usage(id string) (*ContextUsage, error)
 	Kill(id string) error
 }

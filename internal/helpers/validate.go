@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"hexago/internal/helpers/enums"
+	"hexago/internal/implementation/core/custom_error"
 	"reflect"
 	"strings"
 
@@ -33,5 +34,9 @@ func newConfigValidator() *validator.Validate {
 }
 
 func ValidateStruct(target any) error {
+	if target == nil {
+		return custom_error.Critical("config nil")
+	}
+
 	return configValidator.Struct(target)
 }

@@ -51,13 +51,73 @@ type githubRelease struct {
 }
 
 type openCodeProc struct {
-	cmd     *exec.Cmd
-	out     chan string
-	port    int
-	session string
-	done    chan struct{}
-	exited  chan struct{}
-	lastOut atomic.Int64
+	cmd       *exec.Cmd
+	out       chan string
+	port      int
+	session   string
+	done      chan struct{}
+	exited    chan struct{}
+	lastOut   atomic.Int64
+	ctxWindow int
+	usageMu   sync.Mutex
+	usage     input_itf.ContextUsage
+}
+
+type openCodeUsage struct {
+	Properties struct {
+		Info struct {
+			Tokens struct {
+				Input     int `json:"input"`
+				Output    int `json:"output"`
+				Reasoning int `json:"reasoning"`
+				Cache     struct {
+					Read  int `json:"read"`
+					Write int `json:"write"`
+				} `json:"cache"`
+			} `json:"tokens"`
+		} `json:"info"`
+	} `json:"properties"`
+}
+
+func (p *openCodeProc) trackUsage(line []byte) {
+	event := &openCodeUsage{}
+	if err := json.Unmarshal(line, event); err != nil {
+		return
+	}
+
+	reported := event.Properties.Info.Tokens
+
+	used := reported.Input +
+		reported.Output +
+		reported.Reasoning +
+		reported.Cache.Read +
+		reported.Cache.Write
+
+	if used == 0 {
+		return
+	}
+
+	p.usageMu.Lock()
+	p.usage = input_itf.ContextUsage{
+		Total:      p.ctxWindow,
+		Used:       used,
+		Input:      reported.Input,
+		Output:     reported.Output,
+		CacheRead:  reported.Cache.Read,
+		CacheWrite: reported.Cache.Write,
+		UpdatedAt:  helpers.NewUTC(),
+	}
+	p.usageMu.Unlock()
+}
+
+func (p *openCodeProc) snapshotUsage() *input_itf.ContextUsage {
+	p.usageMu.Lock()
+	defer p.usageMu.Unlock()
+
+	snapshot := p.usage
+	snapshot.Total = p.ctxWindow
+
+	return &snapshot
 }
 
 type OpenCodeCfg struct {
@@ -87,6 +147,7 @@ type openCode struct {
 	systemPrompt []byte
 	env          []string
 	sessionCli   *http.Client
+	ctxWindow    int
 }
 
 func NewOpenCode(
@@ -127,6 +188,7 @@ func NewOpenCode(
 		systemPrompt: prompts.System(),
 		env:          append(cleanEnv("XDG_DATA_HOME=", "OPENCODE_"), "XDG_DATA_HOME="+dataDir),
 		sessionCli:   &http.Client{Timeout: 2 * time.Second},
+		ctxWindow:    globalCfg.Read().AgentManager.AllowedAgentContextWindow,
 	}, nil
 }
 
@@ -357,6 +419,12 @@ func (o *openCode) Spawn(
 		return uuid.Nil, custom_error.Critical("build open code config: %v", err)
 	}
 
+	rawCfg = bytes.ReplaceAll(
+		rawCfg,
+		[]byte(constances.GatewayAgentPlaceholder),
+		[]byte(id),
+	)
+
 	if err := harness_helper.WriteNewFile(filepath.Join(workdir, "opencode.json"), rawCfg, 0o600); err != nil {
 		os.RemoveAll(workdir)
 		return uuid.Nil, custom_error.Critical("write opencode config: %v", err)
@@ -432,7 +500,7 @@ func (o *openCode) Spawn(
 		abort()
 		return uuid.Nil, custom_error.Critical("open code is at its limit of %d instances", o.cfg.MaxInstance)
 	}
-	proc := &openCodeProc{cmd: cmd, out: out, port: port, session: session, done: done, exited: exited}
+	proc := &openCodeProc{cmd: cmd, out: out, port: port, session: session, done: done, exited: exited, ctxWindow: o.ctxWindow}
 	proc.lastOut.Store(helpers.NewUTCUnix())
 
 	o.agents[id] = proc
@@ -440,7 +508,7 @@ func (o *openCode) Spawn(
 
 	streamClosed := make(chan struct{})
 
-	go streamEvents(o.baseURL(port), out, done, streamClosed, &proc.lastOut)
+	go streamEvents(o.baseURL(port), out, done, streamClosed, proc)
 
 	go func() {
 		select {
@@ -499,7 +567,7 @@ func streamEvents(
 	out chan string,
 	done <-chan struct{},
 	closed chan<- struct{},
-	lastOut *atomic.Int64,
+	proc *openCodeProc,
 ) {
 	defer close(closed)
 	defer close(out)
@@ -513,12 +581,15 @@ func streamEvents(
 	sc := bufio.NewScanner(res.Body)
 	sc.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	for sc.Scan() {
-		lastOut.Store(helpers.NewUTCUnix())
+		proc.lastOut.Store(helpers.NewUTCUnix())
 
 		data, ok := strings.CutPrefix(sc.Text(), "data: ")
 		if !ok || data == "" {
 			continue
 		}
+
+		proc.trackUsage([]byte(data))
+
 		select {
 		case out <- data:
 		case <-done:
@@ -573,6 +644,17 @@ func (o *openCode) Alive(id string) (time.Time, error) {
 	}
 
 	return time.Unix(a.lastOut.Load(), 0).UTC(), nil
+}
+
+func (o *openCode) Usage(id string) (*input_itf.ContextUsage, error) {
+	o.mu.Lock()
+	a, ok := o.agents[id]
+	o.mu.Unlock()
+	if !ok {
+		return nil, custom_error.Critical("no running agent with id %s", id)
+	}
+
+	return a.snapshotUsage(), nil
 }
 
 func (o *openCode) Listen(id string) (<-chan string, error) {
@@ -668,14 +750,20 @@ func openCodeMCPCfg(gateway *core_itf.MCPGateway) map[string]any {
 	block := map[string]any{}
 
 	for _, server := range gateway.Servers {
+		headers := map[string]string{
+			gateway.TokenHeader:           gateway.Token,
+			constances.GatewayAgentHeader: constances.GatewayAgentPlaceholder,
+		}
+
+		if server.AuthKeyName != "" {
+			headers["Authorization"] = "Bearer " + server.AuthKeyName
+		}
+
 		block[server.Name] = map[string]any{
 			"type":    "remote",
 			"url":     gateway.BaseURL + "/mcp/" + server.Name,
 			"enabled": true,
-			"headers": map[string]string{
-				"Authorization":     "Bearer " + server.AuthKeyName,
-				gateway.TokenHeader: gateway.Token,
-			},
+			"headers": headers,
 		}
 	}
 

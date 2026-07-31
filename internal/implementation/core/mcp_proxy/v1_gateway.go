@@ -39,7 +39,7 @@ func (s *v1) Serve() (*core_itf.MCPGateway, error) {
 		return nil, custom_error.Critical("cannot start mcp gateway listener: %v", err)
 	}
 
-	servers := []core_itf.MCPGatewayServer{}
+	servers := []core_itf.MCPGatewayServer{{Name: constances.GatewayLocalServer}}
 
 	for _, m := range s.cfg.SupportedServers {
 		servers = append(servers, core_itf.MCPGatewayServer{
@@ -50,6 +50,7 @@ func (s *v1) Serve() (*core_itf.MCPGateway, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(gatewayPath, s.forward)
+	mux.HandleFunc(gatewayPath+constances.GatewayLocalServer, s.serveLocal)
 
 	s.gateway = &core_itf.MCPGateway{
 		BaseURL:     "http://" + ln.Addr().String(),
@@ -58,7 +59,7 @@ func (s *v1) Serve() (*core_itf.MCPGateway, error) {
 		Servers:     servers,
 	}
 
-	s.gatewayHttpServer = &http.Server{Handler: mux}
+	s.gatewayHttpServer = &http.Server{Handler: s.authenticated(mux)}
 
 	go s.gatewayHttpServer.Serve(ln)
 
@@ -86,29 +87,37 @@ func (s *v1) Close() error {
 	return nil
 }
 
+func (s *v1) authenticated(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.locker.RLock()
+		gateway := s.gateway
+		s.locker.RUnlock()
+
+		if gateway == nil {
+			http.Error(w, "mcp gateway is not running", http.StatusServiceUnavailable)
+			return
+		}
+
+		presented := r.Header.Get(gatewayTokenHeader)
+		if subtle.ConstantTimeCompare([]byte(presented), []byte(gateway.Token)) != 1 {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		r.Header.Del(gatewayTokenHeader)
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *v1) forward(w http.ResponseWriter, r *http.Request) {
-	s.locker.RLock()
-	gateway := s.gateway
-	s.locker.RUnlock()
-
-	if gateway == nil {
-		http.Error(w, "mcp gateway is not running", http.StatusServiceUnavailable)
-		return
-	}
-
-	presented := r.Header.Get(gatewayTokenHeader)
-	if subtle.ConstantTimeCompare([]byte(presented), []byte(gateway.Token)) != 1 {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-
-	r.Header.Del(gatewayTokenHeader)
-
 	name := strings.Trim(strings.TrimPrefix(r.URL.Path, gatewayPath), "/")
 	if name == "" {
 		http.Error(w, "mcp server not specified", http.StatusNotFound)
 		return
 	}
+
+	r.Header.Del(constances.GatewayAgentHeader)
 
 	res, err := s.Request(name, r.Header, r.Body)
 	if err != nil {

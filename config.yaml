@@ -11,8 +11,12 @@ session:
   heartbeat_timeout: 30m
   heartbeat_scan_interval: 1m
 
+approval_broker:
+  timeout: 30m
+
 agent_manager:
   freeze_timeout: 5m
+  allowed_agent_context_window: 200000
   connectivity_probe_url: https://api.anthropic.com
   connectivity_cache_ttl: 15s
 

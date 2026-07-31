@@ -21,13 +21,14 @@ type connectivity struct {
 }
 
 type agentManagerV1 struct {
-	locker      sync.Mutex
-	cfg         *input_itf.AgentManagerConfig
-	httpCli     input_itf.HttpCli
-	harnessTool map[enums.AgentHarness]input_itf.AgentHarness
-	instances   map[enums.ModelName][]*core_itf.Agent
-	heartBeats  map[uuid.UUID]int64
-	online      connectivity
+	locker         sync.Mutex
+	cfg            *input_itf.AgentManagerConfig
+	httpCli        input_itf.HttpCli
+	harnessTool    map[enums.AgentHarness]input_itf.AgentHarness
+	instances      map[enums.ModelName][]*core_itf.Agent
+	heartBeats     map[uuid.UUID]int64
+	approvalBroker core_itf.ApprovalBroker
+	online         connectivity
 }
 
 func InitV1(
@@ -35,6 +36,7 @@ func InitV1(
 	httpCli input_itf.HttpCli,
 	store input_itf.HarnessStorage,
 	mcpGateway *core_itf.MCPGateway,
+	approvalBroker core_itf.ApprovalBroker,
 ) (core_itf.AgentManager, error) {
 	managerCfg := cfg.Read().AgentManager
 	if managerCfg == nil {
@@ -79,12 +81,13 @@ func InitV1(
 	}
 
 	return &agentManagerV1{
-		locker:      sync.Mutex{},
-		cfg:         managerCfg,
-		httpCli:     httpCli,
-		harnessTool: list,
-		instances:   map[enums.ModelName][]*core_itf.Agent{},
-		heartBeats:  map[uuid.UUID]int64{},
+		locker:         sync.Mutex{},
+		cfg:            managerCfg,
+		httpCli:        httpCli,
+		harnessTool:    list,
+		instances:      map[enums.ModelName][]*core_itf.Agent{},
+		heartBeats:     map[uuid.UUID]int64{},
+		approvalBroker: approvalBroker,
 	}, nil
 }
 
@@ -129,6 +132,16 @@ func (m *agentManagerV1) HeartBeat(agentID uuid.UUID) error {
 		})
 
 		return custom_error.Critical("session of agent %v is gone: %v", agentID, err)
+	}
+
+	if m.approvalBroker.Awaiting(agentID) {
+		m.raceSafe(func() {
+			m.heartBeats[agentID] = helpers.NewUTCUnix()
+
+			instance.HealthStatus = enums.AwaitingHuman
+		})
+
+		return nil
 	}
 
 	if frozenFor := time.Since(lastOut); frozenFor > m.cfg.FreezeTimeout {
@@ -320,6 +333,15 @@ func (m *agentManagerV1) Listen(agentID uuid.UUID) (<-chan string, error) {
 	}
 
 	return tool.Listen(agentID.String())
+}
+
+func (m *agentManagerV1) ContextUsage(agentID uuid.UUID) (*input_itf.ContextUsage, error) {
+	tool, err := m.toolForAgent(agentID)
+	if err != nil {
+		return nil, err
+	}
+
+	return tool.Usage(agentID.String())
 }
 
 func (m *agentManagerV1) toolForAgent(agentID uuid.UUID) (input_itf.AgentHarness, error) {

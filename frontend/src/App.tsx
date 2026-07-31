@@ -3,16 +3,19 @@ import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card'
 import {Input} from '@/components/ui/input'
 import {
+    AgentContextUsage,
     AgentStatuses,
+    AnswerApproval,
     AuthAgent,
     InstallAgent,
     KillAgent,
+    PendingApprovals,
     SendToAgent,
     SpawnAgent,
     SubmitAuthCode,
     UninstallAgent,
 } from '../wailsjs/go/wails_api/API'
-import {output_itf} from '../wailsjs/go/models'
+import {input_itf, output_itf} from '../wailsjs/go/models'
 import {BrowserOpenURL, EventsOn} from '../wailsjs/runtime/runtime'
 
 type InstallProgress = {
@@ -47,6 +50,130 @@ function formatProgress(p: InstallProgress) {
     return p.stage
 }
 
+function formatTokens(tokens: number) {
+    if (tokens < 1000) return String(tokens)
+    return `${(tokens / 1000).toFixed(1).replace(/\.0$/, '')}k`
+}
+
+function ContextMeter({usage}: {usage?: input_itf.ContextUsage}) {
+    if (!usage || usage.used === 0) return null
+
+    const share = usage.total > 0 ? Math.min(1, usage.used / usage.total) : null
+    const filled = share === null ? 0 : Math.round(share * 100)
+
+    const bar =
+        share === null || share < 0.7
+            ? 'bg-primary'
+            : share < 0.9
+              ? 'bg-amber-500'
+              : 'bg-destructive'
+
+    return (
+        <div className="flex flex-col gap-1">
+            <div className="flex justify-between text-xs text-muted-foreground">
+                <span>context</span>
+                <span>
+                    {formatTokens(usage.used)}
+                    {usage.total > 0 && ` / ${formatTokens(usage.total)} · ${filled}%`}
+                </span>
+            </div>
+            {share !== null && (
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div className={`h-full ${bar}`} style={{width: `${filled}%`}} />
+                </div>
+            )}
+        </div>
+    )
+}
+
+function ApprovalCard({
+    approval,
+    busy,
+    onAnswer,
+}: {
+    approval: output_itf.ApprovalInfo
+    busy: boolean
+    onAnswer: (approved: boolean, optionIds: string[], guidance: string) => void
+}) {
+    const [picked, setPicked] = useState<string[]>([])
+    const [guidance, setGuidance] = useState('')
+
+    const toggle = (optionId: string) => {
+        setPicked((prev) => {
+            if (!approval.multi_select) return [optionId]
+            return prev.includes(optionId)
+                ? prev.filter((id) => id !== optionId)
+                : [...prev, optionId]
+        })
+    }
+
+    return (
+        <Card className="w-full max-w-sm border-amber-500">
+            <CardHeader>
+                <CardTitle className="text-sm">{approval.question}</CardTitle>
+                <CardDescription>
+                    {approval.kind === 'permission' ? 'Permission' : 'Decision'} · agent{' '}
+                    {approval.agent_id.slice(0, 8)}
+                    {approval.multi_select && ' · pick one or more'}
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+                {approval.detail && (
+                    <p className="text-xs whitespace-pre-wrap text-muted-foreground">
+                        {approval.detail}
+                    </p>
+                )}
+                <div className="flex flex-col gap-1">
+                    {approval.options.map((option) => (
+                        <button
+                            key={option.id}
+                            disabled={busy}
+                            onClick={() => toggle(option.id)}
+                            className={
+                                picked.includes(option.id)
+                                    ? 'rounded-md border border-primary bg-primary/10 px-2 py-1 text-left text-sm'
+                                    : 'rounded-md border px-2 py-1 text-left text-sm hover:bg-muted'
+                            }
+                        >
+                            <span className="font-medium">{option.label}</span>
+                            {option.description && (
+                                <span className="block text-xs text-muted-foreground">
+                                    {option.description}
+                                </span>
+                            )}
+                        </button>
+                    ))}
+                </div>
+                <Input
+                    value={guidance}
+                    disabled={busy}
+                    placeholder="Guidance for the agent (optional)"
+                    onChange={(e) => setGuidance(e.target.value)}
+                />
+                <div className="flex gap-2">
+                    <Button
+                        size="sm"
+                        className="flex-1"
+                        disabled={busy || picked.length === 0}
+                        onClick={() => onAnswer(true, picked, guidance.trim())}
+                    >
+                        {busy ? 'sending' : 'Approve'}
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="destructive"
+                        className="flex-1"
+                        disabled={busy}
+                        onClick={() => onAnswer(false, [], guidance.trim())}
+                    >
+                        Reject
+                    </Button>
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
+
 function extractAgentText(line: string): {text: string; replace: boolean} | null {
     let evt: any
     try {
@@ -70,10 +197,12 @@ function extractAgentText(line: string): {text: string; replace: boolean} | null
 
 function ChatBox({
     instance,
+    usage,
     onSend,
     onKill,
 }: {
     instance: Instance
+    usage?: input_itf.ContextUsage
     onSend: (text: string) => Promise<void>
     onKill: () => void
 }) {
@@ -102,6 +231,7 @@ function ChatBox({
                 </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
+                <ContextMeter usage={usage} />
                 <div
                     ref={scrollRef}
                     className="flex max-h-64 min-h-24 flex-col gap-1 overflow-y-auto rounded-md border p-2"
@@ -148,6 +278,9 @@ function App() {
     const [progress, setProgress] = useState<Record<string, string>>({})
     const [authUrls, setAuthUrls] = useState<Record<string, string>>({})
     const [codeDrafts, setCodeDrafts] = useState<Record<string, string>>({})
+    const [usages, setUsages] = useState<Record<string, input_itf.ContextUsage>>({})
+    const [approvals, setApprovals] = useState<output_itf.ApprovalInfo[]>([])
+    const [answering, setAnswering] = useState<Record<string, boolean>>({})
     const [error, setError] = useState('')
 
     const refresh = () => {
@@ -195,6 +328,36 @@ function App() {
             offClosed()
         }
     }, [])
+
+    useEffect(() => {
+        const poll = () => {
+            PendingApprovals()
+                .then(setApprovals)
+                .catch(() => {})
+        }
+        poll()
+        const timer = setInterval(poll, 2000)
+        return () => clearInterval(timer)
+    }, [])
+
+    const aliveIds = instances
+        .filter((inst) => inst.alive)
+        .map((inst) => inst.agentId)
+        .join(',')
+
+    useEffect(() => {
+        if (!aliveIds) return
+        const poll = () => {
+            for (const agentId of aliveIds.split(',')) {
+                AgentContextUsage(agentId)
+                    .then((usage) => setUsages((prev) => ({...prev, [agentId]: usage})))
+                    .catch(() => {})
+            }
+        }
+        poll()
+        const timer = setInterval(poll, 1500)
+        return () => clearInterval(timer)
+    }, [aliveIds])
 
     const run = async (id: string, label: string, action: (id: string) => Promise<unknown>) => {
         setError('')
@@ -288,6 +451,27 @@ function App() {
         } catch (err) {
             setError(String(err))
         }
+    }
+
+    const answer = async (
+        approval: output_itf.ApprovalInfo,
+        approved: boolean,
+        optionIds: string[],
+        guidance: string,
+    ) => {
+        setError('')
+        setAnswering((prev) => ({...prev, [approval.id]: true}))
+        try {
+            await AnswerApproval(approval.id, approved, optionIds, guidance)
+            setApprovals((prev) => prev.filter((a) => a.id !== approval.id))
+        } catch (err) {
+            setError(String(err))
+        }
+        setAnswering((prev) => {
+            const next = {...prev}
+            delete next[approval.id]
+            return next
+        })
     }
 
     return (
@@ -406,10 +590,21 @@ function App() {
                     )}
                 </CardContent>
             </Card>
+            {approvals.map((approval) => (
+                <ApprovalCard
+                    key={approval.id}
+                    approval={approval}
+                    busy={answering[approval.id] ?? false}
+                    onAnswer={(approved, optionIds, guidance) =>
+                        answer(approval, approved, optionIds, guidance)
+                    }
+                />
+            ))}
             {instances.map((inst) => (
                 <ChatBox
                     key={inst.agentId}
                     instance={inst}
+                    usage={usages[inst.agentId]}
                     onSend={(text) => send(inst, text)}
                     onKill={() => kill(inst)}
                 />

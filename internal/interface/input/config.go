@@ -18,10 +18,15 @@ type SessionConfig struct {
 	HeartbeatScanInterval time.Duration `mapstructure:"heartbeat_scan_interval" validate:"gt=0,ltefield=HeartbeatTimeout"`
 }
 
+type ApprovalBrokerConfig struct {
+	Timeout time.Duration `mapstructure:"timeout" validate:"gt=0"`
+}
+
 type AgentManagerConfig struct {
-	FreezeTimeout        time.Duration `mapstructure:"freeze_timeout" validate:"gt=0"`
-	ConnectivityProbeURL string        `mapstructure:"connectivity_probe_url" validate:"required,http_url"`
-	ConnectivityCacheTTL time.Duration `mapstructure:"connectivity_cache_ttl" validate:"gt=0,ltefield=FreezeTimeout"`
+	FreezeTimeout             time.Duration `mapstructure:"freeze_timeout" validate:"gt=0"`
+	AllowedAgentContextWindow int           `mapstructure:"allowed_agent_context_window" validate:"gte=0"`
+	ConnectivityProbeURL      string        `mapstructure:"connectivity_probe_url" validate:"required,http_url"`
+	ConnectivityCacheTTL      time.Duration `mapstructure:"connectivity_cache_ttl" validate:"gt=0,ltefield=FreezeTimeout"`
 }
 
 type MCPServerConfig struct {
@@ -47,13 +52,14 @@ type MCPServersConfig struct {
 }
 
 type ConfigStruct struct {
-	App          *AppConfig                            `mapstructure:"app" validate:"required"`
-	Version      string                                `mapstructure:"version" validate:"required"`
-	LogLevel     string                                `mapstructure:"log_level" validate:"required,oneof=debug info warn error"`
-	Session      *SessionConfig                        `mapstructure:"session" validate:"required"`
-	AgentManager *AgentManagerConfig                   `mapstructure:"agent_manager" validate:"required"`
-	MCPServers   *MCPServersConfig                     `mapstructure:"mcp_servers" validate:"required"`
-	AgentHarness map[enums.AgentHarness]map[string]any `mapstructure:"agent_harness" validate:"required,gt=0"`
+	App            *AppConfig                            `mapstructure:"app" validate:"required"`
+	Version        string                                `mapstructure:"version" validate:"required"`
+	LogLevel       string                                `mapstructure:"log_level" validate:"required,oneof=debug info warn error"`
+	Session        *SessionConfig                        `mapstructure:"session" validate:"required"`
+	ApprovalBroker *ApprovalBrokerConfig                 `mapstructure:"approval_broker" validate:"required"`
+	AgentManager   *AgentManagerConfig                   `mapstructure:"agent_manager" validate:"required"`
+	MCPServers     *MCPServersConfig                     `mapstructure:"mcp_servers" validate:"required"`
+	AgentHarness   map[enums.AgentHarness]map[string]any `mapstructure:"agent_harness" validate:"required,gt=0"`
 }
 
 type Config interface {

@@ -32,6 +32,7 @@ type AgentManager interface {
 	Instance(agentID uuid.UUID) (*Agent, error)
 	Send(agentID uuid.UUID, message string) error
 	Listen(agentID uuid.UUID) (<-chan string, error)
+	ContextUsage(agentID uuid.UUID) (*input_itf.ContextUsage, error)
 	Kill(agentID uuid.UUID) error
 	HeartBeat(agentID uuid.UUID) error
 }

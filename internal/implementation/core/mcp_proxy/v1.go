@@ -35,6 +35,7 @@ type v1 struct {
 	serverToCred      map[string]*cred
 	httpCli           input_itf.HttpCli
 	db                input_itf.StorageMCP
+	approvalBroker    core_itf.ApprovalBroker
 	gateway           *core_itf.MCPGateway
 	gatewayHttpServer *http.Server
 }
@@ -43,6 +44,7 @@ func InitV1(
 	cfg *input_itf.MCPServersConfig,
 	db input_itf.StorageMCP,
 	httpCli input_itf.HttpCli,
+	approvalBroker core_itf.ApprovalBroker,
 ) (core_itf.MCPProxyServer, error) {
 	aead, err := mcp_helpers.NewCipher(cfg.EncodeKey)
 	if err != nil {
@@ -56,12 +58,13 @@ func InitV1(
 	}
 
 	s := &v1{
-		locker:       sync.RWMutex{},
-		aead:         aead,
-		cfg:          *cfg,
-		serverToCred: map[string]*cred{},
-		httpCli:      httpCli,
-		db:           db,
+		locker:         sync.RWMutex{},
+		aead:           aead,
+		cfg:            *cfg,
+		serverToCred:   map[string]*cred{},
+		httpCli:        httpCli,
+		db:             db,
+		approvalBroker: approvalBroker,
 	}
 
 	if err := s.loadCredentials(); err != nil {
