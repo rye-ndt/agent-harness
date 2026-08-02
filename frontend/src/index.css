@@ -7,6 +7,42 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+    The scale. Everything in src/ uses these steps — no arbitrary sizes.
+
+    Type    Tailwind's own five names, re-pitched one step up. Keep these
+            names: tailwind-merge only dedupes font sizes it recognises, so a
+            custom name (text-body) reads as a text *colour* and silently
+            drops the colour it was merged with.
+
+            text-xs   12px  dense machine values, badges, `micro-label`
+            text-sm   13px  secondary copy: hints, captions, timestamps
+            text-base 14px  default. Labels, controls, list rows, buttons
+            text-lg   16px  dialog titles, node titles
+            text-xl   20px  the session name, the onboarding headline
+
+    Space   4 / 8 / 12 / 16 / 24 / 32 — Tailwind 1 / 2 / 3 / 4 / 6 / 8.
+            No half-steps. Label to control 2, control to hint 2, fields 3,
+            form sections 6. Rows and cards pad 3, dialog bodies pad 4.
+
+    Frames  chrome bars h-14, dialog headers h-16, dialog footers h-14,
+            icon buttons size-7 inline / size-8 in a toolbar.
+
+    Half-steps left in components/ui/* are shadcn's own component geometry.
+*/
+@theme {
+    --text-xs: 0.75rem;
+    --text-xs--line-height: 1.2;
+    --text-sm: 0.8125rem;
+    --text-sm--line-height: 1.45;
+    --text-base: 0.875rem;
+    --text-base--line-height: 1.5;
+    --text-lg: 1rem;
+    --text-lg--line-height: 1.4;
+    --text-xl: 1.25rem;
+    --text-xl--line-height: 1.3;
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
     --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
@@ -156,10 +192,16 @@
   html {
     @apply font-sans;
     }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  summary {
+    cursor: pointer;
+    }
 }
 
 @utility micro-label {
-    @apply text-[0.6875rem] leading-none font-medium tracking-[0.06em] text-muted-foreground uppercase;
+    @apply text-xs leading-none font-medium tracking-[0.06em] text-muted-foreground uppercase;
 }
 
 @utility scrim {

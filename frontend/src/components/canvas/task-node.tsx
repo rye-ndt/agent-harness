@@ -65,24 +65,24 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                 <StateIcon state={task.state} />
                 <span
                     className={cn(
-                        'min-w-0 flex-1 truncate text-[0.9375rem] font-medium',
+                        'min-w-0 flex-1 truncate text-lg font-medium',
                         !task.title && 'text-muted-foreground',
                     )}
                 >
                     {task.title || 'Untitled task'}
                 </span>
                 {elapsed && (
-                    <span className="shrink-0 font-mono text-[0.6875rem] text-muted-foreground">
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
                         {elapsed}
                     </span>
                 )}
             </div>
 
-            <div className="relative mt-2 flex items-center justify-between gap-2 text-xs">
+            <div className="relative mt-2 flex items-center justify-between gap-2 text-sm">
                 <span className="truncate font-mono text-muted-foreground">{task.agent}</span>
-                <span className="flex shrink-0 items-center gap-1.5">
+                <span className="flex shrink-0 items-center gap-2">
                     {context && (
-                        <span className="font-mono text-[0.6875rem] text-muted-foreground">
+                        <span className="font-mono text-xs text-muted-foreground">
                             {formatTokens(context.used)}/{formatTokens(context.total)}
                         </span>
                     )}
@@ -91,7 +91,7 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
             </div>
 
             {upstream.length > 0 && (
-                <p className="relative mt-1.5 truncate text-xs text-muted-foreground">
+                <p className="relative mt-1 truncate text-sm text-muted-foreground">
                     {upstream.length === 1
                         ? `Runs after ${upstream[0].title || 'Untitled task'}`
                         : `Runs after all ${upstream.length} upstream tasks`}

@@ -1,19 +1,26 @@
 /**
  * Stand-in for the Go task-graph API, which does not exist yet — the backend's
- * FEAPI port is agent-lifecycle only. Sessions live in this module's memory.
+ * FEAPI port is agent-lifecycle only. Sessions live in this module's memory,
+ * and finalizing one starts a simulated run that walks the graph in order.
  * When the real Wails bindings land, this is the only file that changes.
  */
 
-import {MOCK_SESSIONS} from '@/lib/mock-sessions'
+import {mockOutcome, MOCK_SESSIONS} from '@/lib/mock-sessions'
 import {
     createSession as buildSession,
     createTask as buildTask,
     createsCycle,
     duplicateSession,
+    hasRunningTask,
+    isRunnable,
 } from '@/lib/session'
-import type {Point, Session, Task} from '@/types/session'
+import type {Point, Session, Task, TaskDraft} from '@/types/session'
+
+const TICK_MS = 900
 
 let sessions: Session[] = structuredClone(MOCK_SESSIONS)
+
+const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
 function findSession(sessionId: string) {
     const session = sessions.find((session) => session.id === sessionId)
@@ -38,6 +45,97 @@ function replaceSession(next: Session) {
     return structuredClone(next)
 }
 
+function label(session: Session): Session {
+    return {
+        ...session,
+        tasks: session.tasks.map((task) => {
+            if (task.state === 'running' || task.state === 'done' || task.state === 'failed')
+                return task
+            return {...task, state: isRunnable(session, task) ? 'queued' : 'blocked'}
+        }),
+    }
+}
+
+function start(task: Task, now: number): Task {
+    const {contextTotal, contextPeak} = mockOutcome(task)
+
+    return {
+        ...task,
+        state: 'running',
+        run: {
+            ...task.run,
+            startedAt: new Date(now).toISOString(),
+            finishedAt: undefined,
+            context: {used: Math.round(contextTotal * contextPeak * 0.2), total: contextTotal},
+        },
+    }
+}
+
+function progress(task: Task, now: number): Task {
+    const outcome = mockOutcome(task)
+    const startedAt = task.run?.startedAt ? Date.parse(task.run.startedAt) : now
+    const share = Math.min(1, Math.max(0, (now - startedAt) / outcome.durationMs))
+    const context = {
+        used: Math.round(outcome.contextTotal * outcome.contextPeak * (0.2 + 0.8 * share)),
+        total: outcome.contextTotal,
+    }
+
+    if (share < 1) return {...task, run: {...task.run, context}}
+
+    return {
+        ...task,
+        state: outcome.state,
+        run: {...task.run, finishedAt: new Date(now).toISOString(), context},
+        report: outcome.report,
+    }
+}
+
+function advance(session: Session): Session {
+    const now = Date.now()
+
+    const progressed = label({
+        ...session,
+        tasks: session.tasks.map((task) => (task.state === 'running' ? progress(task, now) : task)),
+    })
+
+    return label({
+        ...progressed,
+        tasks: progressed.tasks.map((task) =>
+            isRunnable(progressed, task) ? start(task, now) : task,
+        ),
+    })
+}
+
+function tick(sessionId: string) {
+    const session = sessions.find((session) => session.id === sessionId)
+    if (!session?.finalized) return
+
+    const next = replaceSession(advance(session))
+    if (hasRunningTask(next)) schedule(sessionId)
+}
+
+function schedule(sessionId: string) {
+    if (timers.has(sessionId)) return
+
+    timers.set(
+        sessionId,
+        setTimeout(() => {
+            timers.delete(sessionId)
+            tick(sessionId)
+        }, TICK_MS),
+    )
+}
+
+function stopRun(sessionId: string) {
+    const timer = timers.get(sessionId)
+    if (timer === undefined) return
+
+    clearTimeout(timer)
+    timers.delete(sessionId)
+}
+
+for (const session of sessions) if (hasRunningTask(session)) schedule(session.id)
+
 export async function listSessions(): Promise<Session[]> {
     return structuredClone(sessions)
 }
@@ -58,22 +156,30 @@ export async function updateSession(
     sessionId: string,
     patch: Partial<Pick<Session, 'name' | 'finalized'>>,
 ): Promise<Session> {
-    const locks = Object.keys(patch).every((key) => key === 'finalized')
-    const session = locks ? findSession(sessionId) : findOpenSession(sessionId)
-    return replaceSession({...session, ...patch})
+    if (patch.finalized === false)
+        throw new Error('A finalized session cannot go back to a draft. Duplicate it instead.')
+
+    const session = patch.finalized ? findSession(sessionId) : findOpenSession(sessionId)
+    replaceSession({...session, ...patch})
+
+    if (patch.finalized) tick(sessionId)
+
+    return structuredClone(findSession(sessionId))
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
+    stopRun(sessionId)
     sessions = sessions.filter((session) => session.id !== sessionId)
 }
 
 export async function createTask(
     sessionId: string,
     taskId: string,
+    draft: TaskDraft,
     position: Point,
 ): Promise<Task> {
     const session = findOpenSession(sessionId)
-    const task = {...buildTask(position, session.tasks.length), id: taskId}
+    const task = {...buildTask(draft, position), id: taskId}
     replaceSession({...session, tasks: [...session.tasks, task]})
     return structuredClone(task)
 }

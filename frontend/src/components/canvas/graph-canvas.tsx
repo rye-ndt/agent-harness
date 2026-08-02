@@ -29,7 +29,7 @@ type GraphCanvasProps = {
     onMoveTask: (taskId: string, position: Point) => void
     onConnect: (sourceId: string, targetId: string) => void
     onDisconnect: (sourceId: string, targetId: string) => void
-    onAddTask: (position: Point) => void
+    onNewNode: (position: Point) => void
 }
 
 const nodeTypes = {task: TaskNode}
@@ -51,7 +51,7 @@ function Canvas({
     onMoveTask,
     onConnect,
     onDisconnect,
-    onAddTask,
+    onNewNode,
 }: GraphCanvasProps) {
     const {screenToFlowPosition} = useReactFlow()
     const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
@@ -130,7 +130,7 @@ function Canvas({
             return
 
         const position = screenToFlowPosition({x: event.clientX, y: event.clientY})
-        onAddTask({x: position.x - 130, y: position.y - 40})
+        onNewNode({x: position.x - 130, y: position.y - 40})
     }
 
     return (
@@ -186,20 +186,18 @@ function Canvas({
 
             {session.tasks.length === 0 && (
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3">
-                    <p className="text-[0.8125rem] text-muted-foreground">
-                        {session.finalized
-                            ? 'This session has no tasks.'
-                            : 'No tasks yet. Add the first task to start the chain.'}
+                    <p className="text-base text-muted-foreground">
+                        {session.finalized ? 'This session has no nodes.' : 'No nodes yet.'}
                     </p>
                     {!session.finalized && (
                         <Button
                             variant="outline"
                             size="sm"
                             className="pointer-events-auto"
-                            onClick={() => onAddTask({x: 0, y: 0})}
+                            onClick={() => onNewNode({x: 0, y: 0})}
                         >
                             <Plus />
-                            Add task
+                            New node
                         </Button>
                     )}
                 </div>

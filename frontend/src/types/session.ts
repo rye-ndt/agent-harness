@@ -1,3 +1,5 @@
+import type {ParamValue} from '@/types/template'
+
 export type TaskState =
     | 'idle'
     | 'blocked'
@@ -19,24 +21,40 @@ export type ContextUsage = {
     total: number
 }
 
-export type ApprovalOption = {
-    id: string
-    label: string
-    description: string
+export type FileChangeType = 'created' | 'modified' | 'deleted' | 'renamed'
+
+export type FileChange = {
+    path: string
+    oldPath: string
+    changeType: FileChangeType
+    additions: number
+    deletions: number
+    unifiedDiff: string
 }
 
-export type Approval = {
-    id: string
-    question: string
-    detail: string
-    options: ApprovalOption[]
-    multiSelect: boolean
+export type HandoverDoc = {
+    task: string
+    outcome: string
+    blockers: Record<string, string>
+    approvedDecisions: Record<string, string>
+    rejectedDecisions: Record<string, string>
+    currentBehaviors: Record<string, string>
+    changedBehaviors: Record<string, string>
+    mustAvoid: Record<string, string>
+    nuances: Record<string, string>
+    knownGaps: Record<string, string>
+}
+
+export type TaskReport = {
+    status: TaskState
+    fileChanges: FileChange[]
+    handoverDocs: HandoverDoc[]
 }
 
 export type Run = {
     startedAt?: string
     finishedAt?: string
-    log: string[]
+    retryCount?: number
     context?: ContextUsage
 }
 
@@ -48,8 +66,17 @@ export type Task = {
     state: TaskState
     position: Point
     dependsOn: string[]
+    templateId?: string
+    values?: Record<string, ParamValue>
     run?: Run
-    approval?: Approval
+    report?: TaskReport
+}
+
+export type TaskDraft = {
+    title: string
+    prompt: string
+    templateId: string
+    values: Record<string, ParamValue>
 }
 
 export type Session = {

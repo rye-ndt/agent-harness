@@ -42,6 +42,35 @@ build the next node's context, assign it*. That coordinator belongs in
 - Frontend bindings in `frontend/wailsjs/` are generated — regenerate with
   `~/go/bin/wails generate module` (not on PATH), never hand-edit.
 
+# Frontend rules
+
+- **Always run the `frontend-design` skill before frontend work.** Every new
+  screen, component, or reshape of an existing one starts there, so the result
+  is a deliberate design rather than framework defaults.
+- **No Go wiring yet — mock everything, but against a contract.** Do not add
+  ports in `internal/interface/` or bindings in `frontend/wailsjs/` for new
+  frontend work. Instead: declare the shape the frontend expects in
+  `src/types/`, back it with a fixture in `src/lib/mock-*.ts`, and expose it
+  through `src/api/*.ts` as an async function. `api/*.ts` is the only seam that
+  will ever be swapped for a real call — nothing above it may import a mock
+  directly. The contract is a working guess and will change; write it as the
+  DTO the Go side would plausibly return (string ids, ISO timestamps), not as
+  whatever is convenient for the component.
+- **Every flow must be end-to-end testable in the browser.** Mocks model state
+  transitions and latency, not just a static payload — a run that starts must
+  progress and finish, an approval must resolve, a failure path must be
+  reachable. If a flow can only be demonstrated by editing a fixture by hand,
+  it is not wired.
+- **The dev server is web-based on port 8888** (`npm run dev` in `frontend/`,
+  pinned in `vite.config.ts`). Under a plain `vite` server there is no Wails
+  runtime — see the `frontend/wailsjs/` gotcha below; this is exactly why the
+  `api/*.ts` seam must never reach for a binding while we are mocking.
+- **Written for a human maintainer, not a bot.** Small components with one job,
+  names that say what the thing is, no cleverness that needs a comment to
+  survive. Pure presentational components take props and render; state lives in
+  hooks (`src/hooks/`) and TanStack Query. Duplicate before you abstract — a
+  wrong abstraction costs more than a repeated block.
+
 # Performance
 
 The hot path is agent output: a subprocess streams lines, Go forwards them over

@@ -1,4 +1,4 @@
-import type {Point, Session, SessionStatus, Task, TaskState} from '@/types/session'
+import type {Point, Session, SessionStatus, Task, TaskDraft, TaskState} from '@/types/session'
 
 export const TASK_STATES: TaskState[] = [
     'idle',
@@ -30,25 +30,23 @@ export const STATE_SHORT_LABELS: Record<TaskState, string> = {
     failed: 'Failed',
 }
 
-export function newId() {
-    return crypto.randomUUID()
-}
-
-export function createTask(position: Point, index: number): Task {
+export function createTask(draft: TaskDraft, position: Point): Task {
     return {
-        id: newId(),
-        title: `Task ${index + 1}`,
-        prompt: '',
+        id: crypto.randomUUID(),
+        title: draft.title,
+        prompt: draft.prompt,
         agent: 'claude_code',
         state: 'idle',
         position,
         dependsOn: [],
+        templateId: draft.templateId,
+        values: draft.values,
     }
 }
 
 export function createSession(index: number): Session {
     return {
-        id: newId(),
+        id: crypto.randomUUID(),
         name: `Session ${index + 1}`,
         createdAt: new Date().toISOString(),
         finalized: false,
@@ -58,10 +56,10 @@ export function createSession(index: number): Session {
 
 /** Deep copy: new session id, new task ids, remapped edges, run history cleared. */
 export function duplicateSession(session: Session): Session {
-    const idMap = new Map(session.tasks.map((task) => [task.id, newId()]))
+    const idMap = new Map(session.tasks.map((task) => [task.id, crypto.randomUUID()]))
 
     return {
-        id: newId(),
+        id: crypto.randomUUID(),
         name: `${session.name} copy`,
         createdAt: new Date().toISOString(),
         finalized: false,
@@ -73,6 +71,8 @@ export function duplicateSession(session: Session): Session {
             state: 'idle',
             position: {...task.position},
             dependsOn: task.dependsOn.map((id) => idMap.get(id)!).filter(Boolean),
+            templateId: task.templateId,
+            values: task.values ? {...task.values} : undefined,
         })),
     }
 }
@@ -84,11 +84,14 @@ export function findTask(session: Session, taskId: string | null) {
 
 export function sessionStatus(session: Session): SessionStatus {
     if (session.tasks.length === 0) return 'empty'
+    if (!session.finalized) return 'draft'
     if (session.tasks.some((task) => task.state === 'failed')) return 'failed'
     if (session.tasks.every((task) => task.state === 'done')) return 'done'
-    if (session.tasks.some((task) => task.state === 'running' || task.state === 'awaiting_approval'))
-        return 'running'
-    return 'draft'
+    return 'running'
+}
+
+export function hasRunningTask(session: Session) {
+    return session.tasks.some((task) => task.state === 'running')
 }
 
 export function sessionProgress(session: Session) {
@@ -96,10 +99,12 @@ export function sessionProgress(session: Session) {
     return {done, total: session.tasks.length}
 }
 
-/** A task runs only once every upstream task is done — the fan-in join. */
+/** Finalizing starts the run, so a task waits for that and for every upstream task — the fan-in join. */
 export function isRunnable(session: Session, task: Task) {
-    return task.dependsOn.every(
-        (id) => findTask(session, id)?.state === 'done',
+    return (
+        session.finalized &&
+        (task.state === 'idle' || task.state === 'queued' || task.state === 'blocked') &&
+        task.dependsOn.every((id) => findTask(session, id)?.state === 'done')
     )
 }
 

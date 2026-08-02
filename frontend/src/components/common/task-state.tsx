@@ -118,7 +118,7 @@ export function StateBadge({state, className}: {state: TaskState; className?: st
     return (
         <span
             className={cn(
-                'inline-flex h-5 items-center rounded-md px-1.5 text-[0.6875rem] font-medium',
+                'inline-flex h-5 items-center rounded-md px-2 text-xs font-medium',
                 BADGE_CLASSES[state],
                 className,
             )}

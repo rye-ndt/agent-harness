@@ -18,7 +18,7 @@ export function SettingsNav({
     onSelect: (id: string) => void
 }) {
     return (
-        <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
+        <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
             {tabs.map(({id, label, icon: Icon}) => {
                 const active = id === activeId
 
@@ -28,7 +28,7 @@ export function SettingsNav({
                         type="button"
                         onClick={() => onSelect(id)}
                         className={cn(
-                            'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[0.8125rem] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+                            'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-base outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
                             active
                                 ? 'bg-sidebar-accent font-medium text-foreground'
                                 : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground',

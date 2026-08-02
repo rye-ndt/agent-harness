@@ -54,12 +54,12 @@ export function SessionRow({
                 onClick={onSelect}
                 aria-current={active}
                 className={cn(
-                    'flex w-full flex-col gap-1.5 rounded-md py-3 pr-8 pl-2.5 text-left transition-colors duration-[120ms] outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring/50',
+                    'flex w-full flex-col gap-2 rounded-md px-2 py-3 pr-8 text-left transition-colors duration-[120ms] outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring/50',
                     active && 'bg-sidebar-accent',
                 )}
             >
-                <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="truncate text-[0.8125rem] font-medium">{session.name}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-base font-medium">{session.name}</span>
                     {session.finalized && (
                         <Tooltip>
                             <TooltipTrigger asChild>
@@ -80,7 +80,7 @@ export function SessionRow({
 
                 <SessionSpine session={session} />
 
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1 text-sm text-muted-foreground">
                     {total === 0 ? (
                         <span>No tasks</span>
                     ) : (
@@ -110,7 +110,7 @@ export function SessionRow({
                         type="button"
                         aria-label={`Options for ${session.name}`}
                         onClick={(event) => event.stopPropagation()}
-                        className="absolute top-2.5 right-1.5 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity duration-[120ms] outline-none hover:bg-sidebar-border hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100 aria-expanded:opacity-100"
+                        className="absolute top-2 right-1 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity duration-[120ms] outline-none hover:bg-sidebar-border hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100 aria-expanded:opacity-100"
                     >
                         <MoreHorizontal className="size-3.5" />
                     </button>

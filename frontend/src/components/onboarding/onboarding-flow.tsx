@@ -1,7 +1,7 @@
 import {useState} from 'react'
 
 import {AgentChoice} from '@/components/onboarding/agent-choice'
-import {StepSpine} from '@/components/onboarding/step-spine'
+import {StepSpine} from '@/components/common/step-spine'
 import {Button} from '@/components/ui/button'
 import {
     Dialog,
@@ -26,7 +26,7 @@ const COPY: Record<Step, {label: string; title: string; description: string}> = 
     agent: {
         label: 'Choose an agent',
         title: 'Which agent runs your tasks?',
-        description: 'Install one to continue. You can add the other later from Agents.',
+        description: 'Install one to continue. You can add the other later in Settings.',
     },
     done: {
         label: "You're set",
@@ -44,16 +44,16 @@ export function OnboardingFlow({onDone}: {onDone: () => void}) {
         <Dialog open>
             <DialogContent
                 showCloseButton={false}
-                className="flex min-h-[340px] flex-col gap-5 p-7"
+                className="flex min-h-[360px] flex-col gap-6 p-8"
                 onEscapeKeyDown={(event) => event.preventDefault()}
                 onPointerDownOutside={(event) => event.preventDefault()}
                 onInteractOutside={(event) => event.preventDefault()}
             >
                 <StepSpine total={ORDER.length} current={ORDER.indexOf(step)} />
 
-                <DialogHeader className="items-center gap-1.5 text-center">
+                <DialogHeader className="items-center gap-2 text-center">
                     <span className="micro-label">{copy.label}</span>
-                    <DialogTitle>{copy.title}</DialogTitle>
+                    <DialogTitle className="text-xl">{copy.title}</DialogTitle>
                     <DialogDescription>{copy.description}</DialogDescription>
                 </DialogHeader>
 
@@ -64,11 +64,11 @@ export function OnboardingFlow({onDone}: {onDone: () => void}) {
                 {step !== 'agent' && (
                     <DialogFooter className="justify-center">
                         {step === 'welcome' ? (
-                            <Button className="min-w-[140px]" onClick={() => setStep('agent')}>
+                            <Button className="min-w-36" onClick={() => setStep('agent')}>
                                 Next
                             </Button>
                         ) : (
-                            <Button className="min-w-[140px]" onClick={onDone}>
+                            <Button className="min-w-36" onClick={onDone}>
                                 Done
                             </Button>
                         )}

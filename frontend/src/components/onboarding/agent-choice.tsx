@@ -30,23 +30,23 @@ export function AgentChoice({onInstalled}: {onInstalled: () => void}) {
                     disabled={installing !== ''}
                     onClick={() => choose(choice.id, choice.name)}
                     className={cn(
-                        'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left ring-1 ring-border transition-colors hover:bg-accent disabled:pointer-events-none',
+                        'flex w-full items-center gap-3 rounded-lg p-3 text-left ring-1 ring-border transition-colors hover:bg-accent disabled:pointer-events-none',
                         installing !== '' && installing !== choice.id && 'opacity-50',
                     )}
                 >
                     <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[0.8125rem] font-medium">
+                        <span className="block truncate text-base font-medium">
                             {choice.name}
                         </span>
-                        <span className="block truncate text-xs text-muted-foreground">
+                        <span className="block truncate text-sm text-muted-foreground">
                             {choice.blurb}
                         </span>
                     </span>
 
                     {installing === choice.id && (
-                        <span className="flex shrink-0 items-center gap-1.5">
+                        <span className="flex shrink-0 items-center gap-2">
                             <StateIcon state="running" />
-                            <span className="font-mono text-[0.6875rem] text-muted-foreground">
+                            <span className="font-mono text-xs text-muted-foreground">
                                 Installing
                             </span>
                         </span>
@@ -54,7 +54,7 @@ export function AgentChoice({onInstalled}: {onInstalled: () => void}) {
                 </button>
             ))}
 
-            {error && <p className="text-xs text-destructive">{error}</p>}
+            {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
     )
 }

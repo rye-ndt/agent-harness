@@ -2,10 +2,18 @@ import {useCallback, useMemo, useState} from 'react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 
 import * as api from '@/api/sessions'
-import {createSession, createTask, createsCycle, duplicateSession, newId} from '@/lib/session'
-import type {Point, Session, Task} from '@/types/session'
+import {
+    createSession,
+    createTask,
+    createsCycle,
+    duplicateSession,
+    hasRunningTask,
+} from '@/lib/session'
+import type {Point, Session, Task, TaskDraft} from '@/types/session'
 
 const SESSIONS_KEY = ['sessions']
+
+const RUN_POLL_MS = 900
 
 function editSession(sessions: Session[], sessionId: string, edit: (session: Session) => Session) {
     return sessions.map((session) =>
@@ -46,7 +54,12 @@ function useSessionMutation<TArgs>(
  * state and stay local.
  */
 export function useSessionStore() {
-    const {data} = useQuery({queryKey: SESSIONS_KEY, queryFn: api.listSessions})
+    const {data} = useQuery({
+        queryKey: SESSIONS_KEY,
+        queryFn: api.listSessions,
+        refetchInterval: (query) =>
+            query.state.data?.some(hasRunningTask) ? RUN_POLL_MS : false,
+    })
     const sessions = data ?? []
 
     const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -98,15 +111,12 @@ export function useSessionStore() {
     )
 
     const {mutate: createTaskOnServer} = useSessionMutation(
-        (args: {sessionId: string; taskId: string; position: Point}) =>
-            api.createTask(args.sessionId, args.taskId, args.position),
-        (sessions, {sessionId, taskId, position}) =>
+        (args: {sessionId: string; taskId: string; draft: TaskDraft; position: Point}) =>
+            api.createTask(args.sessionId, args.taskId, args.draft, args.position),
+        (sessions, {sessionId, taskId, draft, position}) =>
             editSession(sessions, sessionId, (session) => ({
                 ...session,
-                tasks: [
-                    ...session.tasks,
-                    {...createTask(position, session.tasks.length), id: taskId},
-                ],
+                tasks: [...session.tasks, {...createTask(draft, position), id: taskId}],
             })),
     )
 
@@ -178,7 +188,7 @@ export function useSessionStore() {
     }, [])
 
     const addSession = useCallback(() => {
-        const sessionId = newId()
+        const sessionId = crypto.randomUUID()
         createSessionOnServer({sessionId})
         setSelectedSessionId(sessionId)
         setSelectedTaskId(null)
@@ -186,7 +196,7 @@ export function useSessionStore() {
 
     const cloneSession = useCallback(
         (sourceId: string) => {
-            const sessionId = newId()
+            const sessionId = crypto.randomUUID()
             cloneSessionOnServer({sourceId, sessionId})
             setSelectedSessionId(sessionId)
             setSelectedTaskId(null)
@@ -222,11 +232,11 @@ export function useSessionStore() {
     )
 
     const addTask = useCallback(
-        (sessionId: string, position: Point) => {
+        (sessionId: string, draft: TaskDraft, position: Point) => {
             if (!isOpen(sessionId)) return
 
-            const taskId = newId()
-            createTaskOnServer({sessionId, taskId, position})
+            const taskId = crypto.randomUUID()
+            createTaskOnServer({sessionId, taskId, draft, position})
             setSelectedTaskId(taskId)
         },
         [isOpen, createTaskOnServer],

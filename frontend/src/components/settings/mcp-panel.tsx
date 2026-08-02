@@ -8,13 +8,9 @@ export function MCPPanel() {
 
     return (
         <div className="flex flex-col">
-            <p className="px-4 py-3 text-xs text-muted-foreground">
-                Tools your agents can call. Shared by every session.
-            </p>
-
-            <div className="divide-y divide-border border-t border-border">
+            <div className="divide-y divide-border">
                 {loading && (
-                    <p className="px-4 py-3 text-[0.8125rem] text-muted-foreground">
+                    <p className="px-4 py-3 text-base text-muted-foreground">
                         Loading MCP servers…
                     </p>
                 )}
@@ -31,11 +27,9 @@ export function MCPPanel() {
                                 )}
                             />
 
-                            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                <p className="truncate text-[0.8125rem] font-medium">
-                                    {server.name}
-                                </p>
-                                <p className="truncate font-mono text-xs text-muted-foreground">
+                            <div className="flex min-w-0 flex-1 flex-col gap-1">
+                                <p className="truncate text-base font-medium">{server.name}</p>
+                                <p className="truncate font-mono text-sm text-muted-foreground">
                                     {server.url}
                                 </p>
                             </div>
@@ -64,14 +58,16 @@ export function MCPPanel() {
                     ))}
 
                 {!loading && servers.length === 0 && (
-                    <p className="px-4 py-3 text-[0.8125rem] text-muted-foreground">
+                    <p className="px-4 py-3 text-base text-muted-foreground">
                         No MCP servers configured. Add one to config.yaml to see it here.
                     </p>
                 )}
             </div>
 
             {error && (
-                <p className="border-t border-border px-4 py-3 text-xs text-destructive">{error}</p>
+                <p className="border-t border-border px-4 py-3 text-sm text-destructive">
+                    {error}
+                </p>
             )}
         </div>
     )

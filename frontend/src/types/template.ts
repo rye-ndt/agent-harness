@@ -1,0 +1,37 @@
+export type TaskLevel =
+    | 'maximum_effort_task'
+    | 'heavy_task'
+    | 'daily_task'
+    | 'lightweight_task'
+
+export type ParamType = 'text' | 'textarea' | 'number' | 'boolean' | 'select'
+
+export type TemplateParam = {
+    key: string
+    label: string
+    type: ParamType
+    required: boolean
+    default?: string
+    options?: string[]
+}
+
+export type SystemPrompt = {
+    key: string
+    value: string
+}
+
+export type Template = {
+    id: string
+    name: string
+    role: string
+    taskLevel: TaskLevel
+    retryable: boolean
+    params: TemplateParam[]
+    systemPrompts: SystemPrompt[]
+}
+
+export type TemplateDraft = Omit<Template, 'id'> & {id?: string}
+
+export type FieldValue = string | boolean
+
+export type ParamValue = string | number | boolean

@@ -98,3 +98,12 @@ const (
 func (f FileChangeType) String() string {
 	return string(f)
 }
+
+type TaskLevel string
+
+const (
+	MaximumEffortTask TaskLevel = "maximum_effort_task"
+	HeavyTask         TaskLevel = "heavy_task"
+	DailyTask         TaskLevel = "daily_task"
+	LightweightTask   TaskLevel = "lightweight_task"
+)

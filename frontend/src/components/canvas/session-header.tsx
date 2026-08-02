@@ -28,14 +28,14 @@ export function SessionHeader({
     onRename,
     onFinalize,
     onClone,
-    onAddTask,
+    onNewNode,
     onOpenSettings,
 }: {
     session: Session | null
     onRename: (name: string) => void
     onFinalize: () => void
     onClone: () => void
-    onAddTask: () => void
+    onNewNode: () => void
     onOpenSettings: () => void
 }) {
     const [name, setName] = useState(session?.name ?? '')
@@ -57,12 +57,12 @@ export function SessionHeader({
 
     return (
         <header className="shrink-0">
-            <div className="flex h-[52px] items-center gap-3 border-b border-border bg-background px-4">
+            <div className="flex h-14 items-center gap-3 border-b border-border bg-background px-4">
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                     {session &&
                         (session.finalized ? (
-                            <span className="flex min-w-0 items-center gap-1.5">
-                                <span className="truncate text-lg font-semibold">
+                            <span className="flex min-w-0 items-center gap-1">
+                                <span className="truncate text-xl font-semibold">
                                     {session.name}
                                 </span>
                                 <Tooltip>
@@ -70,7 +70,7 @@ export function SessionHeader({
                                         <button
                                             type="button"
                                             aria-label="This session is finalized"
-                                            className="rounded-md p-0.5 text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-live"
+                                            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-live"
                                         >
                                             <Lock className="size-3.5" />
                                         </button>
@@ -93,20 +93,20 @@ export function SessionHeader({
                                         event.currentTarget.blur()
                                     }
                                 }}
-                                className="-ml-1.5 w-full max-w-96 min-w-0 rounded-md bg-transparent px-1.5 py-0.5 text-lg font-semibold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live"
+                                className="-ml-2 w-full max-w-96 min-w-0 rounded-md bg-transparent px-2 py-1 text-xl font-semibold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live"
                             />
                         ))}
 
                     {session && <SessionIdentity session={session} />}
                 </div>
 
-                <div className="flex shrink-0 items-center gap-1.5">
+                <div className="flex shrink-0 items-center gap-2">
                     {session && (
                         <>
                             {!session.finalized && (
-                                <Button variant="outline" size="sm" onClick={onAddTask}>
+                                <Button variant="outline" size="sm" onClick={onNewNode}>
                                     <Plus />
-                                    Add task
+                                    New node
                                 </Button>
                             )}
                             <Button variant="ghost" size="sm" onClick={onClone}>
@@ -119,7 +119,7 @@ export function SessionHeader({
                                     Finalize
                                 </Button>
                             )}
-                            <span className="mx-0.5 h-5 w-px bg-border" />
+                            <span className="mx-1 h-5 w-px bg-border" />
                         </>
                     )}
 
@@ -131,19 +131,13 @@ export function SessionHeader({
                                 aria-label="Settings"
                                 onClick={onOpenSettings}
                             >
-                                <Settings className="size-[18px]" />
+                                <Settings />
                             </Button>
                         </TooltipTrigger>
                         <TooltipContent side="bottom">Settings</TooltipContent>
                     </Tooltip>
                 </div>
             </div>
-
-            {session?.finalized && (
-                <div className="border-b border-border bg-state-idle-tint px-4 py-1.5 text-xs text-muted-foreground">
-                    This session is finalized. Duplicate it to make changes.
-                </div>
-            )}
         </header>
     )
 }
@@ -156,14 +150,14 @@ function SessionIdentity({session}: {session: Session}) {
         <span className="flex shrink-0 items-center gap-3">
             <span
                 className={cn(
-                    'inline-flex h-5 items-center rounded-md px-1.5 text-[0.6875rem] font-medium',
+                    'inline-flex h-5 items-center rounded-md px-2 text-xs font-medium',
                     STATUS_CLASSES[status],
                 )}
             >
                 {STATUS_LABELS[status]}
             </span>
 
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="font-mono text-sm text-muted-foreground">
                 {done}/{total}
             </span>
         </span>

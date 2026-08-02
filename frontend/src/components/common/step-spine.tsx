@@ -8,7 +8,7 @@ export function StepSpine({total, current}: {total: number; current: number}) {
                     {index > 0 && (
                         <span
                             className={cn(
-                                'h-px w-7 transition-colors duration-150',
+                                'h-px w-6 transition-colors duration-150',
                                 index <= current ? 'bg-live' : 'bg-border',
                             )}
                         />

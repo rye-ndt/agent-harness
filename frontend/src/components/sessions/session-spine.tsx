@@ -41,7 +41,7 @@ function SpineDot({state}: {state: TaskState}) {
 }
 
 function Overflow({count}: {count: number}) {
-    return <span className="font-mono text-[10px] leading-none text-muted-foreground">+{count}</span>
+    return <span className="font-mono text-xs leading-none text-muted-foreground">+{count}</span>
 }
 
 export function SessionSpine({session}: {session: Session}) {
