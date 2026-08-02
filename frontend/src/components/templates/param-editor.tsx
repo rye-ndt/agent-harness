@@ -1,4 +1,4 @@
-import {useState} from 'react'
+import {useState, type ChangeEvent} from 'react'
 import {X} from 'lucide-react'
 
 import {Button} from '@/components/ui/button'
@@ -11,18 +11,39 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import {Switch} from '@/components/ui/switch'
-import {PARAM_TYPE_LABELS, PARAM_TYPES} from '@/lib/template'
-import type {ParamType, TemplateParam} from '@/types/template'
+import {ParamType, PARAM_TYPES, PARAM_TYPE_LABELS} from '@/lib/enums'
+import type {TemplateParam} from '@/types/template'
 
 export function ParamEditor({
+    index,
     param,
     onChange,
     onRemove,
 }: {
+    index: number
     param: TemplateParam
-    onChange: (fields: Partial<TemplateParam>) => void
-    onRemove: () => void
+    onChange: (index: number, fields: Partial<TemplateParam>) => void
+    onRemove: (index: number) => void
 }) {
+    const isSelect = param.type === ParamType.Select
+    const isBoolean = param.type === ParamType.Boolean
+
+    const change = (fields: Partial<TemplateParam>) => onChange(index, fields)
+    const remove = () => onRemove(index)
+
+    const changeKey = (event: ChangeEvent<HTMLInputElement>) => change({key: event.target.value})
+    const changeLabel = (event: ChangeEvent<HTMLInputElement>) =>
+        change({label: event.target.value})
+    const changeDefault = (event: ChangeEvent<HTMLInputElement>) =>
+        change({default: event.target.value})
+
+    const changeType = (value: string) =>
+        change({type: value as ParamType, default: undefined, options: undefined})
+
+    const changeOptions = (options: string[]) => change({options})
+    const changeToggleDefault = (on: boolean) => change({default: on ? 'true' : 'false'})
+    const changeRequired = (required: boolean) => change({required})
+
     return (
         <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3">
             <div className="flex items-center gap-2">
@@ -31,14 +52,9 @@ export function ParamEditor({
                     placeholder="target_dir"
                     aria-label="Input key"
                     className="h-8 flex-1 bg-background font-mono"
-                    onChange={(event) => onChange({key: event.target.value})}
+                    onChange={changeKey}
                 />
-                <Select
-                    value={param.type}
-                    onValueChange={(value) =>
-                        onChange({type: value as ParamType, default: undefined, options: undefined})
-                    }
-                >
+                <Select value={param.type} onValueChange={changeType}>
                     <SelectTrigger
                         aria-label="Input type"
                         className="h-8 w-32 shrink-0 bg-background"
@@ -53,7 +69,7 @@ export function ParamEditor({
                         ))}
                     </SelectContent>
                 </Select>
-                <Button variant="ghost" size="icon-sm" aria-label="Remove input" onClick={onRemove}>
+                <Button variant="ghost" size="icon-sm" aria-label="Remove input" onClick={remove}>
                     <X />
                 </Button>
             </div>
@@ -63,23 +79,18 @@ export function ParamEditor({
                 placeholder="Directory to review"
                 aria-label="Label shown on the node"
                 className="h-8 bg-background"
-                onChange={(event) => onChange({label: event.target.value})}
+                onChange={changeLabel}
             />
 
-            {param.type === 'select' && (
-                <OptionsInput
-                    options={param.options ?? []}
-                    onChange={(options) => onChange({options})}
-                />
-            )}
+            {isSelect && <OptionsInput options={param.options ?? []} onChange={changeOptions} />}
 
             <div className="flex items-center gap-2">
-                {param.type === 'boolean' ? (
+                {isBoolean ? (
                     <label className="flex h-8 flex-1 items-center gap-3 rounded-lg border border-border bg-background px-3 text-base">
                         <span>Starts on</span>
                         <Switch
                             checked={param.default === 'true'}
-                            onCheckedChange={(on) => onChange({default: on ? 'true' : 'false'})}
+                            onCheckedChange={changeToggleDefault}
                         />
                     </label>
                 ) : (
@@ -88,16 +99,13 @@ export function ParamEditor({
                         placeholder="Default value"
                         aria-label="Default value"
                         className="h-8 flex-1 bg-background font-mono"
-                        onChange={(event) => onChange({default: event.target.value})}
+                        onChange={changeDefault}
                     />
                 )}
 
                 <label className="flex h-8 shrink-0 items-center gap-3 rounded-lg border border-border bg-background px-3 text-base">
                     <span>Required</span>
-                    <Switch
-                        checked={param.required}
-                        onCheckedChange={(required) => onChange({required})}
-                    />
+                    <Switch checked={param.required} onCheckedChange={changeRequired} />
                 </label>
             </div>
         </div>
@@ -113,7 +121,8 @@ function OptionsInput({
 }) {
     const [text, setText] = useState(() => options.join(', '))
 
-    const commit = (next: string) => {
+    const commit = (event: ChangeEvent<HTMLInputElement>) => {
+        const next = event.target.value
         setText(next)
         onChange(
             next
@@ -129,7 +138,7 @@ function OptionsInput({
             placeholder="lenient, normal, strict"
             aria-label="Options, separated by commas"
             className="h-8 bg-background font-mono"
-            onChange={(event) => commit(event.target.value)}
+            onChange={commit}
         />
     )
 }

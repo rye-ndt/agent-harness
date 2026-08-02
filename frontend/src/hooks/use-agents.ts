@@ -1,0 +1,111 @@
+import {useEffect, useState} from 'react'
+import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
+
+import * as api from '@/api/agents'
+import {errorMessage} from '@/lib/errors'
+import type {InstallProgress} from '@/types/agent'
+
+const AGENTS_KEY = ['agents']
+
+const AUTH_POLL_MS = 2000
+
+type AgentAction = {
+    agentId: string
+    label: string
+    run: () => Promise<void>
+}
+
+function withoutKey(record: Record<string, string>, key: string) {
+    const next = {...record}
+    delete next[key]
+    return next
+}
+
+function progressLabel(progress: InstallProgress) {
+    const downloading = progress.stage === 'download' && progress.total > 0
+    if (!downloading) return progress.stage
+
+    return `Downloading ${Math.round((progress.downloaded / progress.total) * 100)}%`
+}
+
+export function useAgents() {
+    const queryClient = useQueryClient()
+    const [authUrls, setAuthUrls] = useState<Record<string, string>>({})
+    const [progress, setProgress] = useState<Record<string, string>>({})
+
+    const agentsQuery = useQuery({
+        queryKey: AGENTS_KEY,
+        queryFn: api.listAgents,
+        refetchInterval: (query) => {
+            const awaitingLogin = query.state.data?.some(
+                (agent) => Boolean(authUrls[agent.id]) && !agent.loggedIn,
+            )
+            return awaitingLogin ? AUTH_POLL_MS : false
+        },
+    })
+
+    const action = useMutation({
+        mutationFn: (input: AgentAction) => input.run(),
+        onSettled: (_data, _error, input) => {
+            setProgress((current) => withoutKey(current, input.agentId))
+            queryClient.invalidateQueries({queryKey: AGENTS_KEY})
+        },
+    })
+
+    useEffect(
+        () =>
+            api.onInstallProgress((agentId, update) => {
+                setProgress((current) => ({...current, [agentId]: progressLabel(update)}))
+            }),
+        [],
+    )
+
+    const pending = action.isPending ? action.variables : null
+
+    const busyLabel = (agentId: string) => {
+        if (pending?.agentId !== agentId) return null
+        return progress[agentId] ?? pending.label
+    }
+
+    const install = (agentId: string) =>
+        action.mutate({agentId, label: 'Installing', run: () => api.installAgent(agentId)})
+
+    const uninstall = (agentId: string) =>
+        action.mutate({agentId, label: 'Uninstalling', run: () => api.uninstallAgent(agentId)})
+
+    const logIn = (agentId: string) =>
+        action.mutate({
+            agentId,
+            label: 'Logging in',
+            run: async () => {
+                const url = await api.startAgentLogin(agentId)
+                if (url) setAuthUrls((current) => ({...current, [agentId]: url}))
+            },
+        })
+
+    const submitAuthCode = (agentId: string, code: string) =>
+        action.mutate({
+            agentId,
+            label: 'Verifying',
+            run: async () => {
+                await api.submitAgentAuthCode(agentId, code)
+                setAuthUrls((current) => withoutKey(current, agentId))
+            },
+        })
+
+    const agents = agentsQuery.data ?? []
+
+    return {
+        agents,
+        loading: agentsQuery.isPending,
+        error: errorMessage(agentsQuery.error ?? action.error),
+        busy: pending !== null,
+        busyLabel,
+        authUrlOf: (agentId: string) => authUrls[agentId] ?? null,
+        install,
+        uninstall,
+        logIn,
+        submitAuthCode,
+        openAuthUrl: api.openExternalURL,
+    }
+}

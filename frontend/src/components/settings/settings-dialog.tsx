@@ -6,9 +6,16 @@ import {MCPPanel} from '@/components/settings/mcp-panel'
 import {SettingsNav, type SettingsTab} from '@/components/settings/settings-nav'
 import {Dialog, DialogContent, DialogDescription, DialogTitle} from '@/components/ui/dialog'
 
-const TABS: SettingsTab[] = [
-    {id: 'mcp', label: 'MCP', icon: Plug},
-    {id: 'agents', label: 'Agents', icon: Boxes},
+const SettingsTabId = {
+    MCP: 'mcp',
+    Agents: 'agents',
+} as const
+
+type SettingsTabId = (typeof SettingsTabId)[keyof typeof SettingsTabId]
+
+const TABS: SettingsTab<SettingsTabId>[] = [
+    {id: SettingsTabId.MCP, label: 'MCP', icon: Plug},
+    {id: SettingsTabId.Agents, label: 'Agents', icon: Boxes},
 ]
 
 export function SettingsDialog({
@@ -18,7 +25,7 @@ export function SettingsDialog({
     open: boolean
     onOpenChange: (open: boolean) => void
 }) {
-    const [activeId, setActiveId] = useState(TABS[0].id)
+    const [activeId, setActiveId] = useState<SettingsTabId>(TABS[0].id)
     const active = TABS.find((tab) => tab.id === activeId) ?? TABS[0]
 
     return (
@@ -41,8 +48,8 @@ export function SettingsDialog({
                     </div>
 
                     <div className="min-h-0 flex-1 overflow-y-auto">
-                        {active.id === 'mcp' && <MCPPanel />}
-                        {active.id === 'agents' && <AgentsPanel />}
+                        {active.id === SettingsTabId.MCP && <MCPPanel />}
+                        {active.id === SettingsTabId.Agents && <AgentsPanel />}
                     </div>
                 </div>
             </DialogContent>

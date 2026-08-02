@@ -1,4 +1,5 @@
-import type {FileChange, HandoverDoc, Session, Task, TaskReport, TaskState} from '@/types/session'
+import type {TaskState} from '@/lib/enums'
+import type {FileChange, HandoverDoc, Session, Task, TaskReport} from '@/types/session'
 
 const secondsAgo = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
 

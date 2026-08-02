@@ -2,6 +2,8 @@ import {Handle, Position, type Node, type NodeProps} from '@xyflow/react'
 
 import {StateBadge, StateIcon} from '@/components/common/task-state'
 import {useElapsed} from '@/hooks/use-elapsed'
+import {TaskState} from '@/lib/enums'
+import {clampRatio, formatTokens} from '@/lib/format'
 import {upstreamOf} from '@/lib/session'
 import {cn} from '@/lib/utils'
 import type {Session, Task} from '@/types/session'
@@ -14,11 +16,7 @@ export type TaskNodeData = {
 
 export type TaskNodeType = Node<TaskNodeData, 'task'>
 
-function formatTokens(value: number) {
-    if (value < 1000) return String(value)
-    const thousands = value / 1000
-    return `${thousands < 10 ? thousands.toFixed(1) : Math.round(thousands)}k`
-}
+const UNTITLED = 'Untitled task'
 
 function meterClass(ratio: number) {
     if (ratio < 0.7) return 'bg-live'
@@ -26,14 +24,22 @@ function meterClass(ratio: number) {
     return 'bg-state-failed'
 }
 
+function upstreamLine(upstream: Task[]) {
+    if (upstream.length === 1) return `Runs after ${upstream[0].title || UNTITLED}`
+    return `Runs after all ${upstream.length} upstream tasks`
+}
+
 export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
     const {task, session, unlinkable} = data
+    const elapsed = useElapsed(task.run?.startedAt, task.run?.finishedAt)
+
     const upstream = upstreamOf(session, task)
     const context = task.run?.context
-    const ratio = context && context.total > 0 ? context.used / context.total : 0
-    const blocked = task.state === 'blocked'
-    const running = task.state === 'running'
-    const elapsed = useElapsed(task.run?.startedAt, task.run?.finishedAt)
+    const ratio = context && context.total > 0 ? clampRatio(context.used / context.total) : 0
+
+    const blocked = task.state === TaskState.Blocked
+    const running = task.state === TaskState.Running
+    const connectable = !session.finalized && !unlinkable
 
     return (
         <div
@@ -51,15 +57,11 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                 <span className="pointer-events-none absolute inset-0 rounded-lg bg-live-tint/60" />
             )}
 
-            {task.state === 'awaiting_approval' && (
+            {task.state === TaskState.AwaitingApproval && (
                 <span className="absolute inset-y-0 left-0 w-[3px] rounded-l-lg bg-state-approval" />
             )}
 
-            <Handle
-                type="target"
-                position={Position.Left}
-                isConnectable={!session.finalized && !unlinkable}
-            />
+            <Handle type="target" position={Position.Left} isConnectable={connectable} />
 
             <div className="relative flex items-center gap-2">
                 <StateIcon state={task.state} />
@@ -69,7 +71,7 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                         !task.title && 'text-muted-foreground',
                     )}
                 >
-                    {task.title || 'Untitled task'}
+                    {task.title || UNTITLED}
                 </span>
                 {elapsed && (
                     <span className="shrink-0 font-mono text-xs text-muted-foreground">
@@ -92,9 +94,7 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
 
             {upstream.length > 0 && (
                 <p className="relative mt-1 truncate text-sm text-muted-foreground">
-                    {upstream.length === 1
-                        ? `Runs after ${upstream[0].title || 'Untitled task'}`
-                        : `Runs after all ${upstream.length} upstream tasks`}
+                    {upstreamLine(upstream)}
                 </p>
             )}
 
@@ -102,16 +102,12 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                 <span className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden rounded-b-lg bg-border">
                     <span
                         className={cn('block h-full rounded-bl-lg', meterClass(ratio))}
-                        style={{width: `${Math.min(100, Math.max(0, ratio * 100))}%`}}
+                        style={{width: `${ratio * 100}%`}}
                     />
                 </span>
             )}
 
-            <Handle
-                type="source"
-                position={Position.Right}
-                isConnectable={!session.finalized && !unlinkable}
-            />
+            <Handle type="source" position={Position.Right} isConnectable={connectable} />
         </div>
     )
 }

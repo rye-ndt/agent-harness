@@ -5,6 +5,7 @@
  * When the real Wails bindings land, this is the only file that changes.
  */
 
+import {TaskState} from '@/lib/enums'
 import {mockOutcome, MOCK_SESSIONS} from '@/lib/mock-sessions'
 import {
     createSession as buildSession,
@@ -13,6 +14,12 @@ import {
     duplicateSession,
     hasRunningTask,
     isRunnable,
+    isSettled,
+    withDependency,
+    withTask,
+    withTaskPatch,
+    withoutDependency,
+    withoutTask,
 } from '@/lib/session'
 import type {Point, Session, Task, TaskDraft} from '@/types/session'
 
@@ -49,9 +56,8 @@ function label(session: Session): Session {
     return {
         ...session,
         tasks: session.tasks.map((task) => {
-            if (task.state === 'running' || task.state === 'done' || task.state === 'failed')
-                return task
-            return {...task, state: isRunnable(session, task) ? 'queued' : 'blocked'}
+            if (isSettled(task.state)) return task
+            return {...task, state: isRunnable(session, task) ? TaskState.Queued : TaskState.Blocked}
         }),
     }
 }
@@ -61,7 +67,7 @@ function start(task: Task, now: number): Task {
 
     return {
         ...task,
-        state: 'running',
+        state: TaskState.Running,
         run: {
             ...task.run,
             startedAt: new Date(now).toISOString(),
@@ -95,7 +101,9 @@ function advance(session: Session): Session {
 
     const progressed = label({
         ...session,
-        tasks: session.tasks.map((task) => (task.state === 'running' ? progress(task, now) : task)),
+        tasks: session.tasks.map((task) =>
+            task.state === TaskState.Running ? progress(task, now) : task,
+        ),
     })
 
     return label({
@@ -180,7 +188,7 @@ export async function createTask(
 ): Promise<Task> {
     const session = findOpenSession(sessionId)
     const task = {...buildTask(draft, position), id: taskId}
-    replaceSession({...session, tasks: [...session.tasks, task]})
+    replaceSession(withTask(session, task))
     return structuredClone(task)
 }
 
@@ -191,24 +199,12 @@ export async function updateTask(
 ): Promise<Task> {
     const session = findOpenSession(sessionId)
     const next = {...findTask(session, taskId), ...patch, id: taskId}
-    replaceSession({
-        ...session,
-        tasks: session.tasks.map((task) => (task.id === taskId ? next : task)),
-    })
+    replaceSession(withTaskPatch(session, taskId, patch))
     return structuredClone(next)
 }
 
 export async function deleteTask(sessionId: string, taskId: string): Promise<void> {
-    const session = findOpenSession(sessionId)
-    replaceSession({
-        ...session,
-        tasks: session.tasks
-            .filter((task) => task.id !== taskId)
-            .map((task) => ({
-                ...task,
-                dependsOn: task.dependsOn.filter((id) => id !== taskId),
-            })),
-    })
+    replaceSession(withoutTask(findOpenSession(sessionId), taskId))
 }
 
 export async function addDependency(
@@ -220,14 +216,7 @@ export async function addDependency(
     if (createsCycle(session.tasks, sourceId, targetId))
         throw new Error('That link would loop back on itself. Point it at another task.')
 
-    replaceSession({
-        ...session,
-        tasks: session.tasks.map((task) =>
-            task.id === targetId && !task.dependsOn.includes(sourceId)
-                ? {...task, dependsOn: [...task.dependsOn, sourceId]}
-                : task,
-        ),
-    })
+    replaceSession(withDependency(session, sourceId, targetId))
 }
 
 export async function removeDependency(
@@ -235,13 +224,5 @@ export async function removeDependency(
     sourceId: string,
     targetId: string,
 ): Promise<void> {
-    const session = findOpenSession(sessionId)
-    replaceSession({
-        ...session,
-        tasks: session.tasks.map((task) =>
-            task.id === targetId
-                ? {...task, dependsOn: task.dependsOn.filter((id) => id !== sourceId)}
-                : task,
-        ),
-    })
+    replaceSession(withoutDependency(findOpenSession(sessionId), sourceId, targetId))
 }

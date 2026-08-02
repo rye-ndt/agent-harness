@@ -1,60 +1,81 @@
 import {useState} from 'react'
 
-import {AGENT_CHOICES, installAgent} from '@/api/onboarding'
+import {AGENT_OPTIONS, installAgentChoice} from '@/api/onboarding'
 import {StateIcon} from '@/components/common/task-state'
+import {TaskState} from '@/lib/enums'
 import {cn} from '@/lib/utils'
+import type {AgentOption} from '@/types/agent'
 
 export function AgentChoice({onInstalled}: {onInstalled: () => void}) {
-    const [installing, setInstalling] = useState('')
+    const [installingId, setInstallingId] = useState('')
     const [error, setError] = useState('')
 
-    const choose = async (id: string, name: string) => {
-        setError('')
-        setInstalling(id)
+    const busy = installingId !== ''
 
-        if (await installAgent(id)) {
+    const choose = async (option: AgentOption) => {
+        setError('')
+        setInstallingId(option.id)
+
+        if (await installAgentChoice(option.id)) {
             onInstalled()
             return
         }
 
-        setInstalling('')
-        setError(`${name} did not install. Try again, or pick the other agent.`)
+        setInstallingId('')
+        setError(`${option.name} did not install. Try again, or pick the other agent.`)
     }
 
     return (
         <div className="flex flex-col gap-2">
-            {AGENT_CHOICES.map((choice) => (
-                <button
-                    key={choice.id}
-                    type="button"
-                    disabled={installing !== ''}
-                    onClick={() => choose(choice.id, choice.name)}
-                    className={cn(
-                        'flex w-full items-center gap-3 rounded-lg p-3 text-left ring-1 ring-border transition-colors hover:bg-accent disabled:pointer-events-none',
-                        installing !== '' && installing !== choice.id && 'opacity-50',
-                    )}
-                >
-                    <span className="min-w-0 flex-1">
-                        <span className="block truncate text-base font-medium">
-                            {choice.name}
-                        </span>
-                        <span className="block truncate text-sm text-muted-foreground">
-                            {choice.blurb}
-                        </span>
-                    </span>
-
-                    {installing === choice.id && (
-                        <span className="flex shrink-0 items-center gap-2">
-                            <StateIcon state="running" />
-                            <span className="font-mono text-xs text-muted-foreground">
-                                Installing
-                            </span>
-                        </span>
-                    )}
-                </button>
+            {AGENT_OPTIONS.map((option) => (
+                <AgentOptionButton
+                    key={option.id}
+                    option={option}
+                    busy={busy}
+                    installing={installingId === option.id}
+                    onChoose={choose}
+                />
             ))}
 
             {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
+    )
+}
+
+function AgentOptionButton({
+    option,
+    busy,
+    installing,
+    onChoose,
+}: {
+    option: AgentOption
+    busy: boolean
+    installing: boolean
+    onChoose: (option: AgentOption) => void
+}) {
+    const choose = () => onChoose(option)
+
+    return (
+        <button
+            type="button"
+            disabled={busy}
+            onClick={choose}
+            className={cn(
+                'flex w-full items-center gap-3 rounded-lg p-3 text-left ring-1 ring-border transition-colors hover:bg-accent disabled:pointer-events-none',
+                busy && !installing && 'opacity-50',
+            )}
+        >
+            <span className="min-w-0 flex-1">
+                <span className="block truncate text-base font-medium">{option.name}</span>
+                <span className="block truncate text-sm text-muted-foreground">{option.blurb}</span>
+            </span>
+
+            {installing && (
+                <span className="flex shrink-0 items-center gap-2">
+                    <StateIcon state={TaskState.Running} />
+                    <span className="font-mono text-xs text-muted-foreground">Installing</span>
+                </span>
+            )}
+        </button>
     )
 }

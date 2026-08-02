@@ -1,236 +1,210 @@
-import {useEffect, useState} from 'react'
+import {useState, type ChangeEvent, type KeyboardEvent} from 'react'
 
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
-import {formatAgentName} from '@/lib/agent'
+import {useAgents} from '@/hooks/use-agents'
 import {cn} from '@/lib/utils'
-import {input_itf, output_itf} from '../../../wailsjs/go/models'
-import {
-    AgentStatuses,
-    AuthAgent,
-    InstallAgent,
-    SubmitAuthCode,
-    UninstallAgent,
-} from '../../../wailsjs/go/wails_api/API'
-import {BrowserOpenURL, EventsOn} from '../../../wailsjs/runtime/runtime'
+import type {Agent} from '@/types/agent'
 
-type InstallProgress = {
-    stage: string
-    downloaded: number
-    total: number
+function metaLine(agent: Agent) {
+    if (!agent.installed) return 'Not installed'
+    if (!agent.loggedIn) return `v${agent.version} · Not logged in`
+    return `v${agent.version} · ${agent.instanceCount} running`
 }
 
-function formatProgress(p: InstallProgress) {
-    if (p.stage === 'download' && p.total > 0) {
-        return `Downloading ${Math.round((p.downloaded / p.total) * 100)}%`
-    }
-    return p.stage
-}
-
-function metaLine(status?: input_itf.AgentStatus) {
-    if (!status?.installed) return 'Not installed'
-    if (!status.logged_in) return `v${status.version} · Not logged in`
-    return `v${status.version} · ${status.instance_count} running`
-}
-
-function dotClass(status?: input_itf.AgentStatus) {
-    if (!status?.installed) return 'bg-transparent ring-1 ring-inset ring-border'
-    return status.logged_in ? 'bg-state-done' : 'bg-state-idle'
+function dotClass(agent: Agent) {
+    if (!agent.installed) return 'bg-transparent ring-1 ring-inset ring-border'
+    return agent.loggedIn ? 'bg-state-done' : 'bg-state-idle'
 }
 
 export function AgentsPanel() {
-    const [agents, setAgents] = useState<output_itf.AgentInfo[]>([])
-    const [progress, setProgress] = useState<Record<string, string>>({})
-    const [authUrls, setAuthUrls] = useState<Record<string, string>>({})
-    const [codeDrafts, setCodeDrafts] = useState<Record<string, string>>({})
-    const [error, setError] = useState('')
+    const {
+        agents,
+        error,
+        busy,
+        busyLabel,
+        authUrlOf,
+        install,
+        uninstall,
+        logIn,
+        submitAuthCode,
+        openAuthUrl,
+    } = useAgents()
 
-    const refresh = () => {
-        try {
-            AgentStatuses()
-                .then(setAgents)
-                .catch((err) => setError(String(err)))
-        } catch (err) {
-            setError(String(err))
-        }
-    }
-
-    useEffect(() => {
-        refresh()
-        try {
-            return EventsOn('harness:install:progress', (id: string, p: InstallProgress) => {
-                setProgress((prev) => ({...prev, [id]: formatProgress(p)}))
-            })
-        } catch {
-            return
-        }
-    }, [])
-
-    useEffect(() => {
-        if (Object.keys(authUrls).length === 0) return
-        const timer = setInterval(refresh, 2000)
-        return () => clearInterval(timer)
-    }, [authUrls])
-
-    useEffect(() => {
-        setAuthUrls((prev) => {
-            const next = {...prev}
-            let changed = false
-            for (const {id, status} of agents) {
-                if (status?.logged_in && id in next) {
-                    delete next[id]
-                    changed = true
-                }
-            }
-            return changed ? next : prev
-        })
-    }, [agents])
-
-    const run = async (id: string, label: string, action: (id: string) => Promise<unknown>) => {
-        setError('')
-        setProgress((prev) => ({...prev, [id]: label}))
-        try {
-            await action(id)
-        } catch (err) {
-            setError(String(err))
-        }
-        setProgress((prev) => {
-            const next = {...prev}
-            delete next[id]
-            return next
-        })
-        refresh()
-    }
-
-    const login = (id: string) =>
-        run(id, 'Logging in', async (harnessId) => {
-            const url = await AuthAgent(harnessId)
-            if (url) {
-                setAuthUrls((prev) => ({...prev, [harnessId]: url}))
-            }
-        })
-
-    const submitCode = (id: string) => {
-        const code = (codeDrafts[id] ?? '').trim()
-        if (!code) return
-        run(id, 'Verifying', async (harnessId) => {
-            await SubmitAuthCode(harnessId, code)
-            setAuthUrls((prev) => {
-                const next = {...prev}
-                delete next[harnessId]
-                return next
-            })
-            setCodeDrafts((prev) => {
-                const next = {...prev}
-                delete next[harnessId]
-                return next
-            })
-        })
-    }
+    const isEmpty = agents.length === 0 && !error
 
     return (
         <div className="flex flex-col">
             <div className="divide-y divide-border">
-                {agents.map(({id, status}) => (
-                    <div key={id} className="flex flex-col gap-3 px-4 py-3">
-                        <div className="flex items-center gap-3">
-                            <span className={cn('size-2 shrink-0 rounded-full', dotClass(status))} />
-                            <div className="flex min-w-0 flex-1 flex-col gap-1">
-                                <p className="truncate text-base font-medium">
-                                    {status?.name || formatAgentName(id)}
-                                </p>
-                                <p className="truncate font-mono text-sm text-muted-foreground">
-                                    {metaLine(status)}
-                                </p>
-                            </div>
-                            {status?.installed ? (
-                                <div className="flex shrink-0 gap-2">
-                                    {!status.logged_in && (
-                                        <Button
-                                            size="sm"
-                                            disabled={id in progress}
-                                            onClick={() => login(id)}
-                                        >
-                                            {progress[id] === 'Logging in'
-                                                ? 'Logging in'
-                                                : 'Log in'}
-                                        </Button>
-                                    )}
-                                    <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                        disabled={id in progress}
-                                        onClick={() => run(id, 'Uninstalling', UninstallAgent)}
-                                    >
-                                        {progress[id] === 'Uninstalling'
-                                            ? 'Uninstalling'
-                                            : 'Uninstall'}
-                                    </Button>
-                                </div>
-                            ) : (
-                                <Button
-                                    size="sm"
-                                    className="shrink-0"
-                                    disabled={id in progress}
-                                    onClick={() => run(id, 'Starting', InstallAgent)}
-                                >
-                                    {progress[id] ?? 'Install'}
-                                </Button>
-                            )}
-                        </div>
-
-                        {authUrls[id] && !status?.logged_in && (
-                            <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3 ring-1 ring-border">
-                                <p className="text-sm text-muted-foreground">
-                                    A login page opened in your browser.{' '}
-                                    <button
-                                        className="underline underline-offset-2 hover:text-foreground"
-                                        onClick={() => BrowserOpenURL(authUrls[id])}
-                                    >
-                                        Open it again
-                                    </button>{' '}
-                                    if it didn't. Most logins finish on their own once you approve.
-                                    Paste a code below only if the page shows you one.
-                                </p>
-                                <div className="flex gap-2">
-                                    <Input
-                                        value={codeDrafts[id] ?? ''}
-                                        placeholder="Authorization code"
-                                        className="bg-background font-mono"
-                                        onChange={(e) =>
-                                            setCodeDrafts((prev) => ({
-                                                ...prev,
-                                                [id]: e.target.value,
-                                            }))
-                                        }
-                                        onKeyDown={(e) => e.key === 'Enter' && submitCode(id)}
-                                    />
-                                    <Button
-                                        size="sm"
-                                        disabled={id in progress || !(codeDrafts[id] ?? '').trim()}
-                                        onClick={() => submitCode(id)}
-                                    >
-                                        {progress[id] === 'Verifying' ? 'Verifying' : 'Submit'}
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                {agents.map((agent) => (
+                    <AgentRow
+                        key={agent.id}
+                        agent={agent}
+                        busy={busy}
+                        busyLabel={busyLabel(agent.id)}
+                        authUrl={authUrlOf(agent.id)}
+                        onInstall={install}
+                        onUninstall={uninstall}
+                        onLogIn={logIn}
+                        onSubmitCode={submitAuthCode}
+                        onOpenAuthUrl={openAuthUrl}
+                    />
                 ))}
             </div>
 
-            {agents.length === 0 && !error && (
+            {isEmpty && (
                 <p className="px-4 py-3 text-base text-muted-foreground">
                     No agents configured. Add one to config.yaml to see it here.
                 </p>
             )}
 
             {error && (
-                <p className="border-t border-border px-4 py-3 text-sm text-destructive">
-                    {error}
-                </p>
+                <p className="border-t border-border px-4 py-3 text-sm text-destructive">{error}</p>
             )}
+        </div>
+    )
+}
+
+function AgentRow({
+    agent,
+    busy,
+    busyLabel,
+    authUrl,
+    onInstall,
+    onUninstall,
+    onLogIn,
+    onSubmitCode,
+    onOpenAuthUrl,
+}: {
+    agent: Agent
+    busy: boolean
+    busyLabel: string | null
+    authUrl: string | null
+    onInstall: (agentId: string) => void
+    onUninstall: (agentId: string) => void
+    onLogIn: (agentId: string) => void
+    onSubmitCode: (agentId: string, code: string) => void
+    onOpenAuthUrl: (url: string) => void
+}) {
+    const showLogin = authUrl !== null && !agent.loggedIn
+
+    const install = () => onInstall(agent.id)
+    const uninstall = () => onUninstall(agent.id)
+    const logIn = () => onLogIn(agent.id)
+
+    return (
+        <div className="flex flex-col gap-3 px-4 py-3">
+            <div className="flex items-center gap-3">
+                <span className={cn('size-2 shrink-0 rounded-full', dotClass(agent))} />
+
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <p className="truncate text-base font-medium">{agent.name}</p>
+                    <p className="truncate font-mono text-sm text-muted-foreground">
+                        {metaLine(agent)}
+                    </p>
+                </div>
+
+                {agent.installed ? (
+                    <div className="flex shrink-0 gap-2">
+                        {!agent.loggedIn && (
+                            <Button size="sm" disabled={busy} onClick={logIn}>
+                                {busyLabel === 'Logging in' ? 'Logging in' : 'Log in'}
+                            </Button>
+                        )}
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            disabled={busy}
+                            onClick={uninstall}
+                        >
+                            {busyLabel === 'Uninstalling' ? 'Uninstalling' : 'Uninstall'}
+                        </Button>
+                    </div>
+                ) : (
+                    <Button size="sm" className="shrink-0" disabled={busy} onClick={install}>
+                        {busyLabel ?? 'Install'}
+                    </Button>
+                )}
+            </div>
+
+            {showLogin && (
+                <AgentLogin
+                    agentId={agent.id}
+                    authUrl={authUrl}
+                    busy={busy}
+                    verifying={busyLabel === 'Verifying'}
+                    onSubmitCode={onSubmitCode}
+                    onOpenAuthUrl={onOpenAuthUrl}
+                />
+            )}
+        </div>
+    )
+}
+
+function AgentLogin({
+    agentId,
+    authUrl,
+    busy,
+    verifying,
+    onSubmitCode,
+    onOpenAuthUrl,
+}: {
+    agentId: string
+    authUrl: string
+    busy: boolean
+    verifying: boolean
+    onSubmitCode: (agentId: string, code: string) => void
+    onOpenAuthUrl: (url: string) => void
+}) {
+    const [code, setCode] = useState('')
+
+    const trimmed = code.trim()
+    const canSubmit = trimmed.length > 0 && !busy
+
+    const submit = () => {
+        if (!canSubmit) return
+
+        onSubmitCode(agentId, trimmed)
+        setCode('')
+    }
+
+    const openUrl = () => onOpenAuthUrl(authUrl)
+
+    const changeCode = (event: ChangeEvent<HTMLInputElement>) => setCode(event.target.value)
+
+    const submitOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Enter') submit()
+    }
+
+    return (
+        <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3 ring-1 ring-border">
+            <p className="text-sm text-muted-foreground">
+                A login page opened in your browser.{' '}
+                <button
+                    type="button"
+                    className="underline underline-offset-2 hover:text-foreground"
+                    onClick={openUrl}
+                >
+                    Open it again
+                </button>{' '}
+                if it didn't. Most logins finish on their own once you approve. Paste a code below
+                only if the page shows you one.
+            </p>
+
+            <div className="flex gap-2">
+                <Input
+                    value={code}
+                    placeholder="Authorization code"
+                    aria-label="Authorization code"
+                    className="bg-background font-mono"
+                    onChange={changeCode}
+                    onKeyDown={submitOnEnter}
+                />
+                <Button size="sm" disabled={!canSubmit} onClick={submit}>
+                    {verifying ? 'Verifying' : 'Submit'}
+                </Button>
+            </div>
         </div>
     )
 }

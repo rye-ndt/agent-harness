@@ -1,52 +1,8 @@
-import {useCallback, useMemo, useState} from 'react'
-import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
+import {useState} from 'react'
 
-import * as api from '@/api/sessions'
-import {
-    createSession,
-    createTask,
-    createsCycle,
-    duplicateSession,
-    hasRunningTask,
-} from '@/lib/session'
-import type {Point, Session, Task, TaskDraft} from '@/types/session'
-
-const SESSIONS_KEY = ['sessions']
-
-const RUN_POLL_MS = 900
-
-function editSession(sessions: Session[], sessionId: string, edit: (session: Session) => Session) {
-    return sessions.map((session) =>
-        session.id === sessionId && !session.finalized ? edit(session) : session,
-    )
-}
-
-function editTasks(sessions: Session[], sessionId: string, edit: (tasks: Task[]) => Task[]) {
-    return editSession(sessions, sessionId, (session) => ({...session, tasks: edit(session.tasks)}))
-}
-
-function useSessionMutation<TArgs>(
-    mutationFn: (args: TArgs) => Promise<unknown>,
-    optimistic: (sessions: Session[], args: TArgs) => Session[],
-) {
-    const queryClient = useQueryClient()
-
-    return useMutation({
-        mutationFn,
-        onMutate: async (args: TArgs) => {
-            const previous = queryClient.getQueryData<Session[]>(SESSIONS_KEY) ?? []
-            queryClient.setQueryData<Session[]>(SESSIONS_KEY, optimistic(previous, args))
-            await queryClient.cancelQueries({queryKey: SESSIONS_KEY})
-            return {previous}
-        },
-        onError: (_error, _args, context) => {
-            if (context) queryClient.setQueryData<Session[]>(SESSIONS_KEY, context.previous)
-        },
-        onSettled: () => {
-            queryClient.invalidateQueries({queryKey: SESSIONS_KEY})
-        },
-    })
-}
+import {useSessions} from '@/hooks/use-sessions'
+import * as graph from '@/lib/session'
+import type {Point, Task, TaskDraft} from '@/types/session'
 
 /**
  * Single source of truth for the session graph. Sessions are server state and
@@ -54,232 +10,85 @@ function useSessionMutation<TArgs>(
  * state and stay local.
  */
 export function useSessionStore() {
-    const {data} = useQuery({
-        queryKey: SESSIONS_KEY,
-        queryFn: api.listSessions,
-        refetchInterval: (query) =>
-            query.state.data?.some(hasRunningTask) ? RUN_POLL_MS : false,
-    })
-    const sessions = data ?? []
+    const store = useSessions()
+    const {sessions} = store
 
     const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
 
-    const activeSessionId = useMemo(() => {
-        if (sessions.some((session) => session.id === selectedSessionId)) return selectedSessionId
-        return sessions[0]?.id ?? null
-    }, [sessions, selectedSessionId])
+    const activeSession = graph.findSession(sessions, selectedSessionId) ?? sessions[0] ?? null
+    const activeSessionId = activeSession?.id ?? null
 
-    const activeSession = useMemo(
-        () => sessions.find((session) => session.id === activeSessionId) ?? null,
-        [sessions, activeSessionId],
-    )
+    const openSession = (sessionId: string) => {
+        const session = graph.findSession(sessions, sessionId)
+        return session && !session.finalized ? session : null
+    }
 
-    const {mutate: createSessionOnServer} = useSessionMutation(
-        (args: {sessionId: string}) => api.createSession(args.sessionId),
-        (sessions, {sessionId}) => [{...createSession(sessions.length), id: sessionId}, ...sessions],
-    )
-
-    const {mutate: cloneSessionOnServer} = useSessionMutation(
-        (args: {sourceId: string; sessionId: string}) =>
-            api.cloneSession(args.sourceId, args.sessionId),
-        (sessions, {sourceId, sessionId}) => {
-            const source = sessions.find((session) => session.id === sourceId)
-            if (!source) return sessions
-            return [{...duplicateSession(source), id: sessionId}, ...sessions]
-        },
-    )
-
-    const {mutate: renameSessionOnServer} = useSessionMutation(
-        (args: {sessionId: string; name: string}) =>
-            api.updateSession(args.sessionId, {name: args.name}),
-        (sessions, {sessionId, name}) =>
-            editSession(sessions, sessionId, (session) => ({...session, name})),
-    )
-
-    const {mutate: finalizeSessionOnServer} = useSessionMutation(
-        (args: {sessionId: string}) => api.updateSession(args.sessionId, {finalized: true}),
-        (sessions, {sessionId}) =>
-            sessions.map((session) =>
-                session.id === sessionId ? {...session, finalized: true} : session,
-            ),
-    )
-
-    const {mutate: deleteSessionOnServer} = useSessionMutation(
-        (args: {sessionId: string}) => api.deleteSession(args.sessionId),
-        (sessions, {sessionId}) => sessions.filter((session) => session.id !== sessionId),
-    )
-
-    const {mutate: createTaskOnServer} = useSessionMutation(
-        (args: {sessionId: string; taskId: string; draft: TaskDraft; position: Point}) =>
-            api.createTask(args.sessionId, args.taskId, args.draft, args.position),
-        (sessions, {sessionId, taskId, draft, position}) =>
-            editSession(sessions, sessionId, (session) => ({
-                ...session,
-                tasks: [...session.tasks, {...createTask(draft, position), id: taskId}],
-            })),
-    )
-
-    const {mutate: updateTaskOnServer} = useSessionMutation(
-        (args: {sessionId: string; taskId: string; patch: Partial<Task>}) =>
-            api.updateTask(args.sessionId, args.taskId, args.patch),
-        (sessions, {sessionId, taskId, patch}) =>
-            editTasks(sessions, sessionId, (tasks) =>
-                tasks.map((task) => (task.id === taskId ? {...task, ...patch} : task)),
-            ),
-    )
-
-    const {mutate: deleteTaskOnServer} = useSessionMutation(
-        (args: {sessionId: string; taskId: string}) => api.deleteTask(args.sessionId, args.taskId),
-        (sessions, {sessionId, taskId}) =>
-            editTasks(sessions, sessionId, (tasks) =>
-                tasks
-                    .filter((task) => task.id !== taskId)
-                    .map((task) => ({
-                        ...task,
-                        dependsOn: task.dependsOn.filter((id) => id !== taskId),
-                    })),
-            ),
-    )
-
-    const {mutate: addDependencyOnServer} = useSessionMutation(
-        (args: {sessionId: string; sourceId: string; targetId: string}) =>
-            api.addDependency(args.sessionId, args.sourceId, args.targetId),
-        (sessions, {sessionId, sourceId, targetId}) =>
-            editTasks(sessions, sessionId, (tasks) => {
-                if (createsCycle(tasks, sourceId, targetId)) return tasks
-
-                return tasks.map((task) =>
-                    task.id === targetId && !task.dependsOn.includes(sourceId)
-                        ? {...task, dependsOn: [...task.dependsOn, sourceId]}
-                        : task,
-                )
-            }),
-    )
-
-    const {mutate: removeDependencyOnServer} = useSessionMutation(
-        (args: {sessionId: string; sourceId: string; targetId: string}) =>
-            api.removeDependency(args.sessionId, args.sourceId, args.targetId),
-        (sessions, {sessionId, sourceId, targetId}) =>
-            editTasks(sessions, sessionId, (tasks) =>
-                tasks.map((task) =>
-                    task.id === targetId
-                        ? {...task, dependsOn: task.dependsOn.filter((id) => id !== sourceId)}
-                        : task,
-                ),
-            ),
-    )
-
-    const isOpen = useCallback(
-        (sessionId: string) => {
-            const session = sessions.find((session) => session.id === sessionId)
-            return Boolean(session && !session.finalized)
-        },
-        [sessions],
-    )
-
-    const selectSession = useCallback((sessionId: string) => {
+    const selectSession = (sessionId: string | null) => {
         setSelectedSessionId(sessionId)
         setSelectedTaskId(null)
-    }, [])
+    }
 
-    const selectTask = useCallback((taskId: string | null) => {
+    const selectTask = (taskId: string | null) => {
         setSelectedTaskId(taskId)
-    }, [])
+    }
 
-    const addSession = useCallback(() => {
+    const addSession = () => {
         const sessionId = crypto.randomUUID()
-        createSessionOnServer({sessionId})
-        setSelectedSessionId(sessionId)
-        setSelectedTaskId(null)
-    }, [createSessionOnServer])
+        store.createSession({sessionId})
+        selectSession(sessionId)
+    }
 
-    const cloneSession = useCallback(
-        (sourceId: string) => {
-            const sessionId = crypto.randomUUID()
-            cloneSessionOnServer({sourceId, sessionId})
-            setSelectedSessionId(sessionId)
-            setSelectedTaskId(null)
-        },
-        [cloneSessionOnServer],
-    )
+    const cloneSession = (sourceId: string) => {
+        const sessionId = crypto.randomUUID()
+        store.cloneSession({sourceId, sessionId})
+        selectSession(sessionId)
+    }
 
-    const renameSession = useCallback(
-        (sessionId: string, name: string) => {
-            renameSessionOnServer({sessionId, name})
-        },
-        [renameSessionOnServer],
-    )
+    const renameSession = (sessionId: string, name: string) => {
+        store.renameSession({sessionId, name})
+    }
 
-    const finalizeSession = useCallback(
-        (sessionId: string) => {
-            finalizeSessionOnServer({sessionId})
-        },
-        [finalizeSessionOnServer],
-    )
+    const finalizeSession = (sessionId: string) => {
+        store.finalizeSession({sessionId})
+    }
 
-    const deleteSession = useCallback(
-        (sessionId: string) => {
-            deleteSessionOnServer({sessionId})
-            setSelectedSessionId((current) =>
-                current === sessionId
-                    ? (sessions.find((session) => session.id !== sessionId)?.id ?? null)
-                    : current,
-            )
-            setSelectedTaskId(null)
-        },
-        [sessions, deleteSessionOnServer],
-    )
+    const deleteSession = (sessionId: string) => {
+        store.deleteSession({sessionId})
+        if (selectedSessionId === sessionId) selectSession(null)
+    }
 
-    const addTask = useCallback(
-        (sessionId: string, draft: TaskDraft, position: Point) => {
-            if (!isOpen(sessionId)) return
+    const addTask = (sessionId: string, draft: TaskDraft, position: Point) => {
+        if (!openSession(sessionId)) return
 
-            const taskId = crypto.randomUUID()
-            createTaskOnServer({sessionId, taskId, draft, position})
-            setSelectedTaskId(taskId)
-        },
-        [isOpen, createTaskOnServer],
-    )
+        const taskId = crypto.randomUUID()
+        store.createTask({sessionId, taskId, draft, position})
+        setSelectedTaskId(taskId)
+    }
 
-    const updateTask = useCallback(
-        (sessionId: string, taskId: string, patch: Partial<Task>) => {
-            updateTaskOnServer({sessionId, taskId, patch})
-        },
-        [updateTaskOnServer],
-    )
+    const updateTask = (sessionId: string, taskId: string, patch: Partial<Task>) => {
+        store.updateTask({sessionId, taskId, patch})
+    }
 
-    const moveTask = useCallback(
-        (sessionId: string, taskId: string, position: Point) => {
-            updateTaskOnServer({sessionId, taskId, patch: {position}})
-        },
-        [updateTaskOnServer],
-    )
+    const moveTask = (sessionId: string, taskId: string, position: Point) => {
+        store.updateTask({sessionId, taskId, patch: {position}})
+    }
 
-    const removeTask = useCallback(
-        (sessionId: string, taskId: string) => {
-            deleteTaskOnServer({sessionId, taskId})
-            setSelectedTaskId((current) => (current === taskId ? null : current))
-        },
-        [deleteTaskOnServer],
-    )
+    const removeTask = (sessionId: string, taskId: string) => {
+        store.deleteTask({sessionId, taskId})
+        if (selectedTaskId === taskId) setSelectedTaskId(null)
+    }
 
-    const connectTasks = useCallback(
-        (sessionId: string, sourceId: string, targetId: string) => {
-            const session = sessions.find((session) => session.id === sessionId)
-            if (!session || createsCycle(session.tasks, sourceId, targetId)) return
+    const connectTasks = (sessionId: string, sourceId: string, targetId: string) => {
+        const session = openSession(sessionId)
+        if (!session || graph.createsCycle(session.tasks, sourceId, targetId)) return
 
-            addDependencyOnServer({sessionId, sourceId, targetId})
-        },
-        [sessions, addDependencyOnServer],
-    )
+        store.connectTasks({sessionId, sourceId, targetId})
+    }
 
-    const disconnectTasks = useCallback(
-        (sessionId: string, sourceId: string, targetId: string) => {
-            removeDependencyOnServer({sessionId, sourceId, targetId})
-        },
-        [removeDependencyOnServer],
-    )
+    const disconnectTasks = (sessionId: string, sourceId: string, targetId: string) => {
+        store.disconnectTasks({sessionId, sourceId, targetId})
+    }
 
     return {
         sessions,

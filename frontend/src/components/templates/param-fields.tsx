@@ -1,3 +1,5 @@
+import type {ChangeEvent} from 'react'
+
 import {Input} from '@/components/ui/input'
 import {
     Select,
@@ -8,6 +10,7 @@ import {
 } from '@/components/ui/select'
 import {Switch} from '@/components/ui/switch'
 import {Textarea} from '@/components/ui/textarea'
+import {ParamType} from '@/lib/enums'
 import type {FieldValue, TemplateParam} from '@/types/template'
 
 export function ParamFields({
@@ -26,7 +29,7 @@ export function ParamFields({
                     key={param.key}
                     param={param}
                     value={values[param.key]}
-                    onChange={(value) => onChange(param.key, value)}
+                    onChange={onChange}
                 />
             ))}
         </div>
@@ -40,12 +43,17 @@ function ParamField({
 }: {
     param: TemplateParam
     value: FieldValue | undefined
-    onChange: (value: FieldValue) => void
+    onChange: (key: string, value: FieldValue) => void
 }) {
     const id = `param-${param.key}`
     const label = param.label.trim() || param.key
+    const text = String(value ?? '')
 
-    if (param.type === 'boolean')
+    const change = (next: FieldValue) => onChange(param.key, next)
+    const changeEvent = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+        change(event.target.value)
+
+    if (param.type === ParamType.Boolean)
         return (
             <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
                 <label htmlFor={id} className="flex min-w-0 flex-col gap-1">
@@ -54,7 +62,7 @@ function ParamField({
                         {param.key}
                     </span>
                 </label>
-                <Switch id={id} checked={value === true} onCheckedChange={onChange} />
+                <Switch id={id} checked={value === true} onCheckedChange={change} />
             </div>
         )
 
@@ -70,17 +78,12 @@ function ParamField({
                 </span>
             </div>
 
-            {param.type === 'textarea' && (
-                <Textarea
-                    id={id}
-                    rows={3}
-                    value={String(value ?? '')}
-                    onChange={(event) => onChange(event.target.value)}
-                />
+            {param.type === ParamType.Textarea && (
+                <Textarea id={id} rows={3} value={text} onChange={changeEvent} />
             )}
 
-            {param.type === 'select' && (
-                <Select value={String(value ?? '')} onValueChange={onChange}>
+            {param.type === ParamType.Select && (
+                <Select value={text} onValueChange={change}>
                     <SelectTrigger id={id}>
                         <SelectValue placeholder="Pick one" />
                     </SelectTrigger>
@@ -94,13 +97,13 @@ function ParamField({
                 </Select>
             )}
 
-            {(param.type === 'text' || param.type === 'number') && (
+            {(param.type === ParamType.Text || param.type === ParamType.Number) && (
                 <Input
                     id={id}
                     type={param.type}
                     className="font-mono"
-                    value={String(value ?? '')}
-                    onChange={(event) => onChange(event.target.value)}
+                    value={text}
+                    onChange={changeEvent}
                 />
             )}
         </div>

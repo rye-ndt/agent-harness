@@ -1,32 +1,31 @@
-import {useEffect, useState} from 'react'
+import {useState} from 'react'
 
 import {DialogShell} from '@/components/common/dialog-shell'
 import {TemplateForm} from '@/components/templates/template-form'
 import {Button} from '@/components/ui/button'
 import {useTemplates} from '@/hooks/use-templates'
+import {errorMessage} from '@/lib/errors'
 import {emptyTemplate, templateIssues} from '@/lib/template'
 import type {Template, TemplateDraft} from '@/types/template'
 
 export function TemplateFormDialog({
-    open,
     template,
-    onOpenChange,
+    onClose,
 }: {
-    open: boolean
     template: Template | null
-    onOpenChange: (open: boolean) => void
+    onClose: () => void
 }) {
     const {saveTemplate, saving} = useTemplates()
-    const [draft, setDraft] = useState<TemplateDraft>(emptyTemplate)
+    const [draft, setDraft] = useState<TemplateDraft>(() =>
+        template ? structuredClone(template) : emptyTemplate(),
+    )
     const [error, setError] = useState('')
 
-    useEffect(() => {
-        if (!open) return
-        setDraft(template ? structuredClone(template) : emptyTemplate())
-        setError('')
-    }, [open, template])
-
     const issues = templateIssues(draft)
+
+    const close = (open: boolean) => {
+        if (!open) onClose()
+    }
 
     const save = async () => {
         if (issues.length > 0) {
@@ -36,25 +35,27 @@ export function TemplateFormDialog({
 
         try {
             await saveTemplate(draft)
-            onOpenChange(false)
-        } catch (err) {
-            setError(String(err))
+            onClose()
+        } catch (error: unknown) {
+            setError(errorMessage(error))
         }
     }
 
+    const saveLabel = template ? 'Save changes' : 'Create template'
+
     return (
         <DialogShell
-            open={open}
-            onOpenChange={onOpenChange}
+            open
+            onOpenChange={close}
             title={template ? 'Edit template' : 'New template'}
             footer={
                 <>
                     <p className="min-w-0 flex-1 truncate text-sm text-destructive">{error}</p>
-                    <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+                    <Button variant="ghost" size="sm" onClick={onClose}>
                         Cancel
                     </Button>
                     <Button size="sm" disabled={saving} onClick={save}>
-                        {saving ? 'Saving' : template ? 'Save changes' : 'Create template'}
+                        {saving ? 'Saving' : saveLabel}
                     </Button>
                 </>
             }

@@ -1,33 +1,14 @@
-import type {Point, Session, SessionStatus, Task, TaskDraft, TaskState} from '@/types/session'
+import {SessionStatus, TaskState} from '@/lib/enums'
+import type {Point, Session, Task, TaskDraft} from '@/types/session'
 
-export const TASK_STATES: TaskState[] = [
-    'idle',
-    'blocked',
-    'queued',
-    'running',
-    'awaiting_approval',
-    'done',
-    'failed',
-]
+const DEFAULT_AGENT = 'claude_code'
 
-export const STATE_LABELS: Record<TaskState, string> = {
-    idle: 'Not started',
-    blocked: 'Waiting on upstream',
-    queued: 'Ready to run',
-    running: 'Running',
-    awaiting_approval: 'Needs you',
-    done: 'Done',
-    failed: 'Failed',
-}
+const SETTLED_STATES = new Set<TaskState>([TaskState.Running, TaskState.Done, TaskState.Failed])
 
-export const STATE_SHORT_LABELS: Record<TaskState, string> = {
-    idle: 'Idle',
-    blocked: 'Blocked',
-    queued: 'Ready',
-    running: 'Running',
-    awaiting_approval: 'Needs you',
-    done: 'Done',
-    failed: 'Failed',
+const WAITING_STATES = new Set<TaskState>([TaskState.Idle, TaskState.Queued, TaskState.Blocked])
+
+export function isSettled(state: TaskState) {
+    return SETTLED_STATES.has(state)
 }
 
 export function createTask(draft: TaskDraft, position: Point): Task {
@@ -35,8 +16,8 @@ export function createTask(draft: TaskDraft, position: Point): Task {
         id: crypto.randomUUID(),
         title: draft.title,
         prompt: draft.prompt,
-        agent: 'claude_code',
-        state: 'idle',
+        agent: DEFAULT_AGENT,
+        state: TaskState.Idle,
         position,
         dependsOn: [],
         templateId: draft.templateId,
@@ -68,7 +49,7 @@ export function duplicateSession(session: Session): Session {
             title: task.title,
             prompt: task.prompt,
             agent: task.agent,
-            state: 'idle',
+            state: TaskState.Idle,
             position: {...task.position},
             dependsOn: task.dependsOn.map((id) => idMap.get(id)!).filter(Boolean),
             templateId: task.templateId,
@@ -77,41 +58,91 @@ export function duplicateSession(session: Session): Session {
     }
 }
 
+export function findSession(sessions: Session[], sessionId: string | null) {
+    if (!sessionId) return undefined
+    return sessions.find((session) => session.id === sessionId)
+}
+
 export function findTask(session: Session, taskId: string | null) {
     if (!taskId) return undefined
     return session.tasks.find((task) => task.id === taskId)
 }
 
+export function withTask(session: Session, task: Task): Session {
+    return {...session, tasks: [...session.tasks, task]}
+}
+
+export function withTaskPatch(session: Session, taskId: string, patch: Partial<Task>): Session {
+    return {
+        ...session,
+        tasks: session.tasks.map((task) =>
+            task.id === taskId ? {...task, ...patch, id: taskId} : task,
+        ),
+    }
+}
+
+export function withoutTask(session: Session, taskId: string): Session {
+    return {
+        ...session,
+        tasks: session.tasks
+            .filter((task) => task.id !== taskId)
+            .map((task) => ({...task, dependsOn: task.dependsOn.filter((id) => id !== taskId)})),
+    }
+}
+
+export function withDependency(session: Session, sourceId: string, targetId: string): Session {
+    if (createsCycle(session.tasks, sourceId, targetId)) return session
+
+    return {
+        ...session,
+        tasks: session.tasks.map((task) => {
+            const needsEdge = task.id === targetId && !task.dependsOn.includes(sourceId)
+            return needsEdge ? {...task, dependsOn: [...task.dependsOn, sourceId]} : task
+        }),
+    }
+}
+
+export function withoutDependency(session: Session, sourceId: string, targetId: string): Session {
+    return {
+        ...session,
+        tasks: session.tasks.map((task) =>
+            task.id === targetId
+                ? {...task, dependsOn: task.dependsOn.filter((id) => id !== sourceId)}
+                : task,
+        ),
+    }
+}
+
 export function sessionStatus(session: Session): SessionStatus {
-    if (session.tasks.length === 0) return 'empty'
-    if (!session.finalized) return 'draft'
-    if (session.tasks.some((task) => task.state === 'failed')) return 'failed'
-    if (session.tasks.every((task) => task.state === 'done')) return 'done'
-    return 'running'
+    if (session.tasks.length === 0) return SessionStatus.Empty
+    if (!session.finalized) return SessionStatus.Draft
+    if (session.tasks.some((task) => task.state === TaskState.Failed)) return SessionStatus.Failed
+    if (session.tasks.every((task) => task.state === TaskState.Done)) return SessionStatus.Done
+    return SessionStatus.Running
 }
 
 export function hasRunningTask(session: Session) {
-    return session.tasks.some((task) => task.state === 'running')
+    return session.tasks.some((task) => task.state === TaskState.Running)
 }
 
 export function sessionProgress(session: Session) {
-    const done = session.tasks.filter((task) => task.state === 'done').length
+    const done = session.tasks.filter((task) => task.state === TaskState.Done).length
     return {done, total: session.tasks.length}
 }
 
 /** Finalizing starts the run, so a task waits for that and for every upstream task — the fan-in join. */
 export function isRunnable(session: Session, task: Task) {
-    return (
-        session.finalized &&
-        (task.state === 'idle' || task.state === 'queued' || task.state === 'blocked') &&
-        task.dependsOn.every((id) => findTask(session, id)?.state === 'done')
+    const upstreamDone = task.dependsOn.every(
+        (id) => findTask(session, id)?.state === TaskState.Done,
     )
+
+    return session.finalized && WAITING_STATES.has(task.state) && upstreamDone
 }
 
 export function upstreamOf(session: Session, task: Task) {
     return task.dependsOn
         .map((id) => findTask(session, id))
-        .filter((t): t is Task => Boolean(t))
+        .filter((candidate): candidate is Task => Boolean(candidate))
 }
 
 export function downstreamOf(session: Session, task: Task) {

@@ -1,14 +1,10 @@
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 
 import {authorizeMCPServer, listMCPServers, revokeMCPServer} from '@/api/mcp'
+import {errorMessage} from '@/lib/errors'
 import type {MCPServer} from '@/types/settings'
 
 const MCP_SERVERS_KEY = ['mcp-servers']
-
-function messageOf(error: unknown) {
-    if (!error) return null
-    return error instanceof Error ? error.message : String(error)
-}
 
 function useMCPMutation(mutationFn: (serverId: string) => Promise<MCPServer>) {
     const queryClient = useQueryClient()
@@ -38,9 +34,9 @@ export function useMCPServers() {
     return {
         servers: data ?? [],
         loading: isPending,
-        error: messageOf(error ?? authorize.error ?? revoke.error),
+        error: errorMessage(error ?? authorize.error ?? revoke.error),
         pendingId: inFlight?.variables ?? null,
-        authorize: (serverId: string) => authorize.mutate(serverId),
-        revoke: (serverId: string) => revoke.mutate(serverId),
+        authorize: authorize.mutate,
+        revoke: revoke.mutate,
     }
 }

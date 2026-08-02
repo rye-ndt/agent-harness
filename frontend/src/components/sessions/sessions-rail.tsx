@@ -60,9 +60,9 @@ export function SessionsRail({
                                 key={session.id}
                                 session={session}
                                 active={session.id === activeSessionId}
-                                onSelect={() => onSelect(session.id)}
-                                onClone={() => onClone(session.id)}
-                                onDelete={() => onDelete(session.id)}
+                                onSelect={onSelect}
+                                onClone={onClone}
+                                onDelete={onDelete}
                             />
                         ))}
                     </div>

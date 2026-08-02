@@ -1,10 +1,4 @@
-export type TaskLevel =
-    | 'maximum_effort_task'
-    | 'heavy_task'
-    | 'daily_task'
-    | 'lightweight_task'
-
-export type ParamType = 'text' | 'textarea' | 'number' | 'boolean' | 'select'
+import type {ParamType, TaskLevel} from '@/lib/enums'
 
 export type TemplateParam = {
     key: string

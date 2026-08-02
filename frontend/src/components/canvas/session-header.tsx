@@ -1,27 +1,22 @@
-import {useEffect, useState} from 'react'
+import {useState, type ChangeEvent, type KeyboardEvent} from 'react'
 import {Copy, Lock, Plus, Settings} from 'lucide-react'
 
 import {Button} from '@/components/ui/button'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
+import {SessionStatus, SESSION_STATUS_LABELS} from '@/lib/enums'
 import {sessionProgress, sessionStatus} from '@/lib/session'
 import {cn} from '@/lib/utils'
-import type {Session, SessionStatus} from '@/types/session'
-
-const STATUS_LABELS: Record<SessionStatus, string> = {
-    empty: 'Empty',
-    draft: 'Draft',
-    running: 'Running',
-    done: 'Done',
-    failed: 'Failed',
-}
+import type {Session} from '@/types/session'
 
 const STATUS_CLASSES: Record<SessionStatus, string> = {
-    empty: 'bg-state-idle-tint text-muted-foreground',
-    draft: 'bg-state-idle-tint text-muted-foreground',
-    running: 'bg-state-running-tint text-state-running',
-    done: 'bg-state-done-tint text-state-done',
-    failed: 'bg-state-failed-tint text-state-failed',
+    [SessionStatus.Empty]: 'bg-state-idle-tint text-muted-foreground',
+    [SessionStatus.Draft]: 'bg-state-idle-tint text-muted-foreground',
+    [SessionStatus.Running]: 'bg-state-running-tint text-state-running',
+    [SessionStatus.Done]: 'bg-state-done-tint text-state-done',
+    [SessionStatus.Failed]: 'bg-state-failed-tint text-state-failed',
 }
+
+const FINALIZED_HINT = 'Finalized — duplicate to make changes.'
 
 export function SessionHeader({
     session,
@@ -38,62 +33,20 @@ export function SessionHeader({
     onNewNode: () => void
     onOpenSettings: () => void
 }) {
-    const [name, setName] = useState(session?.name ?? '')
-
-    useEffect(() => {
-        setName(session?.name ?? '')
-    }, [session?.id, session?.name])
-
-    const commit = () => {
-        if (!session) return
-
-        const next = name.trim()
-        if (!next) {
-            setName(session.name)
-            return
-        }
-        if (next !== session.name) onRename(next)
-    }
+    const locked = session?.finalized ?? false
 
     return (
         <header className="shrink-0">
             <div className="flex h-14 items-center gap-3 border-b border-border bg-background px-4">
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                     {session &&
-                        (session.finalized ? (
-                            <span className="flex min-w-0 items-center gap-1">
-                                <span className="truncate text-xl font-semibold">
-                                    {session.name}
-                                </span>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <button
-                                            type="button"
-                                            aria-label="This session is finalized"
-                                            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-live"
-                                        >
-                                            <Lock className="size-3.5" />
-                                        </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom">
-                                        Finalized — duplicate to make changes.
-                                    </TooltipContent>
-                                </Tooltip>
-                            </span>
+                        (locked ? (
+                            <FinalizedName name={session.name} />
                         ) : (
-                            <input
-                                value={name}
-                                aria-label="Session name"
-                                onChange={(event) => setName(event.target.value)}
-                                onBlur={commit}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter') event.currentTarget.blur()
-                                    if (event.key === 'Escape') {
-                                        setName(session.name)
-                                        event.currentTarget.blur()
-                                    }
-                                }}
-                                className="-ml-2 w-full max-w-96 min-w-0 rounded-md bg-transparent px-2 py-1 text-xl font-semibold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live"
+                            <SessionNameInput
+                                key={session.id}
+                                name={session.name}
+                                onRename={onRename}
                             />
                         ))}
 
@@ -103,7 +56,7 @@ export function SessionHeader({
                 <div className="flex shrink-0 items-center gap-2">
                     {session && (
                         <>
-                            {!session.finalized && (
+                            {!locked && (
                                 <Button variant="outline" size="sm" onClick={onNewNode}>
                                     <Plus />
                                     New node
@@ -113,7 +66,7 @@ export function SessionHeader({
                                 <Copy />
                                 Duplicate
                             </Button>
-                            {!session.finalized && (
+                            {!locked && (
                                 <Button variant="outline" size="sm" onClick={onFinalize}>
                                     <Lock />
                                     Finalize
@@ -142,6 +95,61 @@ export function SessionHeader({
     )
 }
 
+function FinalizedName({name}: {name: string}) {
+    return (
+        <span className="flex min-w-0 items-center gap-1">
+            <span className="truncate text-xl font-semibold">{name}</span>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <button
+                        type="button"
+                        aria-label="This session is finalized"
+                        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-live"
+                    >
+                        <Lock className="size-3.5" />
+                    </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{FINALIZED_HINT}</TooltipContent>
+            </Tooltip>
+        </span>
+    )
+}
+
+function SessionNameInput({name, onRename}: {name: string; onRename: (name: string) => void}) {
+    const [draft, setDraft] = useState(name)
+
+    const change = (event: ChangeEvent<HTMLInputElement>) => setDraft(event.target.value)
+
+    const commit = () => {
+        const next = draft.trim()
+        if (!next) {
+            setDraft(name)
+            return
+        }
+
+        if (next !== name) onRename(next)
+    }
+
+    const handleKeys = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Enter') event.currentTarget.blur()
+        if (event.key === 'Escape') {
+            setDraft(name)
+            event.currentTarget.blur()
+        }
+    }
+
+    return (
+        <input
+            value={draft}
+            aria-label="Session name"
+            onChange={change}
+            onBlur={commit}
+            onKeyDown={handleKeys}
+            className="-ml-2 w-full max-w-96 min-w-0 rounded-md bg-transparent px-2 py-1 text-xl font-semibold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live"
+        />
+    )
+}
+
 function SessionIdentity({session}: {session: Session}) {
     const status = sessionStatus(session)
     const {done, total} = sessionProgress(session)
@@ -154,7 +162,7 @@ function SessionIdentity({session}: {session: Session}) {
                     STATUS_CLASSES[status],
                 )}
             >
-                {STATUS_LABELS[status]}
+                {SESSION_STATUS_LABELS[status]}
             </span>
 
             <span className="font-mono text-sm text-muted-foreground">

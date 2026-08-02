@@ -1,4 +1,4 @@
-import type {ReactNode} from 'react'
+import type {ChangeEvent, ReactNode} from 'react'
 import {Plus} from 'lucide-react'
 
 import {Field} from '@/components/common/field'
@@ -15,8 +15,11 @@ import {
 } from '@/components/ui/select'
 import {Switch} from '@/components/ui/switch'
 import {Textarea} from '@/components/ui/textarea'
-import {emptyParam, TASK_LEVEL_HINTS, TASK_LEVEL_LABELS, TASK_LEVELS} from '@/lib/template'
-import type {TaskLevel, TemplateDraft} from '@/types/template'
+import {TaskLevel, TASK_LEVELS, TASK_LEVEL_HINTS, TASK_LEVEL_LABELS} from '@/lib/enums'
+import {emptyParam} from '@/lib/template'
+import type {SystemPrompt, TemplateDraft, TemplateParam} from '@/types/template'
+
+const EMPTY_PROMPT: SystemPrompt = {key: '', value: ''}
 
 function replaceAt<T>(list: T[], index: number, fields: Partial<T>) {
     return list.map((item, at) => (at === index ? {...item, ...fields} : item))
@@ -35,6 +38,22 @@ export function TemplateForm({
 }) {
     const patch = (fields: Partial<TemplateDraft>) => onChange({...draft, ...fields})
 
+    const changeName = (event: ChangeEvent<HTMLInputElement>) => patch({name: event.target.value})
+    const changeRole = (event: ChangeEvent<HTMLTextAreaElement>) => patch({role: event.target.value})
+    const changeLevel = (value: string) => patch({taskLevel: value as TaskLevel})
+    const changeRetryable = (retryable: boolean) => patch({retryable})
+
+    const addParam = () => patch({params: [...draft.params, emptyParam()]})
+    const changeParam = (index: number, fields: Partial<TemplateParam>) =>
+        patch({params: replaceAt(draft.params, index, fields)})
+    const removeParam = (index: number) => patch({params: removeAt(draft.params, index)})
+
+    const addPrompt = () => patch({systemPrompts: [...draft.systemPrompts, EMPTY_PROMPT]})
+    const changePrompt = (index: number, fields: Partial<SystemPrompt>) =>
+        patch({systemPrompts: replaceAt(draft.systemPrompts, index, fields)})
+    const removePrompt = (index: number) =>
+        patch({systemPrompts: removeAt(draft.systemPrompts, index)})
+
     return (
         <div className="flex flex-col gap-6 p-4">
             <Field htmlFor="template-name" label="Name">
@@ -42,7 +61,7 @@ export function TemplateForm({
                     id="template-name"
                     value={draft.name}
                     placeholder="Code reviewer"
-                    onChange={(event) => patch({name: event.target.value})}
+                    onChange={changeName}
                 />
             </Field>
 
@@ -56,17 +75,14 @@ export function TemplateForm({
                     rows={2}
                     value={draft.role}
                     placeholder="Reads a diff and reports the defects it can prove."
-                    onChange={(event) => patch({role: event.target.value})}
+                    onChange={changeRole}
                 />
             </Field>
 
             <div className="flex flex-col gap-2">
                 <div className="flex items-end gap-3">
                     <Field htmlFor="template-level" label="Effort" className="min-w-0 flex-1">
-                        <Select
-                            value={draft.taskLevel}
-                            onValueChange={(value) => patch({taskLevel: value as TaskLevel})}
-                        >
+                        <Select value={draft.taskLevel} onValueChange={changeLevel}>
                             <SelectTrigger id="template-level">
                                 <SelectValue />
                             </SelectTrigger>
@@ -88,47 +104,39 @@ export function TemplateForm({
                         <Switch
                             id="template-retryable"
                             checked={draft.retryable}
-                            onCheckedChange={(retryable) => patch({retryable})}
+                            onCheckedChange={changeRetryable}
                         />
                     </label>
                 </div>
 
-                <p className="text-sm text-muted-foreground">
-                    {TASK_LEVEL_HINTS[draft.taskLevel]}
-                </p>
+                <p className="text-sm text-muted-foreground">{TASK_LEVEL_HINTS[draft.taskLevel]}</p>
             </div>
 
             <Section
                 title="Inputs"
                 hint="What a node must supply before this template can run."
-                onAdd={() => patch({params: [...draft.params, emptyParam()]})}
+                onAdd={addParam}
                 addLabel="Add input"
             >
                 {draft.params.map((param, index) => (
                     <ParamEditor
                         key={index}
+                        index={index}
                         param={param}
-                        onChange={(fields) =>
-                            patch({params: replaceAt(draft.params, index, fields)})
-                        }
-                        onRemove={() => patch({params: removeAt(draft.params, index)})}
+                        onChange={changeParam}
+                        onRemove={removeParam}
                     />
                 ))}
             </Section>
 
-            <Section
-                title="Prompts"
-                onAdd={() => patch({systemPrompts: [...draft.systemPrompts, {key: '', value: ''}]})}
-                addLabel="Add prompt"
-            >
+            <Section title="Prompts" onAdd={addPrompt} addLabel="Add prompt">
                 {draft.systemPrompts.map((prompt, index) => (
                     <PromptEditor
                         key={index}
+                        index={index}
                         prompt={prompt}
-                        onChange={(fields) =>
-                            patch({systemPrompts: replaceAt(draft.systemPrompts, index, fields)})
-                        }
-                        onRemove={() => patch({systemPrompts: removeAt(draft.systemPrompts, index)})}
+                        onChange={changePrompt}
+                        onRemove={removePrompt}
                     />
                 ))}
             </Section>

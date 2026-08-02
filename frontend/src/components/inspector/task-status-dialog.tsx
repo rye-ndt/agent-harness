@@ -6,33 +6,21 @@ import {HandoverDocs} from '@/components/inspector/handover-docs'
 import {Button} from '@/components/ui/button'
 import {useElapsed} from '@/hooks/use-elapsed'
 import {useTemplates} from '@/hooks/use-templates'
-import {formatAgentName} from '@/lib/agent'
-import {TASK_LEVEL_LABELS} from '@/lib/template'
+import {TaskState, TASK_LEVEL_LABELS} from '@/lib/enums'
+import {formatAgentName, formatMoment, formatPercent} from '@/lib/format'
 import type {Task} from '@/types/session'
 import type {Template} from '@/types/template'
 
-function formatMoment(iso?: string) {
-    if (!iso) return '—'
-
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return iso
-
-    return date.toLocaleString([], {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    })
-}
-
 function summarize(task: Task, template?: Template) {
-    return [
-        template?.name,
-        template && TASK_LEVEL_LABELS[template.taskLevel],
-        formatAgentName(task.agent),
-    ]
+    return [template?.name, template && TASK_LEVEL_LABELS[template.taskLevel], formatAgentName(task.agent)]
         .filter(Boolean)
         .join(' · ')
+}
+
+function emptyLine(task: Task) {
+    if (task.state === TaskState.Blocked)
+        return 'This node has not run. It is waiting on the nodes upstream of it.'
+    return 'This node has not run yet.'
 }
 
 function Stat({label, value}: {label: string; value: string}) {
@@ -46,19 +34,21 @@ function Stat({label, value}: {label: string; value: string}) {
 
 export function TaskStatusDialog({task, onClose}: {task: Task; onClose: () => void}) {
     const {templates} = useTemplates()
-    const template = templates.find((template) => template.id === task.templateId)
+    const template = templates.find((candidate) => candidate.id === task.templateId)
+
     const run = task.run
     const context = run?.context
     const elapsed = useElapsed(run?.startedAt, run?.finishedAt)
-    const percent =
-        context && context.total > 0
-            ? Math.round(Math.min(1, context.used / context.total) * 100)
-            : 0
+    const retried = run?.retryCount !== undefined && run.retryCount > 0
+
+    const close = (open: boolean) => {
+        if (!open) onClose()
+    }
 
     return (
         <DialogShell
             open
-            onOpenChange={(open) => !open && onClose()}
+            onOpenChange={close}
             title={task.title || 'Untitled node'}
             description={summarize(task, template)}
             aside={<StateBadge state={task.state} />}
@@ -79,9 +69,7 @@ export function TaskStatusDialog({task, onClose}: {task: Task; onClose: () => vo
                         <Stat label="Started" value={formatMoment(run.startedAt)} />
                         <Stat label="Finished" value={formatMoment(run.finishedAt)} />
                         <Stat label="Elapsed" value={elapsed ?? '—'} />
-                        {run.retryCount !== undefined && run.retryCount > 0 && (
-                            <Stat label="Retries" value={String(run.retryCount)} />
-                        )}
+                        {retried && <Stat label="Retries" value={String(run.retryCount)} />}
                     </div>
 
                     {context && (
@@ -90,7 +78,7 @@ export function TaskStatusDialog({task, onClose}: {task: Task; onClose: () => vo
                             <div className="flex min-w-0 flex-col gap-2">
                                 <span className="micro-label">Context</span>
                                 <span className="font-mono text-lg leading-none">
-                                    {percent}%
+                                    {formatPercent(context.used, context.total)}%
                                 </span>
                             </div>
                         </div>
@@ -112,11 +100,7 @@ export function TaskStatusDialog({task, onClose}: {task: Task; onClose: () => vo
                     )}
                 </div>
             ) : (
-                <p className="px-4 py-4 text-base text-muted-foreground">
-                    {task.state === 'blocked'
-                        ? 'This node has not run. It is waiting on the nodes upstream of it.'
-                        : 'This node has not run yet.'}
-                </p>
+                <p className="px-4 py-4 text-base text-muted-foreground">{emptyLine(task)}</p>
             )}
         </DialogShell>
     )

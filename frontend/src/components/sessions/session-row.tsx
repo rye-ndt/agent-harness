@@ -1,3 +1,4 @@
+import type {MouseEvent} from 'react'
 import {Lock, MoreHorizontal} from 'lucide-react'
 
 import {SessionSpine} from '@/components/sessions/session-spine'
@@ -8,28 +9,12 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
-import {cn} from '@/lib/utils'
+import {formatRelative} from '@/lib/format'
 import {sessionProgress} from '@/lib/session'
+import {cn} from '@/lib/utils'
 import type {Session} from '@/types/session'
 
-function formatRelativeTime(iso: string) {
-    const then = new Date(iso).getTime()
-    if (Number.isNaN(then)) return ''
-
-    const seconds = Math.max(0, Math.round((Date.now() - then) / 1000))
-    if (seconds < 60) return 'just now'
-
-    const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return `${minutes}m ago`
-
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours}h ago`
-
-    const days = Math.floor(hours / 24)
-    if (days < 365) return `${days}d ago`
-
-    return `${Math.floor(days / 365)}y ago`
-}
+const FINALIZED_HINT = 'Finalized — duplicate to make changes.'
 
 export function SessionRow({
     session,
@@ -40,18 +25,23 @@ export function SessionRow({
 }: {
     session: Session
     active: boolean
-    onSelect: () => void
-    onClone: () => void
-    onDelete: () => void
+    onSelect: (sessionId: string) => void
+    onClone: (sessionId: string) => void
+    onDelete: (sessionId: string) => void
 }) {
     const {done, total} = sessionProgress(session)
-    const relative = formatRelativeTime(session.createdAt)
+    const relative = formatRelative(session.createdAt)
+
+    const select = () => onSelect(session.id)
+    const clone = () => onClone(session.id)
+    const remove = () => onDelete(session.id)
+    const stopPropagation = (event: MouseEvent<HTMLButtonElement>) => event.stopPropagation()
 
     return (
         <div className="group relative">
             <button
                 type="button"
-                onClick={onSelect}
+                onClick={select}
                 aria-current={active}
                 className={cn(
                     'flex w-full flex-col gap-2 rounded-md px-2 py-3 pr-8 text-left transition-colors duration-[120ms] outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring/50',
@@ -71,9 +61,7 @@ export function SessionRow({
                                     <Lock className="size-3" />
                                 </span>
                             </TooltipTrigger>
-                            <TooltipContent side="bottom">
-                                Finalized — duplicate to make changes.
-                            </TooltipContent>
+                            <TooltipContent side="bottom">{FINALIZED_HINT}</TooltipContent>
                         </Tooltip>
                     )}
                 </span>
@@ -109,15 +97,15 @@ export function SessionRow({
                     <button
                         type="button"
                         aria-label={`Options for ${session.name}`}
-                        onClick={(event) => event.stopPropagation()}
+                        onClick={stopPropagation}
                         className="absolute top-2 right-1 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity duration-[120ms] outline-none hover:bg-sidebar-border hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100 aria-expanded:opacity-100"
                     >
                         <MoreHorizontal className="size-3.5" />
                     </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-40">
-                    <DropdownMenuItem onSelect={onClone}>Duplicate</DropdownMenuItem>
-                    <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+                    <DropdownMenuItem onSelect={clone}>Duplicate</DropdownMenuItem>
+                    <DropdownMenuItem variant="destructive" onSelect={remove}>
                         Delete
                     </DropdownMenuItem>
                 </DropdownMenuContent>

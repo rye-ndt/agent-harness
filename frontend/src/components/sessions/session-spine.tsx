@@ -1,18 +1,20 @@
-import {cn} from '@/lib/utils'
+import {TaskState} from '@/lib/enums'
 import {taskLayers} from '@/lib/session'
-import type {Session, Task, TaskState} from '@/types/session'
+import {cn} from '@/lib/utils'
+import type {Session, Task} from '@/types/session'
 
 const MAX_LAYERS = 6
+
 const MAX_DOTS_PER_LAYER = 3
 
 const SPINE_DOT_CLASSES: Record<TaskState, string> = {
-    idle: 'bg-state-idle/40',
-    blocked: 'bg-state-idle/40',
-    queued: 'bg-state-idle/40',
-    running: 'bg-state-running',
-    awaiting_approval: 'bg-state-approval',
-    done: 'bg-state-done',
-    failed: 'bg-state-failed',
+    [TaskState.Idle]: 'bg-state-idle/40',
+    [TaskState.Blocked]: 'bg-state-idle/40',
+    [TaskState.Queued]: 'bg-state-idle/40',
+    [TaskState.Running]: 'bg-state-running',
+    [TaskState.AwaitingApproval]: 'bg-state-approval',
+    [TaskState.Done]: 'bg-state-done',
+    [TaskState.Failed]: 'bg-state-failed',
 }
 
 function groupByLayer(session: Session) {
@@ -32,7 +34,7 @@ function groupByLayer(session: Session) {
 function SpineDot({state}: {state: TaskState}) {
     return (
         <span className="relative flex size-[5px]">
-            {state === 'running' && (
+            {state === TaskState.Running && (
                 <span className="absolute -inset-[3px] animate-ping rounded-full bg-state-running/40 motion-reduce:hidden" />
             )}
             <span className={cn('size-[5px] rounded-full', SPINE_DOT_CLASSES[state])} />

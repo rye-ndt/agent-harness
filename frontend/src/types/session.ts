@@ -1,15 +1,5 @@
+import type {FileChangeType, TaskState} from '@/lib/enums'
 import type {ParamValue} from '@/types/template'
-
-export type TaskState =
-    | 'idle'
-    | 'blocked'
-    | 'queued'
-    | 'running'
-    | 'awaiting_approval'
-    | 'done'
-    | 'failed'
-
-export type SessionStatus = 'empty' | 'draft' | 'running' | 'done' | 'failed'
 
 export type Point = {
     x: number
@@ -20,8 +10,6 @@ export type ContextUsage = {
     used: number
     total: number
 }
-
-export type FileChangeType = 'created' | 'modified' | 'deleted' | 'renamed'
 
 export type FileChange = {
     path: string

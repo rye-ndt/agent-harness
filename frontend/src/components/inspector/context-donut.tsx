@@ -1,16 +1,11 @@
+import {clampRatio, formatPercent, formatTokens} from '@/lib/format'
+
 const RADIUS = 32
 
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 
-function formatTokens(tokens: number) {
-    if (tokens < 1000) return String(tokens)
-    const thousands = tokens / 1000
-    return `${thousands < 10 ? thousands.toFixed(1) : Math.round(thousands)}k`
-}
-
 export function ContextDonut({used, total}: {used: number; total: number}) {
-    const share = total > 0 ? Math.min(1, Math.max(0, used / total)) : 0
-    const percent = Math.round(share * 100)
+    const share = total > 0 ? clampRatio(used / total) : 0
 
     return (
         <div className="relative size-[88px] shrink-0">
@@ -37,16 +32,14 @@ export function ContextDonut({used, total}: {used: number; total: number}) {
             </svg>
 
             <span className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-                <span className="font-mono text-base leading-none">
-                    {formatTokens(used)}
-                </span>
+                <span className="font-mono text-base leading-none">{formatTokens(used)}</span>
                 <span className="h-px w-5 bg-border" />
                 <span className="font-mono text-xs leading-none text-muted-foreground">
                     {formatTokens(total)}
                 </span>
             </span>
 
-            <span className="sr-only">{percent}% of the context window used</span>
+            <span className="sr-only">{formatPercent(used, total)}% of the context window used</span>
         </div>
     )
 }

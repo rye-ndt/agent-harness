@@ -2,6 +2,7 @@ import {useMemo, useState} from 'react'
 import {Lock, Trash2} from 'lucide-react'
 
 import {DialogShell} from '@/components/common/dialog-shell'
+import {MissingInputs} from '@/components/nodes/missing-inputs'
 import {NodeForm} from '@/components/nodes/node-form'
 import {Button} from '@/components/ui/button'
 import {useTemplates} from '@/hooks/use-templates'
@@ -36,6 +37,13 @@ export function EditNodeDialog({
     const missing = template ? missingRequired(template, values) : []
     const ready = title.trim().length > 0 && missing.length === 0
 
+    const editValue = (key: string, value: FieldValue) =>
+        setEdits((current) => ({...current, [key]: value}))
+
+    const close = (open: boolean) => {
+        if (!open) onClose()
+    }
+
     const save = () => {
         if (!ready) return
 
@@ -50,7 +58,7 @@ export function EditNodeDialog({
     return (
         <DialogShell
             open
-            onOpenChange={(open) => !open && onClose()}
+            onOpenChange={close}
             title={title.trim() || 'Untitled node'}
             footer={
                 <>
@@ -64,11 +72,7 @@ export function EditNodeDialog({
                         Delete node
                     </Button>
                     <span className="flex-1" />
-                    {missing.length > 0 && (
-                        <span className="text-sm text-muted-foreground">
-                            {missing.length} required input{missing.length === 1 ? '' : 's'} left
-                        </span>
-                    )}
+                    <MissingInputs count={missing.length} />
                     <Button variant="outline" size="sm" onClick={onClose}>
                         Cancel
                     </Button>
@@ -98,7 +102,7 @@ export function EditNodeDialog({
                 values={values}
                 onTitleChange={setTitle}
                 onPromptChange={setPrompt}
-                onValueChange={(key, value) => setEdits((current) => ({...current, [key]: value}))}
+                onValueChange={editValue}
             />
         </DialogShell>
     )

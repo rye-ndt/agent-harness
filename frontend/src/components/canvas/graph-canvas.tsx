@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState, type MouseEvent} from 'react'
+import {useMemo, useState, type MouseEvent} from 'react'
 import {
     Background,
     BackgroundVariant,
@@ -9,11 +9,13 @@ import {
     type Connection,
     type Edge,
     type HandleType,
+    type OnConnectStartParams,
 } from '@xyflow/react'
 import {Maximize, Minus, Plus} from 'lucide-react'
 
 import {TaskNode, type TaskNodeType} from '@/components/canvas/task-node'
 import {Button} from '@/components/ui/button'
+import {TaskState} from '@/lib/enums'
 import {createsCycle, unlinkableFrom, unlinkableInto} from '@/lib/session'
 import {cn} from '@/lib/utils'
 import type {Point, Session} from '@/types/session'
@@ -36,6 +38,17 @@ const nodeTypes = {task: TaskNode}
 
 const fitViewOptions = {padding: 0.3, maxZoom: 1}
 
+const ORIGIN: Point = {x: 0, y: 0}
+
+const NODE_CURSOR_OFFSET: Point = {x: 130, y: 40}
+
+const EDGE_TONES: Partial<Record<TaskState, string>> = {
+    [TaskState.Running]: 'is-live',
+    [TaskState.Done]: 'is-done',
+}
+
+const CANVAS_CHROME = '.react-flow__node, .react-flow__panel, button'
+
 export function GraphCanvas(props: GraphCanvasProps) {
     return (
         <ReactFlowProvider>
@@ -55,8 +68,10 @@ function Canvas({
 }: GraphCanvasProps) {
     const {screenToFlowPosition} = useReactFlow()
     const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
-    const [dragPositions, setDragPositions] = useState<Record<string, Point>>({})
     const [connectingFrom, setConnectingFrom] = useState<ConnectionOrigin | null>(null)
+
+    const locked = session.finalized
+    const isEmpty = session.tasks.length === 0
 
     const unlinkable = useMemo(() => {
         if (!connectingFrom) return null
@@ -66,26 +81,22 @@ function Canvas({
             : unlinkableInto(session.tasks, connectingFrom.nodeId)
     }, [session.tasks, connectingFrom])
 
-    useEffect(() => {
-        setDragPositions((current) => (Object.keys(current).length === 0 ? current : {}))
-    }, [session])
-
     const nodes = useMemo<TaskNodeType[]>(
         () =>
             session.tasks.map((task) => ({
                 id: task.id,
                 type: 'task' as const,
-                position: dragPositions[task.id] ?? task.position,
+                position: task.position,
                 data: {task, session, unlinkable: unlinkable?.has(task.id) ?? false},
                 selected: task.id === selectedTaskId,
-                draggable: !session.finalized,
+                draggable: !locked,
                 deletable: false,
                 className: cn(
                     'rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-live',
-                    session.finalized && 'is-locked',
+                    locked && 'is-locked',
                 ),
             })),
-        [session, selectedTaskId, dragPositions, unlinkable],
+        [session, locked, selectedTaskId, unlinkable],
     )
 
     const edges = useMemo<GraphEdge[]>(() => {
@@ -105,32 +116,55 @@ function Canvas({
                         target: task.id,
                         type: 'smoothstep',
                         pathOptions: {borderRadius: 12},
-                        className:
-                            source.state === 'running'
-                                ? 'is-live'
-                                : source.state === 'done'
-                                  ? 'is-done'
-                                  : undefined,
+                        className: EDGE_TONES[source.state],
                         selected: id === selectedEdgeId,
-                        deletable: !session.finalized,
+                        deletable: !locked,
                     },
                 ]
             }),
         )
-    }, [session, selectedEdgeId])
+    }, [session, locked, selectedEdgeId])
 
-    // nodes are derived from the session and React Flow keeps no position of its own, so a drag has to
-    // render from somewhere: this local overlay follows the cursor and the store is written once, on drop
-    const trackDrag = (_: unknown, node: TaskNodeType) =>
-        setDragPositions((current) => ({...current, [node.id]: node.position}))
+    const dropNode = (_: unknown, node: TaskNodeType) => onMoveTask(node.id, node.position)
+
+    const selectNode = (_: unknown, node: TaskNodeType) => {
+        setSelectedEdgeId(null)
+        onSelectTask(node.id)
+    }
+
+    const selectEdge = (_: unknown, edge: GraphEdge) => setSelectedEdgeId(edge.id)
+
+    const clearSelection = () => {
+        setSelectedEdgeId(null)
+        onSelectTask(null)
+    }
+
+    const startConnecting = (_: unknown, {nodeId, handleType}: OnConnectStartParams) =>
+        setConnectingFrom(nodeId && handleType ? {nodeId, handleType} : null)
+
+    const stopConnecting = () => setConnectingFrom(null)
+
+    const connect = (connection: Connection) => {
+        if (connection.source && connection.target) onConnect(connection.source, connection.target)
+    }
+
+    const canConnect = (connection: Connection | Edge) => {
+        const hasEnds = Boolean(connection.source) && Boolean(connection.target)
+        return hasEnds && !createsCycle(session.tasks, connection.source, connection.target)
+    }
+
+    const disconnectAll = (deleted: Edge[]) => {
+        for (const edge of deleted) onDisconnect(edge.source, edge.target)
+    }
+
+    const addAtOrigin = () => onNewNode(ORIGIN)
 
     const addAtCursor = (event: MouseEvent<HTMLDivElement>) => {
-        if (session.finalized) return
-        if ((event.target as HTMLElement).closest('.react-flow__node, .react-flow__panel, button'))
-            return
+        const onChrome = (event.target as HTMLElement).closest(CANVAS_CHROME)
+        if (locked || onChrome) return
 
         const position = screenToFlowPosition({x: event.clientX, y: event.clientY})
-        onNewNode({x: position.x - 130, y: position.y - 40})
+        onNewNode({x: position.x - NODE_CURSOR_OFFSET.x, y: position.y - NODE_CURSOR_OFFSET.y})
     }
 
     return (
@@ -144,36 +178,18 @@ function Canvas({
                 minZoom={0.3}
                 maxZoom={1.5}
                 zoomOnDoubleClick={false}
-                nodesConnectable={!session.finalized}
+                nodesConnectable={!locked}
                 deleteKeyCode={['Backspace', 'Delete']}
                 proOptions={{hideAttribution: true}}
-                onNodeDrag={trackDrag}
-                onNodeDragStop={(_, node) => onMoveTask(node.id, node.position)}
-                onNodeClick={(_, node) => {
-                    setSelectedEdgeId(null)
-                    onSelectTask(node.id)
-                }}
-                onEdgeClick={(_, edge) => setSelectedEdgeId(edge.id)}
-                onPaneClick={() => {
-                    setSelectedEdgeId(null)
-                    onSelectTask(null)
-                }}
-                onConnectStart={(_, {nodeId, handleType}) =>
-                    setConnectingFrom(nodeId && handleType ? {nodeId, handleType} : null)
-                }
-                onConnectEnd={() => setConnectingFrom(null)}
-                onConnect={(connection: Connection) => {
-                    if (connection.source && connection.target)
-                        onConnect(connection.source, connection.target)
-                }}
-                isValidConnection={(connection) =>
-                    Boolean(connection.source) &&
-                    Boolean(connection.target) &&
-                    !createsCycle(session.tasks, connection.source, connection.target)
-                }
-                onEdgesDelete={(deleted) => {
-                    for (const edge of deleted) onDisconnect(edge.source, edge.target)
-                }}
+                onNodeDragStop={dropNode}
+                onNodeClick={selectNode}
+                onEdgeClick={selectEdge}
+                onPaneClick={clearSelection}
+                onConnectStart={startConnecting}
+                onConnectEnd={stopConnecting}
+                onConnect={connect}
+                isValidConnection={canConnect}
+                onEdgesDelete={disconnectAll}
             >
                 <Background
                     variant={BackgroundVariant.Dots}
@@ -184,17 +200,17 @@ function Canvas({
                 <ZoomCluster />
             </ReactFlow>
 
-            {session.tasks.length === 0 && (
+            {isEmpty && (
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3">
                     <p className="text-base text-muted-foreground">
-                        {session.finalized ? 'This session has no nodes.' : 'No nodes yet.'}
+                        {locked ? 'This session has no nodes.' : 'No nodes yet.'}
                     </p>
-                    {!session.finalized && (
+                    {!locked && (
                         <Button
                             variant="outline"
                             size="sm"
                             className="pointer-events-auto"
-                            onClick={() => onNewNode({x: 0, y: 0})}
+                            onClick={addAtOrigin}
                         >
                             <Plus />
                             New node
@@ -209,6 +225,10 @@ function Canvas({
 function ZoomCluster() {
     const {zoomIn, zoomOut, fitView} = useReactFlow()
 
+    const zoomInSmoothly = () => zoomIn({duration: 120})
+    const zoomOutSmoothly = () => zoomOut({duration: 120})
+    const fitViewSmoothly = () => fitView({...fitViewOptions, duration: 180})
+
     return (
         <Panel position="bottom-left" style={{margin: 12}}>
             <div className="flex flex-col divide-y divide-border overflow-hidden rounded-lg bg-background ring-1 ring-border">
@@ -217,7 +237,7 @@ function ZoomCluster() {
                     size="icon-sm"
                     aria-label="Zoom in"
                     className="rounded-none"
-                    onClick={() => zoomIn({duration: 120})}
+                    onClick={zoomInSmoothly}
                 >
                     <Plus />
                 </Button>
@@ -226,7 +246,7 @@ function ZoomCluster() {
                     size="icon-sm"
                     aria-label="Zoom out"
                     className="rounded-none"
-                    onClick={() => zoomOut({duration: 120})}
+                    onClick={zoomOutSmoothly}
                 >
                     <Minus />
                 </Button>
@@ -235,7 +255,7 @@ function ZoomCluster() {
                     size="icon-sm"
                     aria-label="Fit view"
                     className="rounded-none"
-                    onClick={() => fitView({...fitViewOptions, duration: 180})}
+                    onClick={fitViewSmoothly}
                 >
                     <Maximize />
                 </Button>

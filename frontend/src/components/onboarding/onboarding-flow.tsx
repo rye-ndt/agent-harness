@@ -38,16 +38,22 @@ const COPY: Record<Step, {label: string; title: string; description: string}> = 
 
 export function OnboardingFlow({onDone}: {onDone: () => void}) {
     const [step, setStep] = useState<Step>('welcome')
+
     const copy = COPY[step]
+    const onAgentStep = step === 'agent'
+
+    const goToAgentStep = () => setStep('agent')
+    const goToDoneStep = () => setStep('done')
+    const stayOpen = (event: Event | KeyboardEvent) => event.preventDefault()
 
     return (
         <Dialog open>
             <DialogContent
                 showCloseButton={false}
                 className="flex min-h-[360px] flex-col gap-6 p-8"
-                onEscapeKeyDown={(event) => event.preventDefault()}
-                onPointerDownOutside={(event) => event.preventDefault()}
-                onInteractOutside={(event) => event.preventDefault()}
+                onEscapeKeyDown={stayOpen}
+                onPointerDownOutside={stayOpen}
+                onInteractOutside={stayOpen}
             >
                 <StepSpine total={ORDER.length} current={ORDER.indexOf(step)} />
 
@@ -58,13 +64,13 @@ export function OnboardingFlow({onDone}: {onDone: () => void}) {
                 </DialogHeader>
 
                 <div className="flex-1">
-                    {step === 'agent' && <AgentChoice onInstalled={() => setStep('done')} />}
+                    {onAgentStep && <AgentChoice onInstalled={goToDoneStep} />}
                 </div>
 
-                {step !== 'agent' && (
+                {!onAgentStep && (
                     <DialogFooter className="justify-center">
                         {step === 'welcome' ? (
-                            <Button className="min-w-36" onClick={() => setStep('agent')}>
+                            <Button className="min-w-36" onClick={goToAgentStep}>
                                 Next
                             </Button>
                         ) : (

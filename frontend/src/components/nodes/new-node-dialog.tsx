@@ -1,53 +1,56 @@
-import {useEffect, useState} from 'react'
+import {useState} from 'react'
 import {ArrowLeft, Plus} from 'lucide-react'
 
 import {DialogShell} from '@/components/common/dialog-shell'
 import {StepSpine} from '@/components/common/step-spine'
+import {MissingInputs} from '@/components/nodes/missing-inputs'
 import {NodeForm} from '@/components/nodes/node-form'
 import {TemplateFormDialog} from '@/components/templates/template-form-dialog'
 import {TemplateList} from '@/components/templates/template-list'
 import {Button} from '@/components/ui/button'
 import {useTemplates} from '@/hooks/use-templates'
-import {defaultFieldValues, missingRequired, toParamValues} from '@/lib/template'
+import {defaultFieldValues, missingRequired, promptFromTemplate, toParamValues} from '@/lib/template'
 import type {TaskDraft} from '@/types/session'
 import type {FieldValue, Template} from '@/types/template'
 
 type TemplateEdit = {template: Template | null}
 
+const STEP_COUNT = 2
+
 export function NewNodeDialog({
-    open,
-    onOpenChange,
     onCreate,
+    onClose,
 }: {
-    open: boolean
-    onOpenChange: (open: boolean) => void
     onCreate: (draft: TaskDraft) => void
+    onClose: () => void
 }) {
     const {templates, loading, removeTemplate} = useTemplates()
+
     const [chosenId, setChosenId] = useState<string | null>(null)
     const [editing, setEditing] = useState<TemplateEdit | null>(null)
-
     const [title, setTitle] = useState('')
     const [prompt, setPrompt] = useState('')
     const [values, setValues] = useState<Record<string, FieldValue>>({})
 
     const chosen = templates.find((template) => template.id === chosenId)
-
-    useEffect(() => {
-        if (open) return
-        setChosenId(null)
-        setEditing(null)
-    }, [open])
+    const missing = chosen ? missingRequired(chosen, values) : []
+    const ready = Boolean(chosen) && title.trim().length > 0 && missing.length === 0
 
     const choose = (template: Template) => {
         setChosenId(template.id)
         setTitle(template.name)
-        setPrompt(template.systemPrompts.map((entry) => entry.value).join('\n\n'))
+        setPrompt(promptFromTemplate(template))
         setValues(defaultFieldValues(template))
     }
 
-    const missing = chosen ? missingRequired(chosen, values) : []
-    const ready = Boolean(chosen) && title.trim().length > 0 && missing.length === 0
+    const back = () => setChosenId(null)
+
+    const changeValue = (key: string, value: FieldValue) =>
+        setValues((current) => ({...current, [key]: value}))
+
+    const close = (open: boolean) => {
+        if (!open) onClose()
+    }
 
     const create = () => {
         if (!chosen || !ready) return
@@ -60,27 +63,28 @@ export function NewNodeDialog({
         })
     }
 
+    const newTemplate = () => setEditing({template: null})
+    const editTemplate = (template: Template) => setEditing({template})
+    const closeTemplateForm = () => setEditing(null)
+
     return (
         <>
             <DialogShell
-                open={open}
-                onOpenChange={onOpenChange}
+                open
+                onOpenChange={close}
                 title={chosen ? chosen.name : 'New node'}
                 description={chosen ? undefined : 'Every node starts from a template.'}
-                aside={<StepSpine total={2} current={chosen ? 1 : 0} />}
+                aside={<StepSpine total={STEP_COUNT} current={chosen ? 1 : 0} />}
                 footer={
                     chosen ? (
                         <FillFooter
                             missingCount={missing.length}
                             ready={ready}
-                            onBack={() => setChosenId(null)}
+                            onBack={back}
                             onCreate={create}
                         />
                     ) : (
-                        <PickFooter
-                            onNewTemplate={() => setEditing({template: null})}
-                            onCancel={() => onOpenChange(false)}
-                        />
+                        <PickFooter onNewTemplate={newTemplate} onCancel={onClose} />
                     )
                 }
             >
@@ -93,27 +97,23 @@ export function NewNodeDialog({
                         values={values}
                         onTitleChange={setTitle}
                         onPromptChange={setPrompt}
-                        onValueChange={(key, value) =>
-                            setValues((current) => ({...current, [key]: value}))
-                        }
+                        onValueChange={changeValue}
                     />
                 ) : (
                     <TemplateList
                         templates={templates}
                         loading={loading}
                         onPick={choose}
-                        onEdit={(template) => setEditing({template})}
+                        onEdit={editTemplate}
                         onRemove={removeTemplate}
-                        onCreate={() => setEditing({template: null})}
+                        onCreate={newTemplate}
                     />
                 )}
             </DialogShell>
 
-            <TemplateFormDialog
-                open={editing !== null}
-                template={editing?.template ?? null}
-                onOpenChange={(next) => !next && setEditing(null)}
-            />
+            {editing && (
+                <TemplateFormDialog template={editing.template} onClose={closeTemplateForm} />
+            )}
         </>
     )
 }
@@ -136,11 +136,7 @@ function FillFooter({
                 Templates
             </Button>
             <span className="flex-1" />
-            {missingCount > 0 && (
-                <span className="text-sm text-muted-foreground">
-                    {missingCount} required input{missingCount === 1 ? '' : 's'} left
-                </span>
-            )}
+            <MissingInputs count={missingCount} />
             <Button size="sm" disabled={!ready} onClick={onCreate}>
                 Create node
             </Button>
