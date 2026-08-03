@@ -1,6 +1,11 @@
 package session_manager
 
 import (
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -64,21 +69,41 @@ func InitV1(cfg *V1Config, wal input_itf.TaskWAL, mq output_itf.MessageQ) (core_
 	return s, nil
 }
 
-func (s *v1) NewSession() (uuid.UUID, error) {
+func (s *v1) NewSession(p *core_itf.InitSession) (uuid.UUID, error) {
+	workingDir, err := absDir("working dir", p.WorkingDirPath, true)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	contextDir, err := absDir("context dir", p.ContextDirPath, false)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	if contextDir == "" {
+		contextDir = workingDir
+	}
+
+	if err := initContext(contextDir); err != nil {
+		return uuid.Nil, err
+	}
+
 	uid, err := uuid.NewV7()
 	if err != nil {
 		return uuid.Nil, err
 	}
 
 	info := &input_itf.SessionEntity{
-		ID:          uid,
-		StartedAt:   time.Time{},
-		CompletedAt: time.Time{},
-		TotalTask:   0,
-		TotalRetry:  0,
-		RevertCount: 0,
-		CreatedAt:   helpers.NewUTC(),
-		UpdatedAt:   helpers.NewUTC(),
+		ID:             uid,
+		WorkingDirPath: workingDir,
+		ContextDirPath: contextDir,
+		StartedAt:      time.Time{},
+		CompletedAt:    time.Time{},
+		TotalTask:      0,
+		TotalRetry:     0,
+		RevertCount:    0,
+		CreatedAt:      helpers.NewUTC(),
+		UpdatedAt:      helpers.NewUTC(),
 	}
 
 	if err := s.wal.Append(&input_itf.TaskWALRecord{
@@ -244,7 +269,6 @@ func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) error {
 		AgentRole:          task.AgentSpecs.Role,
 		PreferredModel:     task.AgentSpecs.Name,
 		ThinkingLevel:      task.AgentSpecs.ThinkingLevel,
-		SystemPrompts:      task.AgentSpecs.SystemPrompts,
 		AutoRetry:          task.AutoRetry,
 		FileWriteAllowance: task.FileWriteAllowance,
 		AllowedFilePaths:   task.AllowedFilePaths,
@@ -266,6 +290,8 @@ func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) error {
 		if !found {
 			return
 		}
+
+		t.SystemPrompts = withContextProtocol(task.AgentSpecs.SystemPrompts, session.info.ContextDirPath)
 
 		session.taskIDToTask[uid] = t
 
@@ -491,9 +517,11 @@ func (s *v1) Status(id uuid.UUID) (*core_itf.SessionStatus, error) {
 		}
 
 		status = &core_itf.SessionStatus{
-			ID:     id,
-			Status: sessionStatus(session.info),
-			Tasks:  tasks,
+			ID:             id,
+			Status:         sessionStatus(session.info),
+			WorkingDirPath: session.info.WorkingDirPath,
+			ContextDirPath: session.info.ContextDirPath,
+			Tasks:          tasks,
 		}
 	})
 
@@ -749,6 +777,56 @@ func (m *sessionMetadata) keepReport(report *core_itf.TaskReport) {
 	kept.Status = report.Status
 	kept.FileChanges = append(kept.FileChanges, report.FileChanges...)
 	kept.HandoverDocs = append(kept.HandoverDocs, report.HandoverDocs...)
+}
+
+func absDir(name, path string, required bool) (string, error) {
+	trimmed := strings.TrimSpace(path)
+
+	if trimmed == "" {
+		if required {
+			return "", custom_error.Critical("session %s is empty", name)
+		}
+
+		return "", nil
+	}
+
+	if !filepath.IsAbs(trimmed) {
+		return "", custom_error.Critical("session %s %q must be an absolute path", name, trimmed)
+	}
+
+	cleaned := filepath.Clean(trimmed)
+
+	info, err := os.Stat(cleaned)
+	switch {
+	case os.IsNotExist(err):
+		return "", custom_error.Critical("session %s %q does not exist", name, cleaned)
+	case os.IsPermission(err):
+		return "", custom_error.Critical("session %s %q cannot be accessed: permission denied", name, cleaned)
+	case err != nil:
+		return "", custom_error.Critical("session %s %q cannot be accessed: %v", name, cleaned, err)
+	case !info.IsDir():
+		return "", custom_error.Critical("session %s %q is not a directory", name, cleaned)
+	}
+
+	dir, err := os.Open(cleaned)
+	if err != nil {
+		if os.IsPermission(err) {
+			return "", custom_error.Critical("session %s %q cannot be accessed: permission denied", name, cleaned)
+		}
+
+		return "", custom_error.Critical("session %s %q cannot be opened: %v", name, cleaned, err)
+	}
+	defer dir.Close()
+
+	if _, err := dir.ReadDir(1); err != nil && !errors.Is(err, io.EOF) {
+		if os.IsPermission(err) {
+			return "", custom_error.Critical("session %s %q cannot be read: permission denied", name, cleaned)
+		}
+
+		return "", custom_error.Critical("session %s %q cannot be read: %v", name, cleaned, err)
+	}
+
+	return cleaned, nil
 }
 
 func sessionStatus(info *input_itf.SessionEntity) enums.SessionStatus {

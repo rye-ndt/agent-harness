@@ -62,13 +62,20 @@ type SessionProgress struct {
 }
 
 type SessionStatus struct {
-	ID     uuid.UUID
-	Status enums.SessionStatus
-	Tasks  map[uuid.UUID]*TaskReport
+	ID             uuid.UUID
+	Status         enums.SessionStatus
+	WorkingDirPath string
+	ContextDirPath string
+	Tasks          map[uuid.UUID]*TaskReport
+}
+
+type InitSession struct {
+	WorkingDirPath string
+	ContextDirPath string
 }
 
 type SessionManager interface {
-	NewSession() (uuid.UUID, error)
+	NewSession(p *InitSession) (uuid.UUID, error)
 	AddTask(session uuid.UUID, task *AddTask) error
 	Execute(session uuid.UUID) (<-chan *SessionProgress, error)
 	RetryTask(taskID uuid.UUID) error

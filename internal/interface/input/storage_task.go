@@ -8,14 +8,16 @@ import (
 )
 
 type SessionEntity struct {
-	ID          uuid.UUID
-	StartedAt   time.Time
-	CompletedAt time.Time
-	TotalTask   int
-	TotalRetry  int
-	RevertCount int
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID             uuid.UUID
+	WorkingDirPath string
+	ContextDirPath string
+	StartedAt      time.Time
+	CompletedAt    time.Time
+	TotalTask      int
+	TotalRetry     int
+	RevertCount    int
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type FileChangeEntity struct {

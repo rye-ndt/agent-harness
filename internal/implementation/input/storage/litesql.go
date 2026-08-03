@@ -98,6 +98,8 @@ var migrations = []string{
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	)`,
+	`ALTER TABLE sessions ADD COLUMN working_dir_path TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE sessions ADD COLUMN context_dir_path TEXT NOT NULL DEFAULT ''`,
 }
 
 const templateColumns = `id, name, role, task_level, retryable, params, system_prompts, created_at, updated_at`
@@ -523,9 +525,12 @@ func (s *taskStore) SaveTaskHistory(
 
 func saveSession(e execer, sess *input_itf.SessionEntity) error {
 	_, err := e.Exec(`INSERT OR REPLACE INTO sessions
-		(id, started_at, completed_at, total_task, total_retry, revert_count, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, working_dir_path, context_dir_path, started_at, completed_at,
+		total_task, total_retry, revert_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sess.ID.String(),
+		sess.WorkingDirPath,
+		sess.ContextDirPath,
 		formatTime(sess.StartedAt),
 		formatTime(sess.CompletedAt),
 		sess.TotalTask,
