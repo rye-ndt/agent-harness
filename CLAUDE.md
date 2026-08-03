@@ -15,11 +15,12 @@ Two things to hold onto:
   years. Prefer the simplest thing that works; flag anything that adds ongoing
   maintenance cost and offer the simpler alternative first.
 
-Current focus: `FEAPI` is agent-lifecycle only, so the task graph is unreachable
-from the frontend, and nothing yet owns the coordinator role — *node finished,
-build the next node's context, assign it*. That coordinator belongs in
-`interface/core` + `implementation/core`, beside `AgentManager`, not inside
-`task_manager/v1.go`.
+Current focus: `session_manager` is written but never constructed in `wire.go`,
+so the task graph is unreachable from the frontend, and nothing yet owns the
+coordinator role — *node finished, build the next node's context, assign it*.
+That coordinator belongs in `interface/core` + `implementation/core`, beside
+`AgentManager`, not inside `session_manager/v1.go`. `FEAPI` already covers
+agent lifecycle, approvals, context usage and templates.
 
 # Instructions
 

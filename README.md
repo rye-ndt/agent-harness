@@ -38,15 +38,23 @@ way out, refusing any request aimed at an authorization endpoint.
 
 ## Status
 
-The backend is ahead of the UI. Built and tested: the task graph, the WAL and
-WAL-to-SQLite sync, task/session event pub-sub, heartbeat-drop, agent
-install/auth/spawn for Claude Code and OpenCode, and the MCP proxy including
-request forwarding.
+The backend is ahead of the UI. Built and wired into `wire.go`: the WAL and
+WAL-to-SQLite sync, agent install/auth/spawn for Claude Code and OpenCode, the
+MCP proxy including request forwarding, the operator approval broker, and agent
+template storage. `FEAPI` covers agent lifecycle, approvals, per-agent context
+usage, and templates.
 
-Not yet wired: `FEAPI` still exposes only agent lifecycle, so nothing in the
-task graph is reachable from the frontend, and no component yet owns the
+Not yet wired: `session_manager` — the task graph, task/session event pub-sub
+and heartbeat-drop — is written but never constructed in `wire.go`, so nothing
+in the graph is reachable from the frontend, and no component yet owns the
 coordinator role — *node finished, build the next node's context from its
-handover doc, assign it*. That is the current focus.
+handover doc, assign it*. That is the current focus. `message_queue` is
+likewise unconstructed, and `TaskStorage` has no `Update`, so task status
+reaches SQLite only through WAL replay at the next startup.
+
+On the frontend, only `src/api/agents.ts` talks to the real bindings. Sessions,
+templates and MCP still run against in-memory mocks behind the `src/api/*.ts`
+seam — templates included, even though the Go side and its bindings now exist.
 
 ## Roadmap
 
@@ -70,13 +78,16 @@ config.yaml                    app, session, mcp_servers, agent_harness settings
 Makefile                       dev / build / run / test
 internal/
   interface/                   ports — pure contracts, no tech
-    core/    agent_manager, session_manager, mcp_proxy
-    input/   config, http_cli, harness, cache (WAL), storage_{harness,task,mcp}
+    core/    agent_manager, agent_template, approval, session_manager, mcp_proxy
+    input/   config, http_cli, harness, cache (WAL),
+             storage_{harness,task,mcp,template}
     output/  logger, app_builder, fe_api, message_queue
   implementation/              one package per technology
     core/
       agent_manager/           resolves a configured harness by name
-      session_manager/v1.go    add task / report / heartbeat / events
+      session_manager/v1.go    add task / report / heartbeat / events (unwired)
+      template_manager/v1.go   agent template CRUD over TemplateStore
+      manual_approval_broker/  operator approvals, served as a local MCP tool
       mcp_proxy/v1.go          OAuth broker + request forwarding (helpers/)
       wal_sync/                startup replay: WAL -> SQLite -> reset
       custom_error/            severity- and type-tagged errors
@@ -90,9 +101,14 @@ internal/
       logger/slog.go
       app_builder/wails.go
       fe_api/wails_api.go      the API bound to JS
+      message_queue/           in-process pub-sub (unwired)
   helpers/                     small shared utilities and enums/
 frontend/                      React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui
-  src/App.tsx                  UI calling Go via generated bindings
+  src/api/                     the only seam to Go — agents.ts is the only one
+                               on real bindings; the rest are mocks
+  src/components/              agents, canvas, common, inspector, nodes,
+                               onboarding, sessions, settings, templates, ui
+  src/hooks/ src/lib/ src/types/
   wailsjs/                     generated bindings — regenerate, don't hand-edit
 ```
 
