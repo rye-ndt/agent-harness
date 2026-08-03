@@ -63,7 +63,7 @@ export function FileChanges({changes}: {changes: FileChange[]}) {
         <ReportSection
             label="Files changed"
             count={changes.length}
-            empty="None. This node wrote nothing."
+            empty="No file changes were reported for this node."
             trailing={<Counts additions={additions} deletions={deletions} />}
         >
             {changes.map((change) => (

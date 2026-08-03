@@ -42,6 +42,7 @@ export function useAgents() {
             )
             return awaitingLogin ? AUTH_POLL_MS : false
         },
+        refetchIntervalInBackground: true,
     })
 
     const action = useMutation({

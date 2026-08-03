@@ -5,6 +5,8 @@ const SETTLED_STATES = new Set<TaskState>([TaskState.Running, TaskState.Done, Ta
 
 const WAITING_STATES = new Set<TaskState>([TaskState.Idle, TaskState.Queued, TaskState.Blocked])
 
+const NODE_STAGGER = 40
+
 export function isSettled(state: TaskState) {
     return SETTLED_STATES.has(state)
 }
@@ -111,6 +113,16 @@ export function withoutDependency(session: Session, sourceId: string, targetId: 
                 : task,
         ),
     }
+}
+
+export function freePosition(session: Session, wanted: Point): Point {
+    const taken = (point: Point) =>
+        session.tasks.some((task) => task.position.x === point.x && task.position.y === point.y)
+
+    let position = wanted
+    while (taken(position)) position = {x: position.x + NODE_STAGGER, y: position.y + NODE_STAGGER}
+
+    return position
 }
 
 export function sessionStatus(session: Session): SessionStatus {

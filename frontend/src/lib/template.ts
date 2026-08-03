@@ -1,6 +1,8 @@
 import {ParamType, TaskLevel} from '@/lib/enums'
 import type {FieldValue, ParamValue, Template, TemplateDraft, TemplateParam} from '@/types/template'
 
+export const NO_PROMPTS_ISSUE = 'A template needs at least one prompt.'
+
 export function emptyParam(): TemplateParam {
     return {key: '', label: '', type: ParamType.Text, required: false}
 }
@@ -76,6 +78,7 @@ export function templateIssues(draft: TemplateDraft) {
     if (new Set(keys).size !== keys.length) issues.push('Two inputs share the same key.')
     if (draft.params.some((param) => param.type === ParamType.Select && !param.options?.length))
         issues.push('A choice input needs at least one option.')
+    if (draft.systemPrompts.length === 0) issues.push(NO_PROMPTS_ISSUE)
     if (draft.systemPrompts.some((prompt) => !prompt.key.trim()))
         issues.push('Every prompt needs a key.')
 

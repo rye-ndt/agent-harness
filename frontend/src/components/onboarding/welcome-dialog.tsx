@@ -16,6 +16,7 @@ export function WelcomeDialog({
   dependencies,
   ratio,
   settled,
+  canContinue,
   error,
   onRetry,
   onStart,
@@ -23,6 +24,7 @@ export function WelcomeDialog({
   dependencies: Dependency[];
   ratio: number;
   settled: boolean;
+  canContinue: boolean;
   error: string;
   onRetry: () => void;
   onStart: () => void;
@@ -30,7 +32,7 @@ export function WelcomeDialog({
   const percent = Math.round(ratio * 100);
 
   const label = error
-    ? "Installation stopped"
+    ? "Some dependencies failed"
     : settled
       ? "Dependencies ready"
       : "Installing dependencies…";
@@ -70,15 +72,30 @@ export function WelcomeDialog({
           />
         </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && (
+          <div className="flex flex-col gap-1">
+            <p className="text-sm text-destructive">{error}</p>
+            {canContinue && (
+              <p className="text-sm text-muted-foreground">
+                You can start with the harnesses that are ready.
+              </p>
+            )}
+          </div>
+        )}
 
         {(settled || error) && (
           <DialogFooter>
-            {error ? (
-              <Button autoFocus className="min-w-36" onClick={onRetry}>
+            {error && (
+              <Button
+                autoFocus={!canContinue}
+                variant="outline"
+                className="min-w-36"
+                onClick={onRetry}
+              >
                 Try again
               </Button>
-            ) : (
+            )}
+            {canContinue && (
               <Button autoFocus className="min-w-36" onClick={onStart}>
                 Start building
               </Button>

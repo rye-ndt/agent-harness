@@ -1,3 +1,4 @@
+import {useState} from 'react'
 import {Pencil, Plus, Trash2} from 'lucide-react'
 
 import {Button} from '@/components/ui/button'
@@ -63,9 +64,35 @@ function TemplateCard({
     onEdit: (template: Template) => void
     onRemove: (templateId: string) => void
 }) {
+    const [confirming, setConfirming] = useState(false)
+
     const pick = () => onPick(template)
     const edit = () => onEdit(template)
+    const askRemove = () => setConfirming(true)
+    const cancelRemove = () => setConfirming(false)
     const remove = () => onRemove(template.id)
+
+    if (confirming)
+        return (
+            <div className="flex items-center gap-3 rounded-lg border border-border p-3">
+                <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+                    Delete <span className="font-medium text-foreground">{template.name}</span>?
+                    Nodes built from it keep their prompt.
+                </p>
+                <Button variant="ghost" size="sm" className="shrink-0" onClick={cancelRemove}>
+                    Cancel
+                </Button>
+                <Button
+                    autoFocus
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={remove}
+                >
+                    Delete
+                </Button>
+            </div>
+        )
 
     return (
         <div className="group relative rounded-lg border border-border transition-colors hover:border-foreground/25 hover:bg-muted/40">
@@ -107,7 +134,7 @@ function TemplateCard({
                     size="icon-sm"
                     aria-label={`Delete ${template.name}`}
                     className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    onClick={remove}
+                    onClick={askRemove}
                 >
                     <Trash2 />
                 </Button>

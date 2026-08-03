@@ -50,6 +50,7 @@ export function useSessions() {
         queryFn: api.listSessions,
         refetchInterval: (query) =>
             query.state.data?.some(graph.hasActiveTask) ? RUN_POLL_MS : false,
+        refetchIntervalInBackground: true,
     })
 
     const create = useSessionMutation(

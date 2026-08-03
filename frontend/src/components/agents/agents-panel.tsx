@@ -6,13 +6,27 @@ import type {Agent} from '@/types/agent'
 
 function metaLine(agent: Agent) {
     if (!agent.installed) return 'Not installed'
-    if (!agent.loggedIn) return `v${agent.version} · Not logged in`
     return `v${agent.version} · ${agent.instanceCount} running`
 }
 
 function dotClass(agent: Agent) {
     if (!agent.installed) return 'bg-transparent ring-1 ring-inset ring-border'
     return agent.loggedIn ? 'bg-state-done' : 'bg-state-idle'
+}
+
+function LoginBadge({loggedIn}: {loggedIn: boolean}) {
+    return (
+        <span
+            className={cn(
+                'inline-flex h-5 shrink-0 items-center rounded-md px-2 text-xs font-medium',
+                loggedIn
+                    ? 'bg-state-done-tint text-state-done'
+                    : 'bg-state-idle-tint text-muted-foreground',
+            )}
+        >
+            {loggedIn ? 'Logged in' : 'Not logged in'}
+        </span>
+    )
 }
 
 export function AgentsPanel() {
@@ -32,8 +46,16 @@ export function AgentsPanel() {
     const isEmpty = agents.length === 0 && !error
 
     return (
-        <div className="flex flex-col">
-            <div className="divide-y divide-border">
+        <section className="flex flex-col">
+            <div className="flex flex-col gap-1 px-4 pt-4 pb-3">
+                <h3 className="text-base font-medium">Harnesses that run your nodes</h3>
+                <p className="text-sm text-muted-foreground">
+                    A harness has to be installed and logged in before a session can assign work to
+                    it.
+                </p>
+            </div>
+
+            <div className="divide-y divide-border border-t border-border">
                 {agents.map((agent) => (
                     <AgentRow
                         key={agent.id}
@@ -48,18 +70,18 @@ export function AgentsPanel() {
                         onOpenAuthUrl={openAuthUrl}
                     />
                 ))}
-            </div>
 
-            {isEmpty && (
-                <p className="px-4 py-3 text-base text-muted-foreground">
-                    No agents configured. Add one to config.yaml to see it here.
-                </p>
-            )}
+                {isEmpty && (
+                    <p className="px-4 py-3 text-base text-muted-foreground">
+                        No agents configured. Add one to config.yaml to see it here.
+                    </p>
+                )}
+            </div>
 
             {error && (
                 <p className="border-t border-border px-4 py-3 text-sm text-destructive">{error}</p>
             )}
-        </div>
+        </section>
     )
 }
 
@@ -96,7 +118,10 @@ function AgentRow({
                 <span className={cn('size-2 shrink-0 rounded-full', dotClass(agent))} />
 
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <p className="truncate text-base font-medium">{agent.name}</p>
+                    <p className="flex items-center gap-2">
+                        <span className="truncate text-base font-medium">{agent.name}</span>
+                        {agent.installed && <LoginBadge loggedIn={agent.loggedIn} />}
+                    </p>
                     <p className="truncate font-mono text-sm text-muted-foreground">
                         {metaLine(agent)}
                     </p>

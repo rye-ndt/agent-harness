@@ -64,10 +64,16 @@ export function useSessionStore() {
     }
 
     const addTask = (sessionId: string, draft: TaskDraft, position: Point) => {
-        if (!openSession(sessionId)) return
+        const session = openSession(sessionId)
+        if (!session) return
 
         const taskId = crypto.randomUUID()
-        store.createTask({sessionId, taskId, draft, position})
+        store.createTask({
+            sessionId,
+            taskId,
+            draft,
+            position: graph.freePosition(session, position),
+        })
         setSelectedTaskId(taskId)
     }
 

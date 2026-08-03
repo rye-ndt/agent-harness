@@ -40,6 +40,8 @@ import {
 
 const TICK_MS = 900
 
+const MAX_FAILED_POLLS = 5
+
 let sessions: Session[] = hasWailsRuntime() ? [] : structuredClone(MOCK_SESSIONS)
 
 let hydrated = false
@@ -49,6 +51,7 @@ const timers = new Map<string, ReturnType<typeof setTimeout>>()
 type RemoteRun = {
     remoteSessionId: string
     clientTaskIds: Map<string, string>
+    failedPolls: number
 }
 
 const runs = new Map<string, RemoteRun>()
@@ -240,7 +243,10 @@ async function startRemoteRun(session: Session): Promise<boolean> {
         Object.entries(result.task_ids ?? {}).map(([clientId, remoteId]) => [remoteId, clientId]),
     )
 
-    runs.set(session.id, {remoteSessionId: result.session_id, clientTaskIds})
+    if (!result.session_id)
+        throw new Error('The run started without a session id. Check the app log and try again.')
+
+    runs.set(session.id, {remoteSessionId: result.session_id, clientTaskIds, failedPolls: 0})
     pollRemoteRun(session.id)
     return true
 }
@@ -262,16 +268,42 @@ async function pollRemoteTick(sessionId: string) {
     const session = sessions.find((session) => session.id === sessionId)
     if (!run || !session) return
 
+    let status: output_itf.SessionStatusInfo | null = null
+
     try {
-        const status = await SessionStatus(run.remoteSessionId)
+        status = await bridge(() => SessionStatus(run.remoteSessionId))
+    } catch {
+        run.failedPolls += 1
+
+        if (run.failedPolls >= MAX_FAILED_POLLS) {
+            runs.delete(sessionId)
+            replaceSession(loseRun(session))
+            return
+        }
+    }
+
+    if (status) {
+        run.failedPolls = 0
+
         const next = replaceSession(applyRemoteStatus(session, run, status))
         if (!hasActiveTask(next)) {
             runs.delete(sessionId)
             return
         }
-    } catch {}
+    }
 
     pollRemoteRun(sessionId)
+}
+
+function loseRun(session: Session): Session {
+    return {
+        ...session,
+        tasks: session.tasks.map((task) =>
+            isSettled(task.state) && task.state !== TaskState.Running
+                ? task
+                : {...task, state: TaskState.Failed},
+        ),
+    }
 }
 
 const REMOTE_STATES: Record<string, TaskState> = {
@@ -385,7 +417,7 @@ export async function updateSession(
     const session = patch.finalized ? findSession(sessionId) : findOpenSession(sessionId)
     const started = patch.finalized ? await startRemoteRun({...session, ...patch}) : false
 
-    replaceSession({...session, ...patch})
+    replaceSession(patch.finalized ? label({...session, ...patch}) : {...session, ...patch})
 
     if (patch.finalized && !started) tick(sessionId)
 

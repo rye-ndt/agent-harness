@@ -6,6 +6,7 @@ import {Button} from '@/components/ui/button'
 import {useTemplates} from '@/hooks/use-templates'
 import {errorMessage} from '@/lib/errors'
 import {emptyTemplate, templateIssues} from '@/lib/template'
+import {cn} from '@/lib/utils'
 import type {Template, TemplateDraft} from '@/types/template'
 
 export function TemplateFormDialog({
@@ -28,10 +29,7 @@ export function TemplateFormDialog({
     }
 
     const save = async () => {
-        if (issues.length > 0) {
-            setError(issues[0])
-            return
-        }
+        if (issues.length > 0) return
 
         try {
             await saveTemplate(draft)
@@ -50,11 +48,18 @@ export function TemplateFormDialog({
             title={template ? 'Edit template' : 'New template'}
             footer={
                 <>
-                    <p className="min-w-0 flex-1 truncate text-sm text-destructive">{error}</p>
+                    <p
+                        className={cn(
+                            'min-w-0 flex-1 text-sm',
+                            error ? 'text-destructive' : 'text-muted-foreground',
+                        )}
+                    >
+                        {error || issues[0] || ''}
+                    </p>
                     <Button variant="ghost" size="sm" onClick={onClose}>
                         Cancel
                     </Button>
-                    <Button size="sm" disabled={saving} onClick={save}>
+                    <Button size="sm" disabled={saving || issues.length > 0} onClick={save}>
                         {saving ? 'Saving' : saveLabel}
                     </Button>
                 </>

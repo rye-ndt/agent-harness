@@ -16,7 +16,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { TASK_LEVELS, TASK_LEVEL_LABELS, TaskLevel } from "@/lib/enums";
-import { emptyParam } from "@/lib/template";
+import { emptyParam, NO_PROMPTS_ISSUE } from "@/lib/template";
 import type {
   SystemPrompt,
   TemplateDraft,
@@ -141,7 +141,12 @@ export function TemplateForm({
         ))}
       </Section>
 
-      <Section title="Prompts" onAdd={addPrompt} addLabel="Add prompt">
+      <Section
+        title="Prompts"
+        hint={draft.systemPrompts.length === 0 ? NO_PROMPTS_ISSUE : undefined}
+        onAdd={addPrompt}
+        addLabel="Add prompt"
+      >
         {draft.systemPrompts.map((prompt, index) => (
           <PromptEditor
             key={index}

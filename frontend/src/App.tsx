@@ -168,6 +168,7 @@ function App() {
                         dependencies={dependencies.dependencies}
                         ratio={dependencies.ratio}
                         settled={dependencies.settled}
+                        canContinue={dependencies.canContinue}
                         error={dependencies.error}
                         onRetry={dependencies.retry}
                         onStart={dependencies.dismiss}

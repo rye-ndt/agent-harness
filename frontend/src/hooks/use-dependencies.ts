@@ -18,7 +18,7 @@ export function useDependencies() {
 
     const [progress, setProgress] = useState<Record<string, InstallProgress>>({})
     const [installed, setInstalled] = useState<string[]>([])
-    const [failure, setFailure] = useState<Failure | null>(null)
+    const [failures, setFailures] = useState<Failure[]>([])
     const [running, setRunning] = useState(false)
     const [needed, setNeeded] = useState(false)
     const [dismissed, setDismissed] = useState(false)
@@ -38,7 +38,7 @@ export function useDependencies() {
     const install = useCallback(
         async (targets: Agent[]) => {
             setRunning(true)
-            setFailure(null)
+            setFailures([])
             setProgress((current) => {
                 const next = {...current}
                 for (const target of targets) delete next[target.id]
@@ -50,14 +50,15 @@ export function useDependencies() {
                     await installAgent(target.id)
                     setInstalled((current) => [...current, target.id])
                 } catch (error) {
-                    setFailure({
-                        agentId: target.id,
-                        message:
-                            errorMessage(error) ||
-                            `${target.name} did not install. Check your connection and try again.`,
-                    })
-                    setRunning(false)
-                    return
+                    setFailures((current) => [
+                        ...current,
+                        {
+                            agentId: target.id,
+                            message:
+                                errorMessage(error) ||
+                                `${target.name} did not install. Check your connection and try again.`,
+                        },
+                    ])
                 }
             }
 
@@ -93,17 +94,20 @@ export function useDependencies() {
             version: agent.version,
             stage: ready ? InstallStage.Done : (update?.stage ?? InstallStage.Queued),
             progress: update,
-            failed: failure?.agentId === agent.id,
+            failed: failures.some((failure) => failure.agentId === agent.id),
         }
     })
+
+    const anyReady = agents.some((agent) => !isMissing(agent))
 
     return {
         ready: !isPending,
         required: needed && !dismissed,
-        settled: !running && !failure && !agents.some(isMissing),
+        settled: !running && failures.length === 0 && !agents.some(isMissing),
+        canContinue: !running && anyReady,
         dependencies,
         ratio: overallRatio(dependencies),
-        error: failure?.message ?? '',
+        error: failures[0]?.message ?? '',
         retry: () => void install(agents.filter(isMissing)),
         dismiss: () => setDismissed(true),
     }
