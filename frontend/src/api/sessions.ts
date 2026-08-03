@@ -1,12 +1,15 @@
 /**
  * The task-graph seam, and the only file that touches the session bindings.
- * Sessions are authored in this module's memory. Finalizing one inside the
- * Wails webview builds a RunSessionSpec, starts the real run through the
- * generated bindings, and polls SessionStatus until the run settles; outside
- * the webview (the plain vite dev server) there is no runtime, so finalizing
- * falls back to a simulated run that walks the graph in order.
+ * Sessions are authored in this module's memory. Inside the Wails webview they
+ * are hydrated from the stored drafts and every change is written back as one
+ * JSON doc; finalizing builds a RunSessionSpec, starts the real run through the
+ * generated bindings, and polls SessionStatus until the run settles. Outside
+ * the webview (the plain vite dev server) there is no runtime, so the graph
+ * starts from src/lib/mock-sessions.ts and finalizing falls back to a simulated
+ * run that walks the graph in order.
  */
 
+import {bridge, hasWailsRuntime} from '@/api/agents'
 import {listTemplates} from '@/api/templates'
 import {TaskLevel, TaskState} from '@/lib/enums'
 import {mockOutcome, MOCK_SESSIONS} from '@/lib/mock-sessions'
@@ -27,11 +30,19 @@ import {
 } from '@/lib/session'
 import type {HandoverDoc, Point, Session, SessionDraft, Task, TaskDraft} from '@/types/session'
 import {output_itf} from '../../wailsjs/go/models'
-import {RunSession, SessionStatus} from '../../wailsjs/go/wails_api/API'
+import {
+    DeleteSessionDraft,
+    RunSession,
+    SaveSessionDraft,
+    SessionDrafts,
+    SessionStatus,
+} from '../../wailsjs/go/wails_api/API'
 
 const TICK_MS = 900
 
-let sessions: Session[] = structuredClone(MOCK_SESSIONS)
+let sessions: Session[] = hasWailsRuntime() ? [] : structuredClone(MOCK_SESSIONS)
+
+let hydrated = false
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -62,7 +73,33 @@ function findTask(session: Session, taskId: string) {
 
 function replaceSession(next: Session) {
     sessions = sessions.map((session) => (session.id === next.id ? next : session))
+    void saveDraft(next).catch(() => {})
     return structuredClone(next)
+}
+
+async function saveDraft(session: Session) {
+    if (!hasWailsRuntime()) return
+
+    await bridge(() => SaveSessionDraft(session.id, JSON.stringify(session)))
+}
+
+async function hydrate() {
+    if (hydrated || !hasWailsRuntime()) return
+
+    const drafts = await bridge(SessionDrafts)
+    sessions = drafts.map((draft) => resetUnfinished(JSON.parse(draft.doc) as Session))
+    hydrated = true
+}
+
+function resetUnfinished(session: Session): Session {
+    return {
+        ...session,
+        tasks: session.tasks.map((task) =>
+            task.state === TaskState.Done || task.state === TaskState.Failed
+                ? task
+                : {...task, state: TaskState.Idle, run: undefined, report: undefined},
+        ),
+    }
 }
 
 function label(session: Session): Session {
@@ -153,15 +190,6 @@ function stopRun(sessionId: string) {
 
     clearTimeout(timer)
     timers.delete(sessionId)
-}
-
-function hasWailsRuntime() {
-    try {
-        const bindings = window as Window & {go?: {wails_api?: {API?: object}}}
-        return Boolean(bindings.go?.wails_api?.API)
-    } catch {
-        return false
-    }
 }
 
 function resolvedPrompt(task: Task) {
@@ -307,6 +335,7 @@ function toHandoverDoc(info: output_itf.HandoverDocInfo): HandoverDoc {
 for (const session of sessions) if (hasRunningTask(session)) schedule(session.id)
 
 export async function listSessions(): Promise<Session[]> {
+    await hydrate()
     return structuredClone(sessions)
 }
 
@@ -314,14 +343,22 @@ export async function createSession(sessionId: string, draft: SessionDraft): Pro
     if (!draft.workingDir.trim()) throw new Error('A session needs a working directory.')
     if (!draft.contextDir.trim()) throw new Error('A session needs a context directory.')
 
+    await hydrate()
+
     const session = {...buildSession(draft), id: sessionId}
     sessions = [session, ...sessions]
+    await saveDraft(session)
+
     return structuredClone(session)
 }
 
 export async function cloneSession(sourceId: string, sessionId: string): Promise<Session> {
+    await hydrate()
+
     const copy = {...duplicateSession(findSession(sourceId)), id: sessionId}
     sessions = [copy, ...sessions]
+    await saveDraft(copy)
+
     return structuredClone(copy)
 }
 
@@ -338,6 +375,8 @@ export async function updateSession(
     if (patch.contextDir !== undefined && !patch.contextDir.trim())
         throw new Error('A session needs a context directory.')
 
+    await hydrate()
+
     const session = patch.finalized ? findSession(sessionId) : findOpenSession(sessionId)
     const started = patch.finalized ? await startRemoteRun({...session, ...patch}) : false
 
@@ -349,9 +388,13 @@ export async function updateSession(
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
+    await hydrate()
+
     stopRun(sessionId)
     runs.delete(sessionId)
     sessions = sessions.filter((session) => session.id !== sessionId)
+
+    if (hasWailsRuntime()) await bridge(() => DeleteSessionDraft(sessionId))
 }
 
 export async function createTask(
@@ -360,6 +403,8 @@ export async function createTask(
     draft: TaskDraft,
     position: Point,
 ): Promise<Task> {
+    await hydrate()
+
     const session = findOpenSession(sessionId)
     const task = {...buildTask(draft, position), id: taskId}
     replaceSession(withTask(session, task))
@@ -371,6 +416,8 @@ export async function updateTask(
     taskId: string,
     patch: Partial<Task>,
 ): Promise<Task> {
+    await hydrate()
+
     const session = findOpenSession(sessionId)
     const next = {...findTask(session, taskId), ...patch, id: taskId}
     replaceSession(withTaskPatch(session, taskId, patch))
@@ -378,6 +425,7 @@ export async function updateTask(
 }
 
 export async function deleteTask(sessionId: string, taskId: string): Promise<void> {
+    await hydrate()
     replaceSession(withoutTask(findOpenSession(sessionId), taskId))
 }
 
@@ -386,6 +434,8 @@ export async function addDependency(
     sourceId: string,
     targetId: string,
 ): Promise<void> {
+    await hydrate()
+
     const session = findOpenSession(sessionId)
     if (createsCycle(session.tasks, sourceId, targetId))
         throw new Error('That link would loop back on itself. Point it at another task.')
@@ -398,5 +448,6 @@ export async function removeDependency(
     sourceId: string,
     targetId: string,
 ): Promise<void> {
+    await hydrate()
     replaceSession(withoutDependency(findOpenSession(sessionId), sourceId, targetId))
 }

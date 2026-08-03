@@ -30,7 +30,7 @@ type ProgressListener = (agentId: string, progress: InstallProgress) => void
 
 const localListeners = new Set<ProgressListener>()
 
-async function bridge<T>(call: () => Promise<T>): Promise<T> {
+export async function bridge<T>(call: () => Promise<T>): Promise<T> {
     return call()
 }
 
