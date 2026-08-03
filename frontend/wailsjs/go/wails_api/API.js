@@ -30,6 +30,10 @@ export function PendingApprovals() {
   return window['go']['wails_api']['API']['PendingApprovals']();
 }
 
+export function RemoveTemplate(arg1) {
+  return window['go']['wails_api']['API']['RemoveTemplate'](arg1);
+}
+
 export function SendToAgent(arg1, arg2, arg3) {
   return window['go']['wails_api']['API']['SendToAgent'](arg1, arg2, arg3);
 }
@@ -50,6 +54,18 @@ export function SubmitAuthCode(arg1, arg2) {
   return window['go']['wails_api']['API']['SubmitAuthCode'](arg1, arg2);
 }
 
+export function Template(arg1) {
+  return window['go']['wails_api']['API']['Template'](arg1);
+}
+
+export function Templates() {
+  return window['go']['wails_api']['API']['Templates']();
+}
+
 export function UninstallAgent(arg1) {
   return window['go']['wails_api']['API']['UninstallAgent'](arg1);
+}
+
+export function UpsertTemplate(arg1) {
+  return window['go']['wails_api']['API']['UpsertTemplate'](arg1);
 }

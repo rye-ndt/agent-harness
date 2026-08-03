@@ -18,6 +18,8 @@ export function KillAgent(arg1:string,arg2:string):Promise<void>;
 
 export function PendingApprovals():Promise<Array<output_itf.ApprovalInfo>>;
 
+export function RemoveTemplate(arg1:string):Promise<void>;
+
 export function SendToAgent(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function Shutdown(arg1:context.Context):Promise<void>;
@@ -28,4 +30,10 @@ export function Startup(arg1:context.Context):Promise<void>;
 
 export function SubmitAuthCode(arg1:string,arg2:string):Promise<void>;
 
+export function Template(arg1:string):Promise<output_itf.TemplateInfo>;
+
+export function Templates():Promise<Array<output_itf.TemplateInfo>>;
+
 export function UninstallAgent(arg1:string):Promise<void>;
+
+export function UpsertTemplate(arg1:output_itf.TemplateInfo):Promise<string>;

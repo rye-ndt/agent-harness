@@ -23,6 +23,21 @@ type ApprovalInfo struct {
 	RequestedAt string                     `json:"requested_at"`
 }
 
+type TemplateParamInfo struct {
+	Description string `json:"description"`
+	Required    bool   `json:"required"`
+}
+
+type TemplateInfo struct {
+	ID            string                        `json:"id"`
+	Name          string                        `json:"name"`
+	Role          string                        `json:"role"`
+	TaskLevel     string                        `json:"task_level"`
+	Retryable     bool                          `json:"retryable"`
+	Params        map[string]*TemplateParamInfo `json:"params"`
+	SystemPrompts map[string]string             `json:"system_prompts"`
+}
+
 type FEAPI interface {
 	Startup(ctx context.Context)
 	Shutdown(ctx context.Context)
@@ -35,6 +50,10 @@ type FEAPI interface {
 	AgentContextUsage(agentID string) (*input_itf.ContextUsage, error)
 	PendingApprovals() ([]*ApprovalInfo, error)
 	AnswerApproval(requestID string, approved bool, optionIDs []string, guidance string) error
+	Templates() ([]*TemplateInfo, error)
+	Template(id string) (*TemplateInfo, error)
+	UpsertTemplate(template *TemplateInfo) (string, error)
+	RemoveTemplate(id string) error
 	KillAgent(id string, agentID string) error
 	UninstallAgent(id string) error
 }

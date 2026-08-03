@@ -9,6 +9,7 @@ import (
 	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/core/manual_approval_broker"
 	"hexago/internal/implementation/core/mcp_proxy"
+	"hexago/internal/implementation/core/template_manager"
 	"hexago/internal/implementation/core/wal_sync"
 	viper "hexago/internal/implementation/input/config"
 	"hexago/internal/implementation/input/http_cli"
@@ -23,16 +24,17 @@ import (
 )
 
 type App struct {
-	Config         input_itf.Config
-	Logger         output_itf.Logger
-	AppBuilder     output_itf.AppBuilder
-	HttpFetcher    input_itf.HttpCli
-	Storage        input_itf.HarnessStorage
-	TaskStore      input_itf.TaskStorage
-	TaskWAL        input_itf.TaskWAL
-	AgentManager   core_itf.AgentManager
-	MCPProxy       core_itf.MCPProxyServer
-	ApprovalBroker core_itf.ApprovalBroker
+	Config          input_itf.Config
+	Logger          output_itf.Logger
+	AppBuilder      output_itf.AppBuilder
+	HttpFetcher     input_itf.HttpCli
+	Storage         input_itf.HarnessStorage
+	TaskStore       input_itf.TaskStorage
+	TaskWAL         input_itf.TaskWAL
+	AgentManager    core_itf.AgentManager
+	TemplateManager core_itf.AgentTemplateManager
+	MCPProxy        core_itf.MCPProxyServer
+	ApprovalBroker  core_itf.ApprovalBroker
 }
 
 func wire() (*App, error) {
@@ -94,20 +96,33 @@ func wire() (*App, error) {
 		return nil, err
 	}
 
-	feAPI := wails_api.New(agentManager, mcpProxy, approvalBroker, dataWarning)
+	templateManager, err := template_manager.InitV1(store.TemplateStore())
+	if err != nil {
+		mcpProxy.Close()
+		return nil, err
+	}
+
+	feAPI := wails_api.New(&wails_api.Deps{
+		AgentManager: agentManager,
+		MCPProxy:     mcpProxy,
+		Approvals:    approvalBroker,
+		Templates:    templateManager,
+		DataWarning:  dataWarning,
+	})
 
 	appBuilder := wails.New(cfg, feAPI)
 
 	return &App{
-		Config:         cfg,
-		Logger:         logger,
-		AppBuilder:     appBuilder,
-		HttpFetcher:    httpCli,
-		Storage:        store,
-		TaskStore:      taskStore,
-		TaskWAL:        taskWAL,
-		AgentManager:   agentManager,
-		MCPProxy:       mcpProxy,
-		ApprovalBroker: approvalBroker,
+		Config:          cfg,
+		Logger:          logger,
+		AppBuilder:      appBuilder,
+		HttpFetcher:     httpCli,
+		Storage:         store,
+		TaskStore:       taskStore,
+		TaskWAL:         taskWAL,
+		AgentManager:    agentManager,
+		TemplateManager: templateManager,
+		MCPProxy:        mcpProxy,
+		ApprovalBroker:  approvalBroker,
 	}, nil
 }

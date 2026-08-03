@@ -107,3 +107,16 @@ const (
 	DailyTask         TaskLevel = "daily_task"
 	LightweightTask   TaskLevel = "lightweight_task"
 )
+
+func (l TaskLevel) Valid() bool {
+	switch l {
+	case MaximumEffortTask, HeavyTask, DailyTask, LightweightTask:
+		return true
+	default:
+		return false
+	}
+}
+
+func (l TaskLevel) String() string {
+	return string(l)
+}

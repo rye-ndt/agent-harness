@@ -27,22 +27,27 @@ type API struct {
 	agentManager core_itf.AgentManager
 	mcpProxy     core_itf.MCPProxyServer
 	approvals    core_itf.ApprovalBroker
+	templates    core_itf.AgentTemplateManager
 	dataWarning  string
 }
 
 var _ output_itf.FEAPI = (*API)(nil)
 
-func New(
-	agentManager core_itf.AgentManager,
-	mcpProxy core_itf.MCPProxyServer,
-	approvals core_itf.ApprovalBroker,
-	dataWarning string,
-) *API {
+type Deps struct {
+	AgentManager core_itf.AgentManager
+	MCPProxy     core_itf.MCPProxyServer
+	Approvals    core_itf.ApprovalBroker
+	Templates    core_itf.AgentTemplateManager
+	DataWarning  string
+}
+
+func New(deps *Deps) *API {
 	return &API{
-		agentManager: agentManager,
-		mcpProxy:     mcpProxy,
-		approvals:    approvals,
-		dataWarning:  dataWarning,
+		agentManager: deps.AgentManager,
+		mcpProxy:     deps.MCPProxy,
+		approvals:    deps.Approvals,
+		templates:    deps.Templates,
+		dataWarning:  deps.DataWarning,
 	}
 }
 
@@ -268,6 +273,124 @@ func (a *API) AnswerApproval(requestID string, approved bool, optionIDs []string
 	}
 
 	return a.agentManager.Send(agentID, guidance)
+}
+
+func (a *API) Templates() ([]*output_itf.TemplateInfo, error) {
+	stored, err := a.templates.List()
+	if err != nil {
+		return nil, err
+	}
+
+	infos := make([]*output_itf.TemplateInfo, 0, len(stored))
+
+	for _, template := range stored {
+		infos = append(infos, templateInfo(template))
+	}
+
+	return infos, nil
+}
+
+func (a *API) Template(id string) (*output_itf.TemplateInfo, error) {
+	parsed, err := templateUUID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	template, err := a.templates.Get(parsed)
+	if err != nil {
+		return nil, err
+	}
+
+	return templateInfo(template), nil
+}
+
+func (a *API) UpsertTemplate(template *output_itf.TemplateInfo) (string, error) {
+	if template == nil {
+		return "", custom_error.Critical("template is empty")
+	}
+
+	id := uuid.Nil
+
+	if template.ID != "" {
+		parsed, err := templateUUID(template.ID)
+		if err != nil {
+			return "", err
+		}
+
+		id = parsed
+	}
+
+	params := map[string]*core_itf.TemplateParams{}
+
+	for key, param := range template.Params {
+		if param == nil {
+			params[key] = nil
+			continue
+		}
+
+		params[key] = &core_itf.TemplateParams{
+			Description: param.Description,
+			Required:    param.Required,
+		}
+	}
+
+	saved, err := a.templates.Upsert(&core_itf.Template{
+		ID:            id,
+		Name:          template.Name,
+		Role:          template.Role,
+		TaskLevel:     enums.TaskLevel(template.TaskLevel),
+		Retryable:     template.Retryable,
+		Params:        params,
+		SystemPrompts: template.SystemPrompts,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return saved.String(), nil
+}
+
+func (a *API) RemoveTemplate(id string) error {
+	parsed, err := templateUUID(id)
+	if err != nil {
+		return err
+	}
+
+	return a.templates.Remove(parsed)
+}
+
+func templateUUID(id string) (uuid.UUID, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return uuid.Nil, custom_error.Critical("invalid template id %s: %v", id, err)
+	}
+
+	return parsed, nil
+}
+
+func templateInfo(template *core_itf.Template) *output_itf.TemplateInfo {
+	if template == nil {
+		return nil
+	}
+
+	params := map[string]*output_itf.TemplateParamInfo{}
+
+	for key, param := range template.Params {
+		params[key] = &output_itf.TemplateParamInfo{
+			Description: param.Description,
+			Required:    param.Required,
+		}
+	}
+
+	return &output_itf.TemplateInfo{
+		ID:            template.ID.String(),
+		Name:          template.Name,
+		Role:          template.Role,
+		TaskLevel:     template.TaskLevel.String(),
+		Retryable:     template.Retryable,
+		Params:        params,
+		SystemPrompts: template.SystemPrompts,
+	}
 }
 
 func (a *API) KillAgent(id string, agentID string) error {

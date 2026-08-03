@@ -87,7 +87,20 @@ var migrations = []string{
 	`ALTER TABLE tasks ADD COLUMN thinking_level TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tasks ADD COLUMN system_prompts TEXT NOT NULL DEFAULT '[]'`,
 	`ALTER TABLE tasks ADD COLUMN auto_retry INTEGER NOT NULL DEFAULT 0`,
+	`CREATE TABLE agent_templates (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		role TEXT NOT NULL,
+		task_level TEXT NOT NULL,
+		retryable INTEGER NOT NULL,
+		params TEXT NOT NULL,
+		system_prompts TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
 }
+
+const templateColumns = `id, name, role, task_level, retryable, params, system_prompts, created_at, updated_at`
 
 type litesql struct {
 	db *sql.DB
@@ -98,6 +111,10 @@ type taskStore struct {
 }
 
 type mcpStore struct {
+	db *sql.DB
+}
+
+type templateStore struct {
 	db *sql.DB
 }
 
@@ -188,6 +205,109 @@ func (s *litesql) TaskStore() input_itf.TaskStorage {
 
 func (s *litesql) MCPStore() input_itf.StorageMCP {
 	return &mcpStore{db: s.db}
+}
+
+func (s *litesql) TemplateStore() input_itf.TemplateStorage {
+	return &templateStore{db: s.db}
+}
+
+func (s *templateStore) Upsert(t *input_itf.TemplateEntity) error {
+	params, err := json.Marshal(t.Params)
+	if err != nil {
+		return err
+	}
+
+	prompts, err := json.Marshal(t.SystemPrompts)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(`INSERT INTO agent_templates (`+templateColumns+`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			name = excluded.name,
+			role = excluded.role,
+			task_level = excluded.task_level,
+			retryable = excluded.retryable,
+			params = excluded.params,
+			system_prompts = excluded.system_prompts,
+			updated_at = excluded.updated_at`,
+		t.ID.String(),
+		t.Name,
+		t.Role,
+		t.TaskLevel.String(),
+		t.Retryable,
+		string(params),
+		string(prompts),
+		formatTime(t.CreatedAt),
+		formatTime(t.UpdatedAt),
+	)
+	return err
+}
+
+func (s *templateStore) List() ([]*input_itf.TemplateEntity, error) {
+	rows, err := s.db.Query(`SELECT ` + templateColumns + ` FROM agent_templates ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := []*input_itf.TemplateEntity{}
+
+	for rows.Next() {
+		t, err := scanTemplate(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+
+		list = append(list, t)
+	}
+
+	return list, rows.Err()
+}
+
+func (s *templateStore) Find(id uuid.UUID) (*input_itf.TemplateEntity, error) {
+	row := s.db.QueryRow(`SELECT `+templateColumns+` FROM agent_templates WHERE id = ?`, id.String())
+
+	t, err := scanTemplate(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return t, nil
+}
+
+func (s *templateStore) Remove(id uuid.UUID) error {
+	_, err := s.db.Exec(`DELETE FROM agent_templates WHERE id = ?`, id.String())
+	return err
+}
+
+func scanTemplate(scan func(dest ...any) error) (*input_itf.TemplateEntity, error) {
+	t := &input_itf.TemplateEntity{}
+
+	var id, taskLevel, params, prompts, createdAt, updatedAt string
+
+	if err := scan(&id, &t.Name, &t.Role, &taskLevel, &t.Retryable,
+		&params, &prompts, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+
+	t.ID = parseUUID(id)
+	t.TaskLevel = enums.TaskLevel(taskLevel)
+	t.CreatedAt = parseTime(createdAt)
+	t.UpdatedAt = parseTime(updatedAt)
+
+	if err := json.Unmarshal([]byte(params), &t.Params); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(prompts), &t.SystemPrompts); err != nil {
+		return nil, err
+	}
+
+	return t, nil
 }
 
 func (s *mcpStore) ListAuthenticated() ([]*input_itf.MCPEntity, error) {

@@ -30,6 +30,10 @@ func newConfigValidator() *validator.Validate {
 		return enums.ModelName(fl.Field().String()).Valid()
 	})
 
+	v.RegisterValidation("task_level", func(fl validator.FieldLevel) bool {
+		return enums.TaskLevel(fl.Field().String()).Valid()
+	})
+
 	return v
 }
 
