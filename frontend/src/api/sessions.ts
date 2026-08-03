@@ -97,7 +97,12 @@ function resetUnfinished(session: Session): Session {
         tasks: session.tasks.map((task) =>
             task.state === TaskState.Done || task.state === TaskState.Failed
                 ? task
-                : {...task, state: TaskState.Idle, run: undefined, report: undefined},
+                : {
+                      ...task,
+                      state: session.finalized ? TaskState.Failed : TaskState.Idle,
+                      run: undefined,
+                      report: undefined,
+                  },
         ),
     }
 }

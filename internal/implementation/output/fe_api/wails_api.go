@@ -379,6 +379,9 @@ func (a *API) UpsertTemplate(template *output_itf.TemplateInfo) (string, error) 
 		params[key] = &core_itf.TemplateParams{
 			Description: param.Description,
 			Required:    param.Required,
+			Type:        param.Type,
+			Default:     param.Default,
+			Options:     param.Options,
 		}
 	}
 
@@ -427,6 +430,9 @@ func templateInfo(template *core_itf.Template) *output_itf.TemplateInfo {
 		params[key] = &output_itf.TemplateParamInfo{
 			Description: param.Description,
 			Required:    param.Required,
+			Type:        param.Type,
+			Default:     param.Default,
+			Options:     param.Options,
 		}
 	}
 

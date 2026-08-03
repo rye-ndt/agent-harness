@@ -8,8 +8,11 @@ import (
 )
 
 type TemplateParamEntity struct {
-	Description string `json:"description"`
-	Required    bool   `json:"required"`
+	Description string   `json:"description"`
+	Required    bool     `json:"required"`
+	Type        string   `json:"type,omitempty"`
+	Default     string   `json:"default,omitempty"`
+	Options     []string `json:"options,omitempty"`
 }
 
 type TemplateEntity struct {

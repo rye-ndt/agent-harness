@@ -447,6 +447,9 @@ export namespace output_itf {
 	export class TemplateParamInfo {
 	    description: string;
 	    required: boolean;
+	    type: string;
+	    default: string;
+	    options: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new TemplateParamInfo(source);
@@ -456,6 +459,9 @@ export namespace output_itf {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.description = source["description"];
 	        this.required = source["required"];
+	        this.type = source["type"];
+	        this.default = source["default"];
+	        this.options = source["options"];
 	    }
 	}
 	export class TemplateInfo {

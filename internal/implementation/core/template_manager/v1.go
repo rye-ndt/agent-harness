@@ -131,6 +131,9 @@ func paramEntities(params map[string]*core_itf.TemplateParams) map[string]*input
 		entities[strings.TrimSpace(key)] = &input_itf.TemplateParamEntity{
 			Description: param.Description,
 			Required:    param.Required,
+			Type:        param.Type,
+			Default:     param.Default,
+			Options:     param.Options,
 		}
 	}
 
@@ -154,6 +157,9 @@ func template(entity *input_itf.TemplateEntity) *core_itf.Template {
 		params[key] = &core_itf.TemplateParams{
 			Description: param.Description,
 			Required:    param.Required,
+			Type:        param.Type,
+			Default:     param.Default,
+			Options:     param.Options,
 		}
 	}
 

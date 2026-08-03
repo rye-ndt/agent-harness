@@ -24,8 +24,11 @@ type ApprovalInfo struct {
 }
 
 type TemplateParamInfo struct {
-	Description string `json:"description"`
-	Required    bool   `json:"required"`
+	Description string   `json:"description"`
+	Required    bool     `json:"required"`
+	Type        string   `json:"type"`
+	Default     string   `json:"default"`
+	Options     []string `json:"options"`
 }
 
 type TemplateInfo struct {

@@ -9,6 +9,9 @@ import (
 type TemplateParams struct {
 	Description string
 	Required    bool
+	Type        string
+	Default     string
+	Options     []string
 }
 
 type Template struct {

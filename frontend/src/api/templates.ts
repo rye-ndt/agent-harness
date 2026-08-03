@@ -7,7 +7,7 @@
  */
 
 import {bridge, hasWailsRuntime} from '@/api/agents'
-import {ParamType, TASK_LEVELS, TaskLevel} from '@/lib/enums'
+import {PARAM_TYPES, ParamType, TASK_LEVELS, TaskLevel} from '@/lib/enums'
 import {MOCK_TEMPLATES} from '@/lib/mock-templates'
 import type {Template, TemplateDraft} from '@/types/template'
 import {output_itf} from '../../wailsjs/go/models'
@@ -46,8 +46,10 @@ function toTemplate(info: output_itf.TemplateInfo): Template {
             .map(([key, param]) => ({
                 key,
                 label: param?.description ?? '',
-                type: ParamType.Text,
+                type: PARAM_TYPES.find((type) => type === param?.type) ?? ParamType.Text,
                 required: param?.required ?? false,
+                default: param?.default || undefined,
+                options: param?.options?.length ? param.options : undefined,
             })),
         systemPrompts: Object.entries(info.system_prompts ?? {})
             .sort(byKey)
@@ -65,7 +67,13 @@ function toInfo(draft: TemplateDraft): output_itf.TemplateInfo {
         params: Object.fromEntries(
             draft.params.map((param) => [
                 param.key,
-                {description: param.label, required: param.required},
+                {
+                    description: param.label,
+                    required: param.required,
+                    type: param.type,
+                    default: param.default ?? '',
+                    options: param.options ?? [],
+                },
             ]),
         ),
         system_prompts: Object.fromEntries(
