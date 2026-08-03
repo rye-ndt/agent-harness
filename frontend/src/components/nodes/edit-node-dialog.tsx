@@ -2,6 +2,7 @@ import {useMemo, useState} from 'react'
 import {Lock, Trash2} from 'lucide-react'
 
 import {DialogShell} from '@/components/common/dialog-shell'
+import {InheritedAgent} from '@/components/nodes/inherited-agent'
 import {MissingInputs} from '@/components/nodes/missing-inputs'
 import {NodeForm} from '@/components/nodes/node-form'
 import {Button} from '@/components/ui/button'
@@ -94,6 +95,8 @@ export function EditNodeDialog({
                 </div>
                 <p className="text-sm text-muted-foreground">Fixed when the node was created.</p>
             </div>
+
+            <InheritedAgent taskLevel={template?.taskLevel} />
 
             <NodeForm
                 params={template?.params ?? []}

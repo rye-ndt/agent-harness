@@ -8,10 +8,16 @@ import {upstreamOf} from '@/lib/session'
 import {cn} from '@/lib/utils'
 import type {Session, Task} from '@/types/session'
 
+export type TaskNodeAgent = {
+    model: string
+    effort: string
+}
+
 export type TaskNodeData = {
     task: Task
     session: Session
     unlinkable: boolean
+    agent: TaskNodeAgent | null
 }
 
 export type TaskNodeType = Node<TaskNodeData, 'task'>
@@ -30,7 +36,7 @@ function upstreamLine(upstream: Task[]) {
 }
 
 export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
-    const {task, session, unlinkable} = data
+    const {task, session, unlinkable, agent} = data
     const elapsed = useElapsed(task.run?.startedAt, task.run?.finishedAt)
 
     const upstream = upstreamOf(session, task)
@@ -81,7 +87,12 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
             </div>
 
             <div className="relative mt-2 flex items-center justify-between gap-2 text-sm">
-                <span className="truncate font-mono text-muted-foreground">{task.agent}</span>
+                {agent && (
+                    <span className="flex min-w-0 items-center gap-1 font-mono text-muted-foreground">
+                        <span className="truncate">{agent.model}</span>
+                        <span className="shrink-0">· {agent.effort}</span>
+                    </span>
+                )}
                 <span className="flex shrink-0 items-center gap-2">
                     {context && (
                         <span className="font-mono text-xs text-muted-foreground">

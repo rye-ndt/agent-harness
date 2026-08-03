@@ -2,7 +2,7 @@ import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 
 import * as api from '@/api/sessions'
 import * as graph from '@/lib/session'
-import type {Point, Session, Task, TaskDraft} from '@/types/session'
+import type {Point, Session, SessionDraft, Task, TaskDraft} from '@/types/session'
 
 const SESSIONS_KEY = ['sessions']
 
@@ -53,9 +53,10 @@ export function useSessions() {
     })
 
     const create = useSessionMutation(
-        (args: {sessionId: string}) => api.createSession(args.sessionId),
-        (sessions, {sessionId}) => [
-            {...graph.createSession(sessions.length), id: sessionId},
+        (args: {sessionId: string; draft: SessionDraft}) =>
+            api.createSession(args.sessionId, args.draft),
+        (sessions, {sessionId, draft}) => [
+            {...graph.createSession(draft), id: sessionId},
             ...sessions,
         ],
     )
@@ -78,11 +79,14 @@ export function useSessions() {
             editDraft(sessions, sessionId, (session) => ({...session, name})),
     )
 
-    const setWorkingDir = useSessionMutation(
-        (args: {sessionId: string; workingDir: string}) =>
-            api.updateSession(args.sessionId, {workingDir: args.workingDir}),
-        (sessions, {sessionId, workingDir}) =>
-            editDraft(sessions, sessionId, (session) => ({...session, workingDir})),
+    const setLocations = useSessionMutation(
+        (args: {sessionId: string; workingDir: string; contextDir: string}) =>
+            api.updateSession(args.sessionId, {
+                workingDir: args.workingDir,
+                contextDir: args.contextDir,
+            }),
+        (sessions, {sessionId, workingDir, contextDir}) =>
+            editDraft(sessions, sessionId, (session) => ({...session, workingDir, contextDir})),
     )
 
     const finalize = useSessionMutation(
@@ -141,7 +145,7 @@ export function useSessions() {
         createSession: create.mutate,
         cloneSession: clone.mutate,
         renameSession: rename.mutate,
-        setSessionWorkingDir: setWorkingDir.mutate,
+        setSessionLocations: setLocations.mutate,
         finalizeSession: finalize.mutate,
         deleteSession: remove.mutate,
         createTask: createTask.mutate,

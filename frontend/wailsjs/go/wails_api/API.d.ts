@@ -16,6 +16,8 @@ export function AnswerApproval(arg1:string,arg2:boolean,arg3:Array<string>,arg4:
 
 export function AuthAgent(arg1:string):Promise<string>;
 
+export function ChooseDirectory(arg1:string):Promise<string>;
+
 export function InstallAgent(arg1:string):Promise<void>;
 
 export function KillAgent(arg1:string,arg2:string):Promise<void>;

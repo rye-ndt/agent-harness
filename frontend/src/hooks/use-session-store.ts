@@ -1,8 +1,9 @@
 import {useState} from 'react'
 
+import type {SessionLocations} from '@/components/sessions/session-locations'
 import {useSessions} from '@/hooks/use-sessions'
 import * as graph from '@/lib/session'
-import type {Point, Task, TaskDraft} from '@/types/session'
+import type {Point, SessionDraft, Task, TaskDraft} from '@/types/session'
 
 /**
  * Single source of truth for the session graph. Sessions are server state and
@@ -33,9 +34,9 @@ export function useSessionStore() {
         setSelectedTaskId(taskId)
     }
 
-    const addSession = () => {
+    const addSession = (draft: SessionDraft) => {
         const sessionId = crypto.randomUUID()
-        store.createSession({sessionId})
+        store.createSession({sessionId, draft})
         selectSession(sessionId)
     }
 
@@ -49,8 +50,8 @@ export function useSessionStore() {
         store.renameSession({sessionId, name})
     }
 
-    const setWorkingDir = (sessionId: string, workingDir: string) => {
-        store.setSessionWorkingDir({sessionId, workingDir})
+    const setLocations = (sessionId: string, locations: SessionLocations) => {
+        store.setSessionLocations({sessionId, ...locations})
     }
 
     const finalizeSession = (sessionId: string) => {
@@ -104,7 +105,7 @@ export function useSessionStore() {
         addSession,
         cloneSession,
         renameSession,
-        setWorkingDir,
+        setLocations,
         finalizeSession,
         deleteSession,
         addTask,

@@ -1,12 +1,14 @@
 import {useState} from 'react'
-import {Boxes, Plug} from 'lucide-react'
+import {Boxes, Plug, SlidersHorizontal} from 'lucide-react'
 
 import {AgentsPanel} from '@/components/agents/agents-panel'
 import {MCPPanel} from '@/components/settings/mcp-panel'
+import {PreferencesPanel} from '@/components/settings/preferences-panel'
 import {SettingsNav, type SettingsTab} from '@/components/settings/settings-nav'
 import {Dialog, DialogContent, DialogDescription, DialogTitle} from '@/components/ui/dialog'
 
 const SettingsTabId = {
+    Preferences: 'preferences',
     MCP: 'mcp',
     Agents: 'agents',
 } as const
@@ -14,6 +16,7 @@ const SettingsTabId = {
 type SettingsTabId = (typeof SettingsTabId)[keyof typeof SettingsTabId]
 
 const TABS: SettingsTab<SettingsTabId>[] = [
+    {id: SettingsTabId.Preferences, label: 'Preferences', icon: SlidersHorizontal},
     {id: SettingsTabId.MCP, label: 'MCP', icon: Plug},
     {id: SettingsTabId.Agents, label: 'Agents', icon: Boxes},
 ]
@@ -48,6 +51,7 @@ export function SettingsDialog({
                     </div>
 
                     <div className="min-h-0 flex-1 overflow-y-auto">
+                        {active.id === SettingsTabId.Preferences && <PreferencesPanel />}
                         {active.id === SettingsTabId.MCP && <MCPPanel />}
                         {active.id === SettingsTabId.Agents && <AgentsPanel />}
                     </div>

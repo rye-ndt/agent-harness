@@ -77,6 +77,50 @@ export const TASK_LEVEL_HINTS: Record<TaskLevel, string> = {
     [TaskLevel.MaximumEffort]: 'Give the agent room to explore before it commits.',
 }
 
+export const ThinkingLevel = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    XHigh: 'xhigh',
+    Max: 'max',
+} as const
+
+export type ThinkingLevel = (typeof ThinkingLevel)[keyof typeof ThinkingLevel]
+
+export const THINKING_LEVELS: ThinkingLevel[] = [
+    ThinkingLevel.Low,
+    ThinkingLevel.Medium,
+    ThinkingLevel.High,
+    ThinkingLevel.XHigh,
+    ThinkingLevel.Max,
+]
+
+export const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
+    [ThinkingLevel.Low]: 'Low',
+    [ThinkingLevel.Medium]: 'Medium',
+    [ThinkingLevel.High]: 'High',
+    [ThinkingLevel.XHigh]: 'Very high',
+    [ThinkingLevel.Max]: 'Maximum',
+}
+
+export const InstallStage = {
+    Queued: 'queued',
+    Resolve: 'resolve',
+    Download: 'download',
+    Extract: 'extract',
+    Done: 'done',
+} as const
+
+export type InstallStage = (typeof InstallStage)[keyof typeof InstallStage]
+
+export const INSTALL_STAGE_LABELS: Record<InstallStage, string> = {
+    [InstallStage.Queued]: 'Waiting',
+    [InstallStage.Resolve]: 'Finding release',
+    [InstallStage.Download]: 'Downloading',
+    [InstallStage.Extract]: 'Unpacking',
+    [InstallStage.Done]: 'Ready',
+}
+
 export const ParamType = {
     Text: 'text',
     Textarea: 'textarea',

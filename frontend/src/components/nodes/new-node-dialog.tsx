@@ -3,6 +3,7 @@ import {ArrowLeft, Plus} from 'lucide-react'
 
 import {DialogShell} from '@/components/common/dialog-shell'
 import {StepSpine} from '@/components/common/step-spine'
+import {InheritedAgent} from '@/components/nodes/inherited-agent'
 import {MissingInputs} from '@/components/nodes/missing-inputs'
 import {NodeForm} from '@/components/nodes/node-form'
 import {TemplateFormDialog} from '@/components/templates/template-form-dialog'
@@ -89,16 +90,19 @@ export function NewNodeDialog({
                 }
             >
                 {chosen ? (
-                    <NodeForm
-                        key={chosen.id}
-                        params={chosen.params}
-                        title={title}
-                        prompt={prompt}
-                        values={values}
-                        onTitleChange={setTitle}
-                        onPromptChange={setPrompt}
-                        onValueChange={changeValue}
-                    />
+                    <>
+                        <InheritedAgent taskLevel={chosen.taskLevel} />
+                        <NodeForm
+                            key={chosen.id}
+                            params={chosen.params}
+                            title={title}
+                            prompt={prompt}
+                            values={values}
+                            onTitleChange={setTitle}
+                            onPromptChange={setPrompt}
+                            onValueChange={changeValue}
+                        />
+                    </>
                 ) : (
                     <TemplateList
                         templates={templates}

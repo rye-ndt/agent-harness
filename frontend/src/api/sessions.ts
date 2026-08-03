@@ -25,7 +25,7 @@ import {
     withoutDependency,
     withoutTask,
 } from '@/lib/session'
-import type {HandoverDoc, Point, Session, Task, TaskDraft} from '@/types/session'
+import type {HandoverDoc, Point, Session, SessionDraft, Task, TaskDraft} from '@/types/session'
 import {output_itf} from '../../wailsjs/go/models'
 import {RunSession, SessionStatus} from '../../wailsjs/go/wails_api/API'
 
@@ -178,7 +178,7 @@ async function buildRunSpec(session: Session): Promise<output_itf.RunSessionSpec
 
     return new output_itf.RunSessionSpec({
         working_dir_path: session.workingDir.trim(),
-        context_dir_path: '',
+        context_dir_path: session.contextDir.trim(),
         tasks: session.tasks.map((task) => {
             const template = task.templateId ? templateById.get(task.templateId) : undefined
             return {
@@ -310,8 +310,11 @@ export async function listSessions(): Promise<Session[]> {
     return structuredClone(sessions)
 }
 
-export async function createSession(sessionId: string): Promise<Session> {
-    const session = {...buildSession(sessions.length), id: sessionId}
+export async function createSession(sessionId: string, draft: SessionDraft): Promise<Session> {
+    if (!draft.workingDir.trim()) throw new Error('A session needs a working directory.')
+    if (!draft.contextDir.trim()) throw new Error('A session needs a context directory.')
+
+    const session = {...buildSession(draft), id: sessionId}
     sessions = [session, ...sessions]
     return structuredClone(session)
 }
@@ -324,10 +327,16 @@ export async function cloneSession(sourceId: string, sessionId: string): Promise
 
 export async function updateSession(
     sessionId: string,
-    patch: Partial<Pick<Session, 'name' | 'finalized' | 'workingDir'>>,
+    patch: Partial<Pick<Session, 'name' | 'finalized' | 'workingDir' | 'contextDir'>>,
 ): Promise<Session> {
     if (patch.finalized === false)
         throw new Error('A finalized session cannot go back to a draft. Duplicate it instead.')
+
+    if (patch.workingDir !== undefined && !patch.workingDir.trim())
+        throw new Error('A session needs a working directory.')
+
+    if (patch.contextDir !== undefined && !patch.contextDir.trim())
+        throw new Error('A session needs a context directory.')
 
     const session = patch.finalized ? findSession(sessionId) : findOpenSession(sessionId)
     const started = patch.finalized ? await startRemoteRun({...session, ...patch}) : false

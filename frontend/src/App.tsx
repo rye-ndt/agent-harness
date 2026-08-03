@@ -2,13 +2,17 @@ import {useState} from 'react'
 
 import {GraphCanvas} from '@/components/canvas/graph-canvas'
 import {SessionHeader} from '@/components/canvas/session-header'
+import {DirectoryPickerHost} from '@/components/common/directory-picker'
 import {NewNodeDialog} from '@/components/nodes/new-node-dialog'
 import {TaskDialog} from '@/components/nodes/task-dialog'
-import {OnboardingFlow} from '@/components/onboarding/onboarding-flow'
+import {WelcomeDialog} from '@/components/onboarding/welcome-dialog'
+import {EditLocationsDialog} from '@/components/sessions/edit-locations-dialog'
+import {NewSessionDialog} from '@/components/sessions/new-session-dialog'
+import type {SessionLocations} from '@/components/sessions/session-locations'
 import {SessionsRail} from '@/components/sessions/sessions-rail'
 import {SettingsDialog} from '@/components/settings/settings-dialog'
 import {TooltipProvider} from '@/components/ui/tooltip'
-import {useOnboarding} from '@/hooks/use-onboarding'
+import {useDependencies} from '@/hooks/use-dependencies'
 import {useSessionStore} from '@/hooks/use-session-store'
 import {findTask} from '@/lib/session'
 import type {Point, Task, TaskDraft} from '@/types/session'
@@ -19,26 +23,39 @@ const TOOLTIP_DELAY_MS = 300
 
 function App() {
     const store = useSessionStore()
-    const onboarding = useOnboarding()
+    const dependencies = useDependencies()
 
     const [settingsOpen, setSettingsOpen] = useState(false)
+    const [newSessionOpen, setNewSessionOpen] = useState(false)
+    const [locationsOpen, setLocationsOpen] = useState(false)
     const [newNodeAt, setNewNodeAt] = useState<Point | null>(null)
 
     const session = store.activeSession
     const selectedTask = session ? findTask(session, store.selectedTaskId) : undefined
-    const showOnboarding = onboarding.ready && onboarding.required
+    const showWelcome = dependencies.ready && dependencies.required
 
     const openSettings = () => setSettingsOpen(true)
     const openNewNode = () => setNewNodeAt(ORIGIN)
     const closeNewNode = () => setNewNodeAt(null)
     const closeTask = () => store.selectTask(null)
 
+    const openNewSession = () => setNewSessionOpen(true)
+    const closeNewSession = () => setNewSessionOpen(false)
+
+    const openLocations = () => setLocationsOpen(true)
+    const closeLocations = () => setLocationsOpen(false)
+
+    const createSession = (locations: SessionLocations) => {
+        store.addSession({name: `Session ${store.sessions.length + 1}`, ...locations})
+        closeNewSession()
+    }
+
     const renameSession = (name: string) => {
         if (session) store.renameSession(session.id, name)
     }
 
-    const setWorkingDir = (workingDir: string) => {
-        if (session) store.setWorkingDir(session.id, workingDir)
+    const saveLocations = (locations: SessionLocations) => {
+        if (session) store.setLocations(session.id, locations)
     }
 
     const finalizeSession = () => {
@@ -81,7 +98,7 @@ function App() {
                     <SessionHeader
                         session={session}
                         onRename={renameSession}
-                        onSetWorkingDir={setWorkingDir}
+                        onEditLocations={openLocations}
                         onFinalize={finalizeSession}
                         onClone={cloneActiveSession}
                         onNewNode={openNewNode}
@@ -111,7 +128,7 @@ function App() {
                     sessions={store.sessions}
                     activeSessionId={store.activeSessionId}
                     onSelect={store.selectSession}
-                    onCreate={store.addSession}
+                    onCreate={openNewSession}
                     onClone={store.cloneSession}
                     onDelete={store.deleteSession}
                 />
@@ -129,9 +146,33 @@ function App() {
 
                 {newNodeAt && <NewNodeDialog onCreate={createTask} onClose={closeNewNode} />}
 
+                {newSessionOpen && (
+                    <NewSessionDialog onCreate={createSession} onClose={closeNewSession} />
+                )}
+
+                {locationsOpen && session && !session.finalized && (
+                    <EditLocationsDialog
+                        key={session.id}
+                        session={session}
+                        onSave={saveLocations}
+                        onClose={closeLocations}
+                    />
+                )}
+
                 <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
-                {showOnboarding && <OnboardingFlow onDone={onboarding.complete} />}
+                <DirectoryPickerHost />
+
+                {showWelcome && (
+                    <WelcomeDialog
+                        dependencies={dependencies.dependencies}
+                        ratio={dependencies.ratio}
+                        settled={dependencies.settled}
+                        error={dependencies.error}
+                        onRetry={dependencies.retry}
+                        onStart={dependencies.dismiss}
+                    />
+                )}
             </div>
         </TooltipProvider>
     )

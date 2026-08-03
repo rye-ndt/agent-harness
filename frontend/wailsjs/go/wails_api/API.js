@@ -26,6 +26,10 @@ export function AuthAgent(arg1) {
   return window['go']['wails_api']['API']['AuthAgent'](arg1);
 }
 
+export function ChooseDirectory(arg1) {
+  return window['go']['wails_api']['API']['ChooseDirectory'](arg1);
+}
+
 export function InstallAgent(arg1) {
   return window['go']['wails_api']['API']['InstallAgent'](arg1);
 }

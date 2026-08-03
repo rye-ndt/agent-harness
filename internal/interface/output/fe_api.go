@@ -121,6 +121,7 @@ type FEAPI interface {
 	RemoveTemplate(id string) error
 	KillAgent(id string, agentID string) error
 	UninstallAgent(id string) error
+	ChooseDirectory(title string) (string, error)
 	AgentDefaults() ([]*AgentDefaultInfo, error)
 	SetAgentDefault(taskLevel string, model string, thinkingLevel string) error
 	AgentDefaultOptions() (*AgentDefaultOptionsInfo, error)

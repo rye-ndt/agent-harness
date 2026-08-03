@@ -1,10 +1,19 @@
 /**
- * The only place the generated Wails bindings are touched. They dereference
- * window.go synchronously, so outside the Wails webview they throw instead of
- * rejecting — every call goes through `bridge` to land as a rejected promise.
+ * The only place the generated Wails bindings for agents are touched. They
+ * dereference window.go synchronously, so outside the Wails webview they throw
+ * instead of rejecting — every call goes through `bridge` to land as a rejected
+ * promise. Under the plain vite dev server there is no Go side at all, so the
+ * roster and installs fall back to src/lib/mock-agents.ts and progress is
+ * emitted locally instead of over the Wails event bus.
  */
 
 import {formatAgentName} from '@/lib/format'
+import {
+    mockInstallAgent,
+    mockListAgents,
+    mockStartLogin,
+    mockSubmitAuthCode,
+} from '@/lib/mock-agents'
 import type {Agent, InstallProgress} from '@/types/agent'
 import {
     AgentStatuses,
@@ -17,13 +26,26 @@ import {BrowserOpenURL, EventsOn} from '../../wailsjs/runtime/runtime'
 
 const INSTALL_PROGRESS_EVENT = 'harness:install:progress'
 
-const noop = () => {}
+type ProgressListener = (agentId: string, progress: InstallProgress) => void
+
+const localListeners = new Set<ProgressListener>()
 
 async function bridge<T>(call: () => Promise<T>): Promise<T> {
     return call()
 }
 
+export function hasWailsRuntime() {
+    try {
+        const bindings = window as Window & {go?: {wails_api?: {API?: object}}}
+        return Boolean(bindings.go?.wails_api?.API)
+    } catch {
+        return false
+    }
+}
+
 export async function listAgents(): Promise<Agent[]> {
+    if (!hasWailsRuntime()) return mockListAgents()
+
     const infos = await bridge(AgentStatuses)
 
     return infos.map(({id, status}) => ({
@@ -37,6 +59,13 @@ export async function listAgents(): Promise<Agent[]> {
 }
 
 export async function installAgent(agentId: string): Promise<void> {
+    if (!hasWailsRuntime()) {
+        await mockInstallAgent(agentId, (progress) => {
+            for (const listener of localListeners) listener(agentId, progress)
+        })
+        return
+    }
+
     await bridge(() => InstallAgent(agentId))
 }
 
@@ -45,20 +74,23 @@ export async function uninstallAgent(agentId: string): Promise<void> {
 }
 
 export async function startAgentLogin(agentId: string): Promise<string> {
+    if (!hasWailsRuntime()) return mockStartLogin(agentId)
+
     return bridge(() => AuthAgent(agentId))
 }
 
 export async function submitAgentAuthCode(agentId: string, code: string): Promise<void> {
+    if (!hasWailsRuntime()) return mockSubmitAuthCode(agentId, code)
+
     await bridge(() => SubmitAuthCode(agentId, code))
 }
 
-export function onInstallProgress(
-    listener: (agentId: string, progress: InstallProgress) => void,
-): () => void {
+export function onInstallProgress(listener: ProgressListener): () => void {
     try {
         return EventsOn(INSTALL_PROGRESS_EVENT, listener)
     } catch {
-        return noop
+        localListeners.add(listener)
+        return () => localListeners.delete(listener)
     }
 }
 

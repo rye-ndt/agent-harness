@@ -50,7 +50,6 @@ export type Task = {
     id: string
     title: string
     prompt: string
-    agent: string
     state: TaskState
     position: Point
     dependsOn: string[]
@@ -73,5 +72,13 @@ export type Session = {
     createdAt: string
     finalized: boolean
     workingDir: string
+    contextDir: string
     tasks: Task[]
+}
+
+/** What the new-session dialog collects before the session exists. */
+export type SessionDraft = {
+    name: string
+    workingDir: string
+    contextDir: string
 }

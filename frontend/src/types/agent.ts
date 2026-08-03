@@ -1,3 +1,5 @@
+import type {InstallStage} from '@/lib/enums'
+
 export type Agent = {
     id: string
     name: string
@@ -7,14 +9,17 @@ export type Agent = {
     instanceCount: number
 }
 
-export type AgentOption = {
-    id: string
-    name: string
-    blurb: string
-}
-
 export type InstallProgress = {
-    stage: string
+    stage: InstallStage
     downloaded: number
     total: number
+}
+
+export type Dependency = {
+    id: string
+    name: string
+    version: string
+    stage: InstallStage
+    progress: InstallProgress | null
+    failed: boolean
 }

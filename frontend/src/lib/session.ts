@@ -1,7 +1,5 @@
 import {SessionStatus, TaskState} from '@/lib/enums'
-import type {Point, Session, Task, TaskDraft} from '@/types/session'
-
-const DEFAULT_AGENT = 'claude_code'
+import type {Point, Session, SessionDraft, Task, TaskDraft} from '@/types/session'
 
 const SETTLED_STATES = new Set<TaskState>([TaskState.Running, TaskState.Done, TaskState.Failed])
 
@@ -16,7 +14,6 @@ export function createTask(draft: TaskDraft, position: Point): Task {
         id: crypto.randomUUID(),
         title: draft.title,
         prompt: draft.prompt,
-        agent: DEFAULT_AGENT,
         state: TaskState.Idle,
         position,
         dependsOn: [],
@@ -25,13 +22,14 @@ export function createTask(draft: TaskDraft, position: Point): Task {
     }
 }
 
-export function createSession(index: number): Session {
+export function createSession(draft: SessionDraft): Session {
     return {
         id: crypto.randomUUID(),
-        name: `Session ${index + 1}`,
+        name: draft.name.trim(),
         createdAt: new Date().toISOString(),
         finalized: false,
-        workingDir: '',
+        workingDir: draft.workingDir.trim(),
+        contextDir: draft.contextDir.trim(),
         tasks: [],
     }
 }
@@ -46,11 +44,11 @@ export function duplicateSession(session: Session): Session {
         createdAt: new Date().toISOString(),
         finalized: false,
         workingDir: session.workingDir,
+        contextDir: session.contextDir,
         tasks: session.tasks.map((task) => ({
             id: idMap.get(task.id)!,
             title: task.title,
             prompt: task.prompt,
-            agent: task.agent,
             state: TaskState.Idle,
             position: {...task.position},
             dependsOn: task.dependsOn.map((id) => idMap.get(id)!).filter(Boolean),

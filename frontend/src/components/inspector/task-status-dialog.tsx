@@ -4,15 +4,23 @@ import {ContextDonut} from '@/components/inspector/context-donut'
 import {FileChanges} from '@/components/inspector/file-changes'
 import {HandoverDocs} from '@/components/inspector/handover-docs'
 import {Button} from '@/components/ui/button'
+import {useAgentDefaults} from '@/hooks/use-agent-defaults'
 import {useElapsed} from '@/hooks/use-elapsed'
 import {useTemplates} from '@/hooks/use-templates'
-import {TaskState, TASK_LEVEL_LABELS} from '@/lib/enums'
-import {formatAgentName, formatMoment, formatPercent} from '@/lib/format'
+import {agentDefaultFor} from '@/lib/agent-default'
+import {TaskState, TASK_LEVEL_LABELS, THINKING_LEVEL_LABELS} from '@/lib/enums'
+import {formatMoment, formatPercent} from '@/lib/format'
 import type {Task} from '@/types/session'
+import type {AgentDefault} from '@/types/settings'
 import type {Template} from '@/types/template'
 
-function summarize(task: Task, template?: Template) {
-    return [template?.name, template && TASK_LEVEL_LABELS[template.taskLevel], formatAgentName(task.agent)]
+function summarize(template?: Template, agentDefault?: AgentDefault) {
+    return [
+        template?.name,
+        template && TASK_LEVEL_LABELS[template.taskLevel],
+        agentDefault &&
+            `${agentDefault.modelLabel} · ${THINKING_LEVEL_LABELS[agentDefault.thinkingLevel]}`,
+    ]
         .filter(Boolean)
         .join(' · ')
 }
@@ -34,7 +42,9 @@ function Stat({label, value}: {label: string; value: string}) {
 
 export function TaskStatusDialog({task, onClose}: {task: Task; onClose: () => void}) {
     const {templates} = useTemplates()
+    const {defaults} = useAgentDefaults()
     const template = templates.find((candidate) => candidate.id === task.templateId)
+    const agentDefault = agentDefaultFor(defaults, template?.taskLevel)
 
     const run = task.run
     const context = run?.context
@@ -50,7 +60,7 @@ export function TaskStatusDialog({task, onClose}: {task: Task; onClose: () => vo
             open
             onOpenChange={close}
             title={task.title || 'Untitled node'}
-            description={summarize(task, template)}
+            description={summarize(template, agentDefault)}
             aside={<StateBadge state={task.state} />}
             footer={
                 <>

@@ -484,6 +484,13 @@ func (a *API) RunSession(spec *output_itf.RunSessionSpec) (*output_itf.RunSessio
 	}, nil
 }
 
+func (a *API) ChooseDirectory(title string) (string, error) {
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:                title,
+		CanCreateDirectories: true,
+	})
+}
+
 func (a *API) AgentDefaults() ([]*output_itf.AgentDefaultInfo, error) {
 	stored := a.userConfig.AgentDefaults()
 

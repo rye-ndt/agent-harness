@@ -1,5 +1,5 @@
 import {useState, type ChangeEvent, type KeyboardEvent} from 'react'
-import {Copy, Lock, Plus, Settings} from 'lucide-react'
+import {Copy, Folder, Lock, Plus, Settings} from 'lucide-react'
 
 import {Button} from '@/components/ui/button'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
@@ -21,7 +21,7 @@ const FINALIZED_HINT = 'Finalized — duplicate to make changes.'
 export function SessionHeader({
     session,
     onRename,
-    onSetWorkingDir,
+    onEditLocations,
     onFinalize,
     onClone,
     onNewNode,
@@ -29,7 +29,7 @@ export function SessionHeader({
 }: {
     session: Session | null
     onRename: (name: string) => void
-    onSetWorkingDir: (workingDir: string) => void
+    onEditLocations: () => void
     onFinalize: () => void
     onClone: () => void
     onNewNode: () => void
@@ -52,20 +52,7 @@ export function SessionHeader({
                             />
                         ))}
 
-                    {session &&
-                        (locked ? (
-                            session.workingDir && (
-                                <span className="max-w-72 shrink truncate font-mono text-sm text-muted-foreground">
-                                    {session.workingDir}
-                                </span>
-                            )
-                        ) : (
-                            <WorkingDirInput
-                                key={`dir-${session.id}`}
-                                workingDir={session.workingDir}
-                                onSetWorkingDir={onSetWorkingDir}
-                            />
-                        ))}
+                    {session && <SessionDirectories session={session} onEdit={onEditLocations} />}
 
                     {session && <SessionIdentity session={session} />}
                 </div>
@@ -167,40 +154,43 @@ function SessionNameInput({name, onRename}: {name: string; onRename: (name: stri
     )
 }
 
-function WorkingDirInput({
-    workingDir,
-    onSetWorkingDir,
-}: {
-    workingDir: string
-    onSetWorkingDir: (workingDir: string) => void
-}) {
-    const [draft, setDraft] = useState(workingDir)
+function SessionDirectories({session, onEdit}: {session: Session; onEdit: () => void}) {
+    const paths = [session.workingDir, session.contextDir].filter(Boolean)
+    if (paths.length === 0) return null
 
-    const commit = () => {
-        const next = draft.trim()
-        setDraft(next)
-        if (next !== workingDir) onSetWorkingDir(next)
-    }
-
-    const handleKeys = (event: KeyboardEvent<HTMLInputElement>) => {
-        if (event.key === 'Enter') event.currentTarget.blur()
-        if (event.key === 'Escape') {
-            setDraft(workingDir)
-            event.currentTarget.blur()
-        }
-    }
+    if (session.finalized)
+        return (
+            <span className="max-w-72 shrink truncate font-mono text-sm text-muted-foreground">
+                {session.workingDir}
+            </span>
+        )
 
     return (
-        <input
-            value={draft}
-            aria-label="Working directory"
-            placeholder="Working directory"
-            spellCheck={false}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => setDraft(event.target.value)}
-            onBlur={commit}
-            onKeyDown={handleKeys}
-            className="w-72 min-w-0 shrink rounded-md bg-transparent px-2 py-1 font-mono text-sm text-muted-foreground outline-none transition-colors placeholder:font-sans hover:bg-muted focus:bg-background focus:text-foreground focus-visible:ring-2 focus-visible:ring-live"
-        />
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <button
+                    type="button"
+                    aria-label="Session directories"
+                    onClick={onEdit}
+                    className="flex max-w-72 shrink items-center gap-2 rounded-md px-2 py-1 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-live"
+                >
+                    <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate font-mono text-sm text-muted-foreground">
+                        {session.workingDir}
+                    </span>
+                </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+                <span className="flex flex-col gap-1">
+                    {paths.map((path) => (
+                        <span key={path} className="font-mono">
+                            {path}
+                        </span>
+                    ))}
+                    <span>Click to change either one.</span>
+                </span>
+            </TooltipContent>
+        </Tooltip>
     )
 }
 
