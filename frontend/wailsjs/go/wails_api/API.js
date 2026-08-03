@@ -26,8 +26,16 @@ export function AuthAgent(arg1) {
   return window['go']['wails_api']['API']['AuthAgent'](arg1);
 }
 
+export function AuthorizeMCPServer(arg1) {
+  return window['go']['wails_api']['API']['AuthorizeMCPServer'](arg1);
+}
+
 export function ChooseDirectory(arg1) {
   return window['go']['wails_api']['API']['ChooseDirectory'](arg1);
+}
+
+export function DeleteSessionDraft(arg1) {
+  return window['go']['wails_api']['API']['DeleteSessionDraft'](arg1);
 }
 
 export function InstallAgent(arg1) {
@@ -36,6 +44,10 @@ export function InstallAgent(arg1) {
 
 export function KillAgent(arg1, arg2) {
   return window['go']['wails_api']['API']['KillAgent'](arg1, arg2);
+}
+
+export function MCPServers() {
+  return window['go']['wails_api']['API']['MCPServers']();
 }
 
 export function PendingApprovals() {
@@ -54,8 +66,16 @@ export function RunSession(arg1) {
   return window['go']['wails_api']['API']['RunSession'](arg1);
 }
 
+export function SaveSessionDraft(arg1, arg2) {
+  return window['go']['wails_api']['API']['SaveSessionDraft'](arg1, arg2);
+}
+
 export function SendToAgent(arg1, arg2, arg3) {
   return window['go']['wails_api']['API']['SendToAgent'](arg1, arg2, arg3);
+}
+
+export function SessionDrafts() {
+  return window['go']['wails_api']['API']['SessionDrafts']();
 }
 
 export function SessionStatus(arg1) {

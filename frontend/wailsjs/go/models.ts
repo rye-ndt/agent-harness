@@ -110,6 +110,7 @@ export namespace output_itf {
 	export class ModelOptionInfo {
 	    model: string;
 	    label: string;
+	    harness: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ModelOptionInfo(source);
@@ -119,6 +120,7 @@ export namespace output_itf {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.model = source["model"];
 	        this.label = source["label"];
+	        this.harness = source["harness"];
 	    }
 	}
 	export class AgentDefaultOptionsInfo {
@@ -263,6 +265,24 @@ export namespace output_itf {
 	        this.known_gaps = source["known_gaps"];
 	    }
 	}
+	export class MCPServerInfo {
+	    name: string;
+	    url: string;
+	    authorized: boolean;
+	    authorized_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPServerInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.url = source["url"];
+	        this.authorized = source["authorized"];
+	        this.authorized_at = source["authorized_at"];
+	    }
+	}
 	
 	export class RunSessionResult {
 	    session_id: string;
@@ -339,6 +359,22 @@ export namespace output_itf {
 		}
 	}
 	
+	export class SessionDraftInfo {
+	    id: string;
+	    doc: string;
+	    updated_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionDraftInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.doc = source["doc"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
 	export class SessionTaskInfo {
 	    task_id: string;
 	    status: string;

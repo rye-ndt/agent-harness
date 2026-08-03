@@ -93,8 +93,22 @@ type AgentDefaultInfo struct {
 }
 
 type ModelOptionInfo struct {
-	Model string `json:"model"`
-	Label string `json:"label"`
+	Model   string `json:"model"`
+	Label   string `json:"label"`
+	Harness string `json:"harness"`
+}
+
+type SessionDraftInfo struct {
+	ID        string `json:"id"`
+	Doc       string `json:"doc"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type MCPServerInfo struct {
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	Authorized   bool   `json:"authorized"`
+	AuthorizedAt string `json:"authorized_at"`
 }
 
 type AgentDefaultOptionsInfo struct {
@@ -128,4 +142,9 @@ type FEAPI interface {
 	RunSession(spec *RunSessionSpec) (*RunSessionResult, error)
 	SessionStatus(sessionID string) (*SessionStatusInfo, error)
 	RetrySessionTask(taskID string) error
+	SessionDrafts() ([]*SessionDraftInfo, error)
+	SaveSessionDraft(id string, doc string) error
+	DeleteSessionDraft(id string) error
+	MCPServers() ([]*MCPServerInfo, error)
+	AuthorizeMCPServer(name string) error
 }

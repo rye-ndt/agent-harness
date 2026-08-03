@@ -16,11 +16,17 @@ export function AnswerApproval(arg1:string,arg2:boolean,arg3:Array<string>,arg4:
 
 export function AuthAgent(arg1:string):Promise<string>;
 
+export function AuthorizeMCPServer(arg1:string):Promise<void>;
+
 export function ChooseDirectory(arg1:string):Promise<string>;
+
+export function DeleteSessionDraft(arg1:string):Promise<void>;
 
 export function InstallAgent(arg1:string):Promise<void>;
 
 export function KillAgent(arg1:string,arg2:string):Promise<void>;
+
+export function MCPServers():Promise<Array<output_itf.MCPServerInfo>>;
 
 export function PendingApprovals():Promise<Array<output_itf.ApprovalInfo>>;
 
@@ -30,7 +36,11 @@ export function RetrySessionTask(arg1:string):Promise<void>;
 
 export function RunSession(arg1:output_itf.RunSessionSpec):Promise<output_itf.RunSessionResult>;
 
+export function SaveSessionDraft(arg1:string,arg2:string):Promise<void>;
+
 export function SendToAgent(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SessionDrafts():Promise<Array<output_itf.SessionDraftInfo>>;
 
 export function SessionStatus(arg1:string):Promise<output_itf.SessionStatusInfo>;
 

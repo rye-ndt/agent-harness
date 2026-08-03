@@ -101,6 +101,11 @@ var migrations = []string{
 	`ALTER TABLE sessions ADD COLUMN working_dir_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE sessions ADD COLUMN context_dir_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tasks ADD COLUMN depends_on_task_ids TEXT NOT NULL DEFAULT '[]'`,
+	`CREATE TABLE session_drafts (
+		id TEXT PRIMARY KEY,
+		doc TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
 }
 
 const templateColumns = `id, name, role, task_level, retryable, params, system_prompts, created_at, updated_at`
@@ -118,6 +123,10 @@ type mcpStore struct {
 }
 
 type templateStore struct {
+	db *sql.DB
+}
+
+type draftStore struct {
 	db *sql.DB
 }
 
@@ -212,6 +221,54 @@ func (s *litesql) MCPStore() input_itf.StorageMCP {
 
 func (s *litesql) TemplateStore() input_itf.TemplateStorage {
 	return &templateStore{db: s.db}
+}
+
+func (s *litesql) DraftStore() input_itf.DraftStorage {
+	return &draftStore{db: s.db}
+}
+
+func (s *draftStore) List() ([]*input_itf.SessionDraftEntity, error) {
+	rows, err := s.db.Query(`SELECT id, doc, updated_at FROM session_drafts ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := []*input_itf.SessionDraftEntity{}
+
+	for rows.Next() {
+		d := &input_itf.SessionDraftEntity{}
+		var id, updatedAt string
+
+		if err := rows.Scan(&id, &d.Doc, &updatedAt); err != nil {
+			return nil, err
+		}
+
+		d.ID = parseUUID(id)
+		d.UpdatedAt = parseTime(updatedAt)
+
+		list = append(list, d)
+	}
+
+	return list, rows.Err()
+}
+
+func (s *draftStore) Save(draft *input_itf.SessionDraftEntity) error {
+	_, err := s.db.Exec(`INSERT INTO session_drafts (id, doc, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			doc = excluded.doc,
+			updated_at = excluded.updated_at`,
+		draft.ID.String(),
+		draft.Doc,
+		formatTime(draft.UpdatedAt),
+	)
+	return err
+}
+
+func (s *draftStore) Delete(id uuid.UUID) error {
+	_, err := s.db.Exec(`DELETE FROM session_drafts WHERE id = ?`, id.String())
+	return err
 }
 
 func (s *templateStore) Upsert(t *input_itf.TemplateEntity) error {

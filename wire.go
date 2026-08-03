@@ -140,6 +140,7 @@ func wire() (*App, error) {
 		Sessions:     sessionManager,
 		Coordinator:  sessionCoordinator,
 		UserConfig:   userCfg,
+		Drafts:       store.DraftStore(),
 		DataWarning:  dataWarning,
 	})
 

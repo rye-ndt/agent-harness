@@ -22,6 +22,8 @@ const (
 	agentClosedEvent     = "agent:closed"
 )
 
+const outputFlushInterval = 100 * time.Millisecond
+
 type API struct {
 	ctx          context.Context
 	agentManager core_itf.AgentManager
@@ -31,6 +33,7 @@ type API struct {
 	sessions     core_itf.SessionManager
 	coordinator  core_itf.Coordinator
 	userConfig   output_itf.UserConfig
+	drafts       input_itf.DraftStorage
 	dataWarning  string
 }
 
@@ -44,6 +47,7 @@ type Deps struct {
 	Sessions     core_itf.SessionManager
 	Coordinator  core_itf.Coordinator
 	UserConfig   output_itf.UserConfig
+	Drafts       input_itf.DraftStorage
 	DataWarning  string
 }
 
@@ -56,6 +60,7 @@ func New(deps *Deps) *API {
 		sessions:     deps.Sessions,
 		coordinator:  deps.Coordinator,
 		userConfig:   deps.UserConfig,
+		drafts:       deps.Drafts,
 		dataWarning:  deps.DataWarning,
 	}
 }
@@ -199,14 +204,40 @@ func (a *API) SpawnAgent(id string) (string, error) {
 
 	agentID := agent.ID.String()
 
-	go func() {
-		for line := range out {
-			runtime.EventsEmit(a.ctx, agentOutputEvent, id, agentID, line)
-		}
-		runtime.EventsEmit(a.ctx, agentClosedEvent, id, agentID)
-	}()
+	go a.pumpOutput(id, agentID, out)
 
 	return agentID, nil
+}
+
+func (a *API) pumpOutput(id string, agentID string, out <-chan string) {
+	ticker := time.NewTicker(outputFlushInterval)
+	defer ticker.Stop()
+
+	batch := []string{}
+
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+
+		runtime.EventsEmit(a.ctx, agentOutputEvent, id, agentID, batch)
+		batch = []string{}
+	}
+
+	for {
+		select {
+		case line, open := <-out:
+			if !open {
+				flush()
+				runtime.EventsEmit(a.ctx, agentClosedEvent, id, agentID)
+				return
+			}
+
+			batch = append(batch, line)
+		case <-ticker.C:
+			flush()
+		}
+	}
 }
 
 func (a *API) SendToAgent(id string, agentID string, message string) error {
@@ -533,8 +564,9 @@ func (a *API) AgentDefaultOptions() (*output_itf.AgentDefaultOptionsInfo, error)
 
 	for _, name := range names {
 		models = append(models, &output_itf.ModelOptionInfo{
-			Model: name.String(),
-			Label: name.DisplayName(),
+			Model:   name.String(),
+			Label:   name.DisplayName(),
+			Harness: name.HarnessTool().String(),
 		})
 	}
 
@@ -609,6 +641,87 @@ func (a *API) RetrySessionTask(taskID string) error {
 	}
 
 	return a.sessions.RetryTask(parsed)
+}
+
+func (a *API) SessionDrafts() ([]*output_itf.SessionDraftInfo, error) {
+	stored, err := a.drafts.List()
+	if err != nil {
+		return nil, err
+	}
+
+	infos := make([]*output_itf.SessionDraftInfo, 0, len(stored))
+
+	for _, draft := range stored {
+		infos = append(infos, &output_itf.SessionDraftInfo{
+			ID:        draft.ID.String(),
+			Doc:       draft.Doc,
+			UpdatedAt: draft.UpdatedAt.Format(time.RFC3339),
+		})
+	}
+
+	return infos, nil
+}
+
+func (a *API) SaveSessionDraft(id string, doc string) error {
+	parsed, err := draftUUID(id)
+	if err != nil {
+		return err
+	}
+
+	return a.drafts.Save(&input_itf.SessionDraftEntity{
+		ID:        parsed,
+		Doc:       doc,
+		UpdatedAt: time.Now(),
+	})
+}
+
+func (a *API) DeleteSessionDraft(id string) error {
+	parsed, err := draftUUID(id)
+	if err != nil {
+		return err
+	}
+
+	return a.drafts.Delete(parsed)
+}
+
+func draftUUID(id string) (uuid.UUID, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return uuid.Nil, custom_error.Critical("invalid session draft id %s: %v", id, err)
+	}
+
+	return parsed, nil
+}
+
+func (a *API) MCPServers() ([]*output_itf.MCPServerInfo, error) {
+	servers, err := a.mcpProxy.List()
+	if err != nil {
+		return nil, err
+	}
+
+	infos := make([]*output_itf.MCPServerInfo, 0, len(servers))
+
+	for _, server := range servers {
+		authorizedAt := ""
+		if !server.InitializedAt.IsZero() {
+			authorizedAt = server.InitializedAt.Format(time.RFC3339)
+		}
+
+		infos = append(infos, &output_itf.MCPServerInfo{
+			Name:         server.ServerName,
+			URL:          server.URL,
+			Authorized:   server.Authenticated,
+			AuthorizedAt: authorizedAt,
+		})
+	}
+
+	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
+
+	return infos, nil
+}
+
+func (a *API) AuthorizeMCPServer(name string) error {
+	return a.mcpProxy.Authorize(name)
 }
 
 func sessionUUID(id string) (uuid.UUID, error) {
