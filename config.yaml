@@ -10,6 +10,7 @@ log_level: info # debug | info | warn | error
 session:
   heartbeat_timeout: 30m
   heartbeat_scan_interval: 1m
+  agent_heartbeat_interval: 1m
 
 approval_broker:
   timeout: 30m
@@ -52,6 +53,7 @@ agent_harness:
       - fable
       - opus
       - sonnet
+      - haiku
 
   open_code:
     name: Open Code

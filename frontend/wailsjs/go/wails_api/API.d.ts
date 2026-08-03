@@ -6,6 +6,10 @@ import {context} from '../models';
 
 export function AgentContextUsage(arg1:string):Promise<input_itf.ContextUsage>;
 
+export function AgentDefaultOptions():Promise<output_itf.AgentDefaultOptionsInfo>;
+
+export function AgentDefaults():Promise<Array<output_itf.AgentDefaultInfo>>;
+
 export function AgentStatuses():Promise<Array<output_itf.AgentInfo>>;
 
 export function AnswerApproval(arg1:string,arg2:boolean,arg3:Array<string>,arg4:string):Promise<void>;
@@ -20,7 +24,15 @@ export function PendingApprovals():Promise<Array<output_itf.ApprovalInfo>>;
 
 export function RemoveTemplate(arg1:string):Promise<void>;
 
+export function RetrySessionTask(arg1:string):Promise<void>;
+
+export function RunSession(arg1:output_itf.RunSessionSpec):Promise<output_itf.RunSessionResult>;
+
 export function SendToAgent(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SessionStatus(arg1:string):Promise<output_itf.SessionStatusInfo>;
+
+export function SetAgentDefault(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function Shutdown(arg1:context.Context):Promise<void>;
 

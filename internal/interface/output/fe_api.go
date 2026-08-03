@@ -38,6 +38,71 @@ type TemplateInfo struct {
 	SystemPrompts map[string]string             `json:"system_prompts"`
 }
 
+type RunTaskSpec struct {
+	ClientID      string   `json:"client_id"`
+	Name          string   `json:"name"`
+	Prompt        string   `json:"prompt"`
+	Role          string   `json:"role"`
+	TaskLevel     string   `json:"task_level"`
+	SystemPrompts []string `json:"system_prompts"`
+	DependsOn     []string `json:"depends_on"`
+	AutoRetry     bool     `json:"auto_retry"`
+}
+
+type RunSessionSpec struct {
+	WorkingDirPath string         `json:"working_dir_path"`
+	ContextDirPath string         `json:"context_dir_path"`
+	Tasks          []*RunTaskSpec `json:"tasks"`
+}
+
+type RunSessionResult struct {
+	SessionID string            `json:"session_id"`
+	TaskIDs   map[string]string `json:"task_ids"`
+}
+
+type HandoverDocInfo struct {
+	Task              string            `json:"task"`
+	Outcome           string            `json:"outcome"`
+	Blockers          map[string]string `json:"blockers"`
+	ApprovedDecisions map[string]string `json:"approved_decisions"`
+	RejectedDecisions map[string]string `json:"rejected_decisions"`
+	CurrentBehaviors  map[string]string `json:"current_behaviors"`
+	ChangedBehaviors  map[string]string `json:"changed_behaviors"`
+	MustAvoid         map[string]string `json:"must_avoid"`
+	Nuances           map[string]string `json:"nuances"`
+	KnownGaps         map[string]string `json:"known_gaps"`
+}
+
+type SessionTaskInfo struct {
+	TaskID       string             `json:"task_id"`
+	Status       string             `json:"status"`
+	HandoverDocs []*HandoverDocInfo `json:"handover_docs"`
+}
+
+type SessionStatusInfo struct {
+	SessionID string             `json:"session_id"`
+	Status    string             `json:"status"`
+	Tasks     []*SessionTaskInfo `json:"tasks"`
+}
+
+type AgentDefaultInfo struct {
+	TaskLevel     string `json:"task_level"`
+	Model         string `json:"model"`
+	ModelLabel    string `json:"model_label"`
+	ThinkingLevel string `json:"thinking_level"`
+}
+
+type ModelOptionInfo struct {
+	Model string `json:"model"`
+	Label string `json:"label"`
+}
+
+type AgentDefaultOptionsInfo struct {
+	TaskLevels     []string           `json:"task_levels"`
+	Models         []*ModelOptionInfo `json:"models"`
+	ThinkingLevels []string           `json:"thinking_levels"`
+}
+
 type FEAPI interface {
 	Startup(ctx context.Context)
 	Shutdown(ctx context.Context)
@@ -56,4 +121,10 @@ type FEAPI interface {
 	RemoveTemplate(id string) error
 	KillAgent(id string, agentID string) error
 	UninstallAgent(id string) error
+	AgentDefaults() ([]*AgentDefaultInfo, error)
+	SetAgentDefault(taskLevel string, model string, thinkingLevel string) error
+	AgentDefaultOptions() (*AgentDefaultOptionsInfo, error)
+	RunSession(spec *RunSessionSpec) (*RunSessionResult, error)
+	SessionStatus(sessionID string) (*SessionStatusInfo, error)
+	RetrySessionTask(taskID string) error
 }

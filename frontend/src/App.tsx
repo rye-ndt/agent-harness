@@ -37,6 +37,10 @@ function App() {
         if (session) store.renameSession(session.id, name)
     }
 
+    const setWorkingDir = (workingDir: string) => {
+        if (session) store.setWorkingDir(session.id, workingDir)
+    }
+
     const finalizeSession = () => {
         if (session) store.finalizeSession(session.id)
     }
@@ -77,6 +81,7 @@ function App() {
                     <SessionHeader
                         session={session}
                         onRename={renameSession}
+                        onSetWorkingDir={setWorkingDir}
                         onFinalize={finalizeSession}
                         onClone={cloneActiveSession}
                         onNewNode={openNewNode}

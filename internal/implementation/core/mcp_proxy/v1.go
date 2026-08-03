@@ -36,6 +36,7 @@ type v1 struct {
 	httpCli           input_itf.HttpCli
 	db                input_itf.StorageMCP
 	approvalBroker    core_itf.ApprovalBroker
+	reporter          core_itf.TaskReporter
 	gateway           *core_itf.MCPGateway
 	gatewayHttpServer *http.Server
 }
@@ -45,6 +46,7 @@ func InitV1(
 	db input_itf.StorageMCP,
 	httpCli input_itf.HttpCli,
 	approvalBroker core_itf.ApprovalBroker,
+	reporter core_itf.TaskReporter,
 ) (core_itf.MCPProxyServer, error) {
 	aead, err := mcp_helpers.NewCipher(cfg.EncodeKey)
 	if err != nil {
@@ -65,6 +67,7 @@ func InitV1(
 		httpCli:        httpCli,
 		db:             db,
 		approvalBroker: approvalBroker,
+		reporter:       reporter,
 	}
 
 	if err := s.loadCredentials(); err != nil {

@@ -1,5 +1,7 @@
 package enums
 
+import "slices"
+
 type ModelName string
 
 const (
@@ -10,6 +12,22 @@ const (
 	Deepseek4Flash ModelName = "opencode/deepseek-v4-flash-free"
 	ModelUnknown   ModelName = "unknown"
 )
+
+var modelNames = []ModelName{
+	Fable,
+	Opus,
+	Sonnet,
+	Haiku,
+	Deepseek4Flash,
+}
+
+func ModelNames() []ModelName {
+	return slices.Clone(modelNames)
+}
+
+func (m ModelName) String() string {
+	return string(m)
+}
 
 func (m ModelName) Valid() bool {
 	switch m {
@@ -63,6 +81,26 @@ const (
 	XHighThinking ThinkingLevel = "xhigh"
 	MaxThinking   ThinkingLevel = "max"
 )
+
+var thinkingLevels = []ThinkingLevel{
+	LowThinking,
+	MedThinking,
+	HighThinking,
+	XHighThinking,
+	MaxThinking,
+}
+
+func ThinkingLevels() []ThinkingLevel {
+	return slices.Clone(thinkingLevels)
+}
+
+func (t ThinkingLevel) Valid() bool {
+	return slices.Contains(thinkingLevels, t)
+}
+
+func (t ThinkingLevel) String() string {
+	return string(t)
+}
 
 func (a AgentHarness) String() string {
 	return string(a)

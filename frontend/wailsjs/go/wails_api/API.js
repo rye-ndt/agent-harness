@@ -6,6 +6,14 @@ export function AgentContextUsage(arg1) {
   return window['go']['wails_api']['API']['AgentContextUsage'](arg1);
 }
 
+export function AgentDefaultOptions() {
+  return window['go']['wails_api']['API']['AgentDefaultOptions']();
+}
+
+export function AgentDefaults() {
+  return window['go']['wails_api']['API']['AgentDefaults']();
+}
+
 export function AgentStatuses() {
   return window['go']['wails_api']['API']['AgentStatuses']();
 }
@@ -34,8 +42,24 @@ export function RemoveTemplate(arg1) {
   return window['go']['wails_api']['API']['RemoveTemplate'](arg1);
 }
 
+export function RetrySessionTask(arg1) {
+  return window['go']['wails_api']['API']['RetrySessionTask'](arg1);
+}
+
+export function RunSession(arg1) {
+  return window['go']['wails_api']['API']['RunSession'](arg1);
+}
+
 export function SendToAgent(arg1, arg2, arg3) {
   return window['go']['wails_api']['API']['SendToAgent'](arg1, arg2, arg3);
+}
+
+export function SessionStatus(arg1) {
+  return window['go']['wails_api']['API']['SessionStatus'](arg1);
+}
+
+export function SetAgentDefault(arg1, arg2, arg3) {
+  return window['go']['wails_api']['API']['SetAgentDefault'](arg1, arg2, arg3);
 }
 
 export function Shutdown(arg1) {

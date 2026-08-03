@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"hexago/internal/implementation/core/agent_manager"
+	"hexago/internal/implementation/core/coordinator"
 	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/core/manual_approval_broker"
 	"hexago/internal/implementation/core/mcp_proxy"
+	"hexago/internal/implementation/core/session_manager"
 	"hexago/internal/implementation/core/template_manager"
 	"hexago/internal/implementation/core/wal_sync"
 	viper "hexago/internal/implementation/input/config"
@@ -18,6 +20,8 @@ import (
 	wails "hexago/internal/implementation/output/app_builder"
 	wails_api "hexago/internal/implementation/output/fe_api"
 	slogger "hexago/internal/implementation/output/logger"
+	"hexago/internal/implementation/output/message_queue"
+	"hexago/internal/implementation/output/user_config"
 	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
 	output_itf "hexago/internal/interface/output"
@@ -35,6 +39,9 @@ type App struct {
 	TemplateManager core_itf.AgentTemplateManager
 	MCPProxy        core_itf.MCPProxyServer
 	ApprovalBroker  core_itf.ApprovalBroker
+	SessionManager  core_itf.SessionManager
+	Coordinator     core_itf.Coordinator
+	UserConfig      output_itf.UserConfig
 }
 
 func wire() (*App, error) {
@@ -62,12 +69,29 @@ func wire() (*App, error) {
 		return nil, err
 	}
 
+	userCfg, err := user_config.InitV1(filepath.Join(base, cfg.Read().App.Name, "user_config.json"))
+	if err != nil {
+		return nil, err
+	}
+
 	taskStore := store.TaskStore()
 
 	dataWarning := ""
 	if err := wal_sync.Run(taskWAL, taskStore); err != nil {
 		logger.Error("wal sync", "err", err)
 		dataWarning = "Task history from the previous session is corrupted or could not be saved. The app will continue without it."
+	}
+
+	mq := message_queue.InitMQV1()
+
+	sessionCfg := cfg.Read().Session
+	if sessionCfg == nil {
+		return nil, custom_error.Critical("session config not found")
+	}
+
+	sessionManager, err := session_manager.InitV1(sessionCfg, taskWAL, mq)
+	if err != nil {
+		return nil, err
 	}
 
 	mcpCfg := cfg.Read().MCPServers
@@ -80,7 +104,7 @@ func wire() (*App, error) {
 		return nil, err
 	}
 
-	mcpProxy, err := mcp_proxy.InitV1(mcpCfg, store.MCPStore(), httpCli, approvalBroker)
+	mcpProxy, err := mcp_proxy.InitV1(mcpCfg, store.MCPStore(), httpCli, approvalBroker, sessionManager)
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +115,12 @@ func wire() (*App, error) {
 	}
 
 	agentManager, err := agent_manager.InitV1(cfg, httpCli, store, mcpGateway, approvalBroker)
+	if err != nil {
+		mcpProxy.Close()
+		return nil, err
+	}
+
+	sessionCoordinator, err := coordinator.InitV1(sessionCfg, sessionManager, agentManager)
 	if err != nil {
 		mcpProxy.Close()
 		return nil, err
@@ -107,6 +137,9 @@ func wire() (*App, error) {
 		MCPProxy:     mcpProxy,
 		Approvals:    approvalBroker,
 		Templates:    templateManager,
+		Sessions:     sessionManager,
+		Coordinator:  sessionCoordinator,
+		UserConfig:   userCfg,
 		DataWarning:  dataWarning,
 	})
 
@@ -124,5 +157,8 @@ func wire() (*App, error) {
 		TemplateManager: templateManager,
 		MCPProxy:        mcpProxy,
 		ApprovalBroker:  approvalBroker,
+		SessionManager:  sessionManager,
+		Coordinator:     sessionCoordinator,
+		UserConfig:      userCfg,
 	}, nil
 }

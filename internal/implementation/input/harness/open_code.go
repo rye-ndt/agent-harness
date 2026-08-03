@@ -378,7 +378,12 @@ func (o *openCode) Spawn(
 	name enums.ModelName,
 	thinkingLevel enums.ThinkingLevel,
 	systemPrompts []string,
+	workdir string,
 ) (uuid.UUID, error) {
+	if workdir != "" {
+		return uuid.Nil, custom_error.Critical("open code does not support a custom working dir yet")
+	}
+
 	if !o.Support(name) {
 		return uuid.Nil, custom_error.Critical("open code does not support model %s", name)
 	}
@@ -405,8 +410,8 @@ func (o *openCode) Spawn(
 	}
 	id := uid.String()
 
-	workdir := filepath.Join(o.workspacesDir, id)
-	if err := os.MkdirAll(workdir, 0o755); err != nil {
+	workspace := filepath.Join(o.workspacesDir, id)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 
@@ -415,7 +420,7 @@ func (o *openCode) Spawn(
 
 	rawCfg, err := json.Marshal(agentCfg)
 	if err != nil {
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 		return uuid.Nil, custom_error.Critical("build open code config: %v", err)
 	}
 
@@ -425,25 +430,25 @@ func (o *openCode) Spawn(
 		[]byte(id),
 	)
 
-	if err := harness_helper.WriteNewFile(filepath.Join(workdir, "opencode.json"), rawCfg, 0o600); err != nil {
-		os.RemoveAll(workdir)
+	if err := harness_helper.WriteNewFile(filepath.Join(workspace, "opencode.json"), rawCfg, 0o600); err != nil {
+		os.RemoveAll(workspace)
 		return uuid.Nil, custom_error.Critical("write opencode config: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(workdir, "AGENTS.md"), agentsFile(o.systemPrompt, systemPrompts), 0o644); err != nil {
-		os.RemoveAll(workdir)
+	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), agentsFile(o.systemPrompt, systemPrompts), 0o644); err != nil {
+		os.RemoveAll(workspace)
 		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 
 	port, err := freePort(constances.GlobalLocalHost)
 	if err != nil {
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 		return uuid.Nil, err
 	}
 
-	logFile, err := os.Create(filepath.Join(workdir, "serve.log"))
+	logFile, err := os.Create(filepath.Join(workspace, "serve.log"))
 	if err != nil {
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 
@@ -454,7 +459,7 @@ func (o *openCode) Spawn(
 		"--hostname", constances.GlobalLocalHost,
 	)
 
-	cmd.Dir = workdir
+	cmd.Dir = workspace
 	cmd.Env = o.env
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -462,7 +467,7 @@ func (o *openCode) Spawn(
 
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 		return uuid.Nil, custom_error.Critical("start open code: %v", err)
 	}
 
@@ -472,7 +477,7 @@ func (o *openCode) Spawn(
 		go func() {
 			cmd.Wait()
 			logFile.Close()
-			os.RemoveAll(workdir)
+			os.RemoveAll(workspace)
 		}()
 		return uuid.Nil, err
 	}
@@ -485,7 +490,7 @@ func (o *openCode) Spawn(
 		harness_helper.KillProc(cmd)
 		cmd.Wait()
 		logFile.Close()
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 	}
 
 	o.mu.Lock()
@@ -518,7 +523,7 @@ func (o *openCode) Spawn(
 		harness_helper.KillProc(cmd)
 		cmd.Wait()
 		logFile.Close()
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 		o.mu.Lock()
 		delete(o.agents, id)
 		o.mu.Unlock()

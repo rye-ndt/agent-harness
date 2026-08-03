@@ -108,13 +108,19 @@ const (
 	LightweightTask   TaskLevel = "lightweight_task"
 )
 
+var taskLevels = []TaskLevel{
+	LightweightTask,
+	DailyTask,
+	HeavyTask,
+	MaximumEffortTask,
+}
+
+func TaskLevels() []TaskLevel {
+	return slices.Clone(taskLevels)
+}
+
 func (l TaskLevel) Valid() bool {
-	switch l {
-	case MaximumEffortTask, HeavyTask, DailyTask, LightweightTask:
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(taskLevels, l)
 }
 
 func (l TaskLevel) String() string {

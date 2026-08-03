@@ -14,6 +14,21 @@ type AddTask struct {
 	AllowedFilePaths   []string
 	TemplateFilePaths  []string
 	ExtraGuidance      string
+	DependsOn          []uuid.UUID
+	AgentSpecs         *AgentRequest
+}
+
+type TaskSpec struct {
+	TaskID             uuid.UUID
+	SessionID          uuid.UUID
+	Name               string
+	Status             enums.TaskStatus
+	RetryCount         int
+	AutoRetry          bool
+	FileWriteAllowance enums.FileAllowance
+	AllowedFilePaths   []string
+	ExtraGuidance      string
+	DependsOn          []uuid.UUID
 	AgentSpecs         *AgentRequest
 }
 
@@ -74,9 +89,16 @@ type InitSession struct {
 	ContextDirPath string
 }
 
+type TaskReporter interface {
+	Report(agentID uuid.UUID, status enums.TaskStatus, docs []*HandoverDoc) error
+}
+
 type SessionManager interface {
+	TaskReporter
 	NewSession(p *InitSession) (uuid.UUID, error)
-	AddTask(session uuid.UUID, task *AddTask) error
+	AddTask(session uuid.UUID, task *AddTask) (uuid.UUID, error)
+	ReadyTasks(session uuid.UUID) ([]*TaskSpec, error)
+	Assign(taskID, agentID uuid.UUID) error
 	Execute(session uuid.UUID) (<-chan *SessionProgress, error)
 	RetryTask(taskID uuid.UUID) error
 	Status(id uuid.UUID) (*SessionStatus, error)

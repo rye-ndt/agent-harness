@@ -13,6 +13,7 @@ type AgentRequest struct {
 	Role          string
 	ThinkingLevel enums.ThinkingLevel
 	SystemPrompts []string
+	WorkingDir    string
 }
 
 type Agent struct {

@@ -234,7 +234,7 @@ func (m *agentManagerV1) RequestInstance(specs *core_itf.AgentRequest) (*core_it
 		return nil, custom_error.Critical("no harness client support model %s", specs.Name)
 	}
 
-	agentID, err := tool.Spawn(specs.Name, specs.ThinkingLevel, specs.SystemPrompts)
+	agentID, err := tool.Spawn(specs.Name, specs.ThinkingLevel, specs.SystemPrompts, specs.WorkingDir)
 	if err != nil {
 		return nil, err
 	}

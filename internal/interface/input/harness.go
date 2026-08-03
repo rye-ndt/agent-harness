@@ -49,6 +49,7 @@ type AgentHarness interface {
 		name enums.ModelName,
 		thinkingLevel enums.ThinkingLevel,
 		systemPrompts []string,
+		workdir string,
 	) (uuid.UUID, error)
 	Send(id string, message string) error
 	Listen(id string) (<-chan string, error)

@@ -13,6 +13,7 @@ import (
 
 const (
 	approvalTool           = "request_approval"
+	reportTool             = "report_task"
 	defaultProtocolVersion = "2025-06-18"
 )
 
@@ -22,11 +23,17 @@ Use it when a choice would be expensive to undo, when you need a decision locked
 permission the current task does not already grant. The call blocks until the operator answers.
 The operator may approve, which returns the option they picked, or reject, which returns approved=false and no option.`
 
+const reportToolDescription = `Report the assigned task as finished. Call this exactly once, when the task is done.
+Use status completed when the goal is met, failed when you are blocked and cannot meet it.
+The handover doc you submit here is the only context the next agent gets, so rejected decisions
+and things to avoid matter as much as the outcome itself.`
+
 const (
 	rejectedWithGuidance = "The operator rejected this and is sending their guidance as a separate message. " +
 		"Wait for that message before continuing; do not act on the rejected approach."
 	rejectedNoGuidance = "The operator rejected this and gave no guidance. " +
 		"Do not retry the same approach; stop and report what is blocked."
+	reportReceived = "Report received. This task is closed — stop now and take no further actions."
 )
 
 type rpcError struct {
@@ -70,6 +77,20 @@ type approvalArgs struct {
 	} `json:"options"`
 }
 
+type reportArgs struct {
+	Status            string            `json:"status"`
+	Task              string            `json:"task"`
+	Outcome           string            `json:"outcome"`
+	Blockers          map[string]string `json:"blockers"`
+	ApprovedDecisions map[string]string `json:"approved_decisions"`
+	RejectedDecisions map[string]string `json:"rejected_decisions"`
+	CurrentBehaviors  map[string]string `json:"current_behaviors"`
+	ChangedBehaviors  map[string]string `json:"changed_behaviors"`
+	MustAvoid         map[string]string `json:"must_avoid"`
+	Nuances           map[string]string `json:"nuances"`
+	KnownGaps         map[string]string `json:"known_gaps"`
+}
+
 func (s *v1) serveLocal(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -97,7 +118,7 @@ func (s *v1) serveLocal(w http.ResponseWriter, r *http.Request) {
 	case "initialize":
 		res.Result = initializeResult(req.Params)
 	case "tools/list":
-		res.Result = map[string]any{"tools": []any{approvalToolSchema()}}
+		res.Result = map[string]any{"tools": s.toolSchemas()}
 	case "tools/call":
 		res.Result = s.callTool(req.Params, agentFromHeader(r))
 	default:
@@ -125,6 +146,16 @@ func initializeResult(params json.RawMessage) map[string]any {
 			"version": "1",
 		},
 	}
+}
+
+func (s *v1) toolSchemas() []any {
+	tools := []any{approvalToolSchema()}
+
+	if s.reporter != nil {
+		tools = append(tools, reportToolSchema())
+	}
+
+	return tools
 }
 
 func approvalToolSchema() map[string]any {
@@ -171,21 +202,77 @@ func approvalToolSchema() map[string]any {
 	}
 }
 
+func reportToolSchema() map[string]any {
+	section := func(description string) map[string]any {
+		return map[string]any{
+			"type":                 "object",
+			"additionalProperties": map[string]any{"type": "string"},
+			"description":          description,
+		}
+	}
+
+	return map[string]any{
+		"name":        reportTool,
+		"description": reportToolDescription,
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"status": map[string]any{
+					"type":        "string",
+					"enum":        []string{string(enums.TaskCompleted), string(enums.TaskFailed)},
+					"description": "completed when the goal is met, failed when you are blocked.",
+				},
+				"task": map[string]any{
+					"type":        "string",
+					"description": "Short name of what was worked on.",
+				},
+				"outcome": map[string]any{
+					"type":        "string",
+					"description": "What was achieved, or why the task failed.",
+				},
+				"blockers":           section("What is blocking further progress, keyed by a short name."),
+				"approved_decisions": section("Decisions the operator approved, keyed by a short name."),
+				"rejected_decisions": section("Decisions the operator rejected, keyed by a short name."),
+				"current_behaviors":  section("How the system behaves now, keyed by a short name."),
+				"changed_behaviors":  section("Behaviors this task changed, keyed by a short name."),
+				"must_avoid":         section("Approaches the next agent must not take, keyed by a short name."),
+				"nuances":            section("Subtleties the next agent needs, keyed by a short name."),
+				"known_gaps":         section("Work knowingly left undone, keyed by a short name."),
+			},
+			"required": []string{"status", "task", "outcome"},
+		},
+	}
+}
+
 func (s *v1) callTool(params json.RawMessage, agentID uuid.UUID) *toolResult {
 	call := struct {
-		Name      string       `json:"name"`
-		Arguments approvalArgs `json:"arguments"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
 	}{}
 
 	if err := json.Unmarshal(params, &call); err != nil {
 		return errorResult("cannot parse tool arguments: " + err.Error())
 	}
 
-	if call.Name != approvalTool {
+	switch call.Name {
+	case approvalTool:
+		return s.callApproval(call.Arguments, agentID)
+	case reportTool:
+		if s.reporter == nil {
+			return errorResult("unknown tool " + call.Name)
+		}
+
+		return s.callReport(call.Arguments, agentID)
+	default:
 		return errorResult("unknown tool " + call.Name)
 	}
+}
 
-	args := call.Arguments
+func (s *v1) callApproval(arguments json.RawMessage, agentID uuid.UUID) *toolResult {
+	args := approvalArgs{}
+	if err := json.Unmarshal(arguments, &args); err != nil {
+		return errorResult("cannot parse tool arguments: " + err.Error())
+	}
 
 	request := &core_itf.ApprovalRequest{
 		AgentID:     agentID,
@@ -210,6 +297,36 @@ func (s *v1) callTool(params json.RawMessage, agentID uuid.UUID) *toolResult {
 	}
 
 	return answerResult(request, answer)
+}
+
+func (s *v1) callReport(arguments json.RawMessage, agentID uuid.UUID) *toolResult {
+	if agentID == uuid.Nil {
+		return errorResult("cannot identify the calling agent")
+	}
+
+	args := reportArgs{}
+	if err := json.Unmarshal(arguments, &args); err != nil {
+		return errorResult("cannot parse tool arguments: " + err.Error())
+	}
+
+	docs := []*core_itf.HandoverDoc{{
+		Task:              args.Task,
+		Outcome:           args.Outcome,
+		Blockers:          args.Blockers,
+		ApprovedDecisions: args.ApprovedDecisions,
+		RejectedDecisions: args.RejectedDecisions,
+		CurrentBehaviors:  args.CurrentBehaviors,
+		ChangedBehaviors:  args.ChangedBehaviors,
+		MustAvoid:         args.MustAvoid,
+		Nuances:           args.Nuances,
+		KnownGaps:         args.KnownGaps,
+	}}
+
+	if err := s.reporter.Report(agentID, enums.TaskStatus(args.Status), docs); err != nil {
+		return errorResult(err.Error())
+	}
+
+	return &toolResult{Content: []toolContent{{Type: "text", Text: reportReceived}}}
 }
 
 func answerResult(request *core_itf.ApprovalRequest, answer *core_itf.ApprovalAnswer) *toolResult {

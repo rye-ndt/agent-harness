@@ -21,6 +21,7 @@ const FINALIZED_HINT = 'Finalized — duplicate to make changes.'
 export function SessionHeader({
     session,
     onRename,
+    onSetWorkingDir,
     onFinalize,
     onClone,
     onNewNode,
@@ -28,6 +29,7 @@ export function SessionHeader({
 }: {
     session: Session | null
     onRename: (name: string) => void
+    onSetWorkingDir: (workingDir: string) => void
     onFinalize: () => void
     onClone: () => void
     onNewNode: () => void
@@ -47,6 +49,21 @@ export function SessionHeader({
                                 key={session.id}
                                 name={session.name}
                                 onRename={onRename}
+                            />
+                        ))}
+
+                    {session &&
+                        (locked ? (
+                            session.workingDir && (
+                                <span className="max-w-72 shrink truncate font-mono text-sm text-muted-foreground">
+                                    {session.workingDir}
+                                </span>
+                            )
+                        ) : (
+                            <WorkingDirInput
+                                key={`dir-${session.id}`}
+                                workingDir={session.workingDir}
+                                onSetWorkingDir={onSetWorkingDir}
                             />
                         ))}
 
@@ -146,6 +163,43 @@ function SessionNameInput({name, onRename}: {name: string; onRename: (name: stri
             onBlur={commit}
             onKeyDown={handleKeys}
             className="-ml-2 w-full max-w-96 min-w-0 rounded-md bg-transparent px-2 py-1 text-xl font-semibold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live"
+        />
+    )
+}
+
+function WorkingDirInput({
+    workingDir,
+    onSetWorkingDir,
+}: {
+    workingDir: string
+    onSetWorkingDir: (workingDir: string) => void
+}) {
+    const [draft, setDraft] = useState(workingDir)
+
+    const commit = () => {
+        const next = draft.trim()
+        setDraft(next)
+        if (next !== workingDir) onSetWorkingDir(next)
+    }
+
+    const handleKeys = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Enter') event.currentTarget.blur()
+        if (event.key === 'Escape') {
+            setDraft(workingDir)
+            event.currentTarget.blur()
+        }
+    }
+
+    return (
+        <input
+            value={draft}
+            aria-label="Working directory"
+            placeholder="Working directory"
+            spellCheck={false}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => setDraft(event.target.value)}
+            onBlur={commit}
+            onKeyDown={handleKeys}
+            className="w-72 min-w-0 shrink rounded-md bg-transparent px-2 py-1 font-mono text-sm text-muted-foreground outline-none transition-colors placeholder:font-sans hover:bg-muted focus:bg-background focus:text-foreground focus-visible:ring-2 focus-visible:ring-live"
         />
     )
 }

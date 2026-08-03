@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,17 +22,13 @@ import (
 
 const progressBufferSize = 32
 
+const maxAutoRetry = 3
+
 type AgentHandle struct {
 	AgentID       uuid.UUID
 	TaskID        uuid.UUID
 	AssignedAt    time.Time
 	LastHeartBeat int64
-}
-
-type V1Config struct {
-	PollTimeout           time.Duration `mapstructure:"poll_timeout" validate:"required,gt=0"`
-	HeartbeatTimeout      time.Duration `mapstructure:"heartbeat_timeout" validate:"required,gt=0"`
-	HeartbeatScanInterval time.Duration `mapstructure:"heartbeat_scan_interval" validate:"required,gt=0,ltefield=HeartbeatTimeout"`
 }
 
 type sessionMetadata struct {
@@ -43,14 +40,14 @@ type sessionMetadata struct {
 
 type v1 struct {
 	locker   sync.Mutex
-	cfg      *V1Config
+	cfg      *input_itf.SessionConfig
 	wal      input_itf.TaskWAL
 	mq       output_itf.MessageQ
 	sessions map[uuid.UUID]*sessionMetadata
 	stop     chan struct{}
 }
 
-func InitV1(cfg *V1Config, wal input_itf.TaskWAL, mq output_itf.MessageQ) (core_itf.SessionManager, error) {
+func InitV1(cfg *input_itf.SessionConfig, wal input_itf.TaskWAL, mq output_itf.MessageQ) (core_itf.SessionManager, error) {
 	if err := helpers.ValidateStruct(cfg); err != nil {
 		return nil, custom_error.Critical("invalid session manager config: %v", err)
 	}
@@ -252,14 +249,14 @@ func (s *v1) dropTask(sessionID, agentID uuid.UUID, deadline int64) error {
 	return publishErr
 }
 
-func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) error {
+func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) (uuid.UUID, error) {
 	if task.AgentSpecs == nil {
-		return custom_error.Critical("task %s is missing its agent specs", task.Name)
+		return uuid.Nil, custom_error.Critical("task %s is missing its agent specs", task.Name)
 	}
 
 	uid, err := uuid.NewV7()
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 
 	t := &input_itf.TaskEntity{
@@ -274,12 +271,14 @@ func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) error {
 		AllowedFilePaths:   task.AllowedFilePaths,
 		TemplateFilePaths:  task.TemplateFilePaths,
 		ExtraGuidance:      task.ExtraGuidance,
+		DependsOnTaskIDs:   task.DependsOn,
 		RetryCount:         0,
 		Status:             enums.TaskNotTaken,
 		CreatedAt:          helpers.NewUTC(),
 		UpdatedAt:          helpers.NewUTC(),
 	}
 
+	var addErr error
 	var session *sessionMetadata
 	var prevInfo, infoSnapshot input_itf.SessionEntity
 
@@ -288,7 +287,15 @@ func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) error {
 
 		session, found = s.sessions[sessionID]
 		if !found {
+			addErr = custom_error.Critical("session %v not found", sessionID)
 			return
+		}
+
+		for _, dep := range task.DependsOn {
+			if _, found := session.taskIDToTask[dep]; !found {
+				addErr = custom_error.Critical("task %s depends on unknown task %v", task.Name, dep)
+				return
+			}
 		}
 
 		t.SystemPrompts = withContextProtocol(task.AgentSpecs.SystemPrompts, session.info.ContextDirPath)
@@ -302,8 +309,8 @@ func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) error {
 		infoSnapshot = *session.info
 	})
 
-	if session == nil {
-		return custom_error.Critical("session %v not found", sessionID)
+	if addErr != nil {
+		return uuid.Nil, addErr
 	}
 
 	if err = s.wal.Append(&input_itf.TaskWALRecord{
@@ -316,10 +323,10 @@ func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) error {
 			*session.info = prevInfo
 		})
 
-		return custom_error.Critical("cannot append new task to wal: %v", err)
+		return uuid.Nil, custom_error.Critical("cannot append new task to wal: %v", err)
 	}
 
-	return s.publish(&core_itf.SessionProgress{
+	return uid, s.publish(&core_itf.SessionProgress{
 		SessionID:  sessionID,
 		TaskID:     uid,
 		Event:      enums.SessionTaskCreated,
@@ -328,34 +335,161 @@ func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) error {
 	})
 }
 
-func (s *v1) reportTask(report *core_itf.TaskReport) error {
-	if report == nil {
-		return custom_error.Critical("report is empty")
+func (s *v1) Assign(taskID, agentID uuid.UUID) error {
+	var err error
+	var session *sessionMetadata
+	var t *input_itf.TaskEntity
+	var prevTask, taskSnapshot input_itf.TaskEntity
+	var prevInfo, infoSnapshot input_itf.SessionEntity
+
+	s.raceSafe(func() {
+		found := false
+
+		session, t, found = s.findTask(taskID)
+		if !found {
+			err = custom_error.Critical("task %v not found to assign", taskID)
+			return
+		}
+
+		if !t.Status.Takeable() {
+			err = custom_error.Critical("task %v is %s and cannot be assigned", taskID, t.Status)
+			return
+		}
+
+		now := helpers.NewUTC()
+
+		prevTask = *t
+		t.Status = enums.TaskProcessing
+		t.UpdatedAt = now
+		taskSnapshot = *t
+
+		session.agentIDToHandle[agentID] = &AgentHandle{
+			AgentID:       agentID,
+			TaskID:        taskID,
+			AssignedAt:    now,
+			LastHeartBeat: helpers.NewUTCUnix(),
+		}
+
+		prevInfo = *session.info
+		if session.info.StartedAt.IsZero() {
+			session.info.StartedAt = now
+		}
+		session.info.UpdatedAt = now
+		infoSnapshot = *session.info
+	})
+
+	if err != nil {
+		return err
 	}
 
-	taskID := report.TaskID
+	if err := s.wal.Append(&input_itf.TaskWALRecord{
+		Kind:    enums.SessionTaskStatusChanged,
+		TaskID:  taskID,
+		AgentID: agentID,
+		Status:  taskSnapshot.Status,
+		Task:    &taskSnapshot,
+		Session: &infoSnapshot,
+	}); err != nil {
+		s.raceSafe(func() {
+			*t = prevTask
+			*session.info = prevInfo
+			delete(session.agentIDToHandle, agentID)
+		})
 
-	if len(report.HandoverDocs) == 0 {
-		return custom_error.Critical("report for task %v is missing a handover doc", taskID)
+		return custom_error.Critical("cannot append task assignment to wal: %v", err)
+	}
+
+	return s.publish(&core_itf.SessionProgress{
+		SessionID:  infoSnapshot.ID,
+		TaskID:     taskID,
+		AgentID:    agentID,
+		Event:      enums.SessionTaskStatusChanged,
+		Status:     taskSnapshot.Status,
+		RetryCount: taskSnapshot.RetryCount,
+	})
+}
+
+func (s *v1) ReadyTasks(sessionID uuid.UUID) ([]*core_itf.TaskSpec, error) {
+	var err error
+	specs := []*core_itf.TaskSpec{}
+
+	s.raceSafe(func() {
+		session, found := s.sessions[sessionID]
+		if !found {
+			err = custom_error.Critical("session %v not found", sessionID)
+			return
+		}
+
+		for taskID, t := range session.taskIDToTask {
+			if _, taken := session.findHandle(taskID); taken {
+				continue
+			}
+
+			if !session.isReady(t) {
+				continue
+			}
+
+			specs = append(specs, &core_itf.TaskSpec{
+				TaskID:             taskID,
+				SessionID:          sessionID,
+				Name:               t.Name,
+				Status:             t.Status,
+				RetryCount:         t.RetryCount,
+				AutoRetry:          t.AutoRetry,
+				FileWriteAllowance: t.FileWriteAllowance,
+				AllowedFilePaths:   t.AllowedFilePaths,
+				ExtraGuidance:      t.ExtraGuidance,
+				DependsOn:          t.DependsOnTaskIDs,
+				AgentSpecs: &core_itf.AgentRequest{
+					Name:          t.PreferredModel,
+					Role:          t.AgentRole,
+					ThinkingLevel: t.ThinkingLevel,
+					SystemPrompts: t.SystemPrompts,
+				},
+			})
+		}
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(specs, func(i, j int) bool {
+		return specs[i].TaskID.String() < specs[j].TaskID.String()
+	})
+
+	return specs, nil
+}
+
+func (s *v1) Report(agentID uuid.UUID, status enums.TaskStatus, docs []*core_itf.HandoverDoc) error {
+	if status != enums.TaskCompleted && status != enums.TaskFailed {
+		return custom_error.Critical("agent %v reported unsupported status %s", agentID, status)
+	}
+
+	if len(docs) == 0 {
+		return custom_error.Critical("report from agent %v is missing a handover doc", agentID)
 	}
 
 	var err error
 	var session *sessionMetadata
 	var t *input_itf.TaskEntity
 	var handle *AgentHandle
+	var taskID uuid.UUID
 
 	s.raceSafe(func() {
 		var found bool
 
-		session, t, found = s.findTask(taskID)
-		if !found || t.Status != enums.TaskProcessing {
-			err = custom_error.Critical("task %v not found to report", taskID)
+		handle, found = s.findAgent(agentID)
+		if !found {
+			err = custom_error.Critical("agent %v is not assigned to any task", agentID)
 			return
 		}
 
-		handle, found = session.findHandle(taskID)
-		if !found {
-			err = custom_error.Critical("task %v has no agent in charge", taskID)
+		taskID = handle.TaskID
+
+		session, t, found = s.findTask(taskID)
+		if !found || t.Status != enums.TaskProcessing {
+			err = custom_error.Critical("task %v not found to report", taskID)
 		}
 	})
 
@@ -363,7 +497,12 @@ func (s *v1) reportTask(report *core_itf.TaskReport) error {
 		return err
 	}
 
-	agentID := handle.AgentID
+	report := &core_itf.TaskReport{
+		TaskID:       taskID,
+		Status:       status,
+		FileChanges:  []*core_itf.FileChange{},
+		HandoverDocs: docs,
+	}
 
 	reportID, err := uuid.NewV7()
 	if err != nil {
@@ -750,6 +889,23 @@ func (s *v1) findTask(taskID uuid.UUID) (*sessionMetadata, *input_itf.TaskEntity
 	}
 
 	return nil, nil, false
+}
+
+func (m *sessionMetadata) isReady(t *input_itf.TaskEntity) bool {
+	for _, dep := range t.DependsOnTaskIDs {
+		depTask, found := m.taskIDToTask[dep]
+		if !found || depTask.Status != enums.TaskCompleted {
+			return false
+		}
+	}
+
+	if t.Status == enums.TaskNotTaken {
+		return true
+	}
+
+	retryable := t.Status == enums.TaskFailed || t.Status == enums.TaskCancelled
+
+	return t.AutoRetry && retryable && t.RetryCount < maxAutoRetry
 }
 
 func (m *sessionMetadata) findHandle(taskID uuid.UUID) (*AgentHandle, bool) {

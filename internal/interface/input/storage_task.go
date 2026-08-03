@@ -74,6 +74,7 @@ type TaskEntity struct {
 	PrevTaskID         uuid.UUID
 	NextTaskID         uuid.UUID
 	ChildrenTaskIDs    uuid.UUIDs
+	DependsOnTaskIDs   uuid.UUIDs
 	LastReportID       uuid.UUID
 	CreatedAt          time.Time
 	UpdatedAt          time.Time

@@ -31,7 +31,7 @@ import (
 const harnessName = "claude-code"
 
 var authURLRe = regexp.MustCompile(`https://[A-Za-z0-9._~:/?#&=%+-]+`)
-var claudePermissions = "Read,Edit,Write,Glob,Grep,Bash,WebFetch,WebSearch"
+var claudePermissions = "Read,Edit,Write,Glob,Grep,Bash,WebFetch,WebSearch,mcp__harness"
 
 type authSession struct {
 	cmd    *exec.Cmd
@@ -520,6 +520,7 @@ func (c *claudeCode) Spawn(
 	name enums.ModelName,
 	thinkingLevel enums.ThinkingLevel,
 	systemPrompts []string,
+	workdir string,
 ) (uuid.UUID, error) {
 	if !c.Support(name) {
 		return uuid.Nil, custom_error.Critical("claude code does not support model %s", name)
@@ -549,8 +550,8 @@ func (c *claudeCode) Spawn(
 
 	id := uid.String()
 
-	workdir := filepath.Join(c.workspacesDir, id)
-	if err := os.MkdirAll(workdir, 0o755); err != nil {
+	workspace := filepath.Join(c.workspacesDir, id)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 
@@ -563,7 +564,7 @@ func (c *claudeCode) Spawn(
 	}
 
 	if c.mcpCfg != nil {
-		mcpPath := filepath.Join(workdir, "mcp.json")
+		mcpPath := filepath.Join(workspace, "mcp.json")
 
 		agentCfg := bytes.ReplaceAll(
 			c.mcpCfg,
@@ -572,7 +573,7 @@ func (c *claudeCode) Spawn(
 		)
 
 		if err := harness_helper.WriteNewFile(mcpPath, agentCfg, 0o600); err != nil {
-			os.RemoveAll(workdir)
+			os.RemoveAll(workspace)
 			return uuid.Nil, custom_error.Critical("write mcp config: %v", err)
 		}
 
@@ -580,26 +581,29 @@ func (c *claudeCode) Spawn(
 	}
 
 	cmd := exec.Command(c.binPath, args...)
-	cmd.Dir = workdir
+	cmd.Dir = workspace
+	if workdir != "" {
+		cmd.Dir = workdir
+	}
 	cmd.Env = append(slices.Clone(c.baseEnv),
 		"CLAUDE_CODE_OAUTH_TOKEN="+strings.TrimSpace(string(token)),
 	)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		stdin.Close()
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 		return uuid.Nil, custom_error.Critical("%v", err)
 	}
-	stderr, err := os.Create(filepath.Join(workdir, "stderr.log"))
+	stderr, err := os.Create(filepath.Join(workspace, "stderr.log"))
 	if err != nil {
 		stdin.Close()
 		stdout.Close()
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 		return uuid.Nil, custom_error.Critical("%v", err)
 	}
 	cmd.Stderr = stderr
@@ -607,7 +611,7 @@ func (c *claudeCode) Spawn(
 
 	if err := cmd.Start(); err != nil {
 		stderr.Close()
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 		return uuid.Nil, custom_error.Critical("start claude code: %v", err)
 	}
 
@@ -619,7 +623,7 @@ func (c *claudeCode) Spawn(
 		harness_helper.KillProc(cmd)
 		cmd.Wait()
 		stderr.Close()
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 	}
 
 	c.mu.Lock()
@@ -667,7 +671,7 @@ func (c *claudeCode) Spawn(
 		harness_helper.KillProc(cmd)
 		cmd.Wait()
 		stderr.Close()
-		os.RemoveAll(workdir)
+		os.RemoveAll(workspace)
 		c.mu.Lock()
 		delete(c.agents, id)
 		c.mu.Unlock()

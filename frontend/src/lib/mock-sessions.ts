@@ -210,6 +210,7 @@ export const MOCK_SESSIONS: Session[] = [
         name: 'Coordinator port',
         createdAt: '2026-07-30T09:12:00Z',
         finalized: false,
+        workingDir: '',
         tasks: [
             {
                 id: 'task-1',
@@ -277,6 +278,7 @@ export const MOCK_SESSIONS: Session[] = [
         name: 'Retry policy',
         createdAt: '2026-08-01T07:20:00Z',
         finalized: true,
+        workingDir: '/Users/rye/dev/agent-harness',
         tasks: [
             {
                 id: 'task-12',
@@ -346,6 +348,7 @@ export const MOCK_SESSIONS: Session[] = [
         name: 'MCP proxy hardening',
         createdAt: '2026-07-28T14:40:00Z',
         finalized: true,
+        workingDir: '/Users/rye/dev/agent-harness',
         tasks: [
             {
                 id: 'task-6',
@@ -478,6 +481,7 @@ export const MOCK_SESSIONS: Session[] = [
         name: 'WAL replay spike',
         createdAt: '2026-07-31T08:05:00Z',
         finalized: true,
+        workingDir: '/Users/rye/dev/agent-harness',
         tasks: [
             {
                 id: 'task-9',

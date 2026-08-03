@@ -49,6 +49,10 @@ export function useSessionStore() {
         store.renameSession({sessionId, name})
     }
 
+    const setWorkingDir = (sessionId: string, workingDir: string) => {
+        store.setSessionWorkingDir({sessionId, workingDir})
+    }
+
     const finalizeSession = (sessionId: string) => {
         store.finalizeSession({sessionId})
     }
@@ -100,6 +104,7 @@ export function useSessionStore() {
         addSession,
         cloneSession,
         renameSession,
+        setWorkingDir,
         finalizeSession,
         deleteSession,
         addTask,

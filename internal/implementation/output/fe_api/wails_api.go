@@ -28,6 +28,9 @@ type API struct {
 	mcpProxy     core_itf.MCPProxyServer
 	approvals    core_itf.ApprovalBroker
 	templates    core_itf.AgentTemplateManager
+	sessions     core_itf.SessionManager
+	coordinator  core_itf.Coordinator
+	userConfig   output_itf.UserConfig
 	dataWarning  string
 }
 
@@ -38,6 +41,9 @@ type Deps struct {
 	MCPProxy     core_itf.MCPProxyServer
 	Approvals    core_itf.ApprovalBroker
 	Templates    core_itf.AgentTemplateManager
+	Sessions     core_itf.SessionManager
+	Coordinator  core_itf.Coordinator
+	UserConfig   output_itf.UserConfig
 	DataWarning  string
 }
 
@@ -47,6 +53,9 @@ func New(deps *Deps) *API {
 		mcpProxy:     deps.MCPProxy,
 		approvals:    deps.Approvals,
 		templates:    deps.Templates,
+		sessions:     deps.Sessions,
+		coordinator:  deps.Coordinator,
+		userConfig:   deps.UserConfig,
 		dataWarning:  deps.DataWarning,
 	}
 }
@@ -68,6 +77,14 @@ func (a *API) Startup(ctx context.Context) {
 
 // Shutdown is wired to Wails OnShutdown; it is not meant to be called from JS.
 func (a *API) Shutdown(ctx context.Context) {
+	if a.coordinator != nil {
+		a.coordinator.Stop()
+	}
+
+	if a.sessions != nil {
+		a.sessions.Stop()
+	}
+
 	if a.approvals != nil {
 		a.approvals.Stop()
 	}
@@ -409,4 +426,247 @@ func (a *API) UninstallAgent(id string) error {
 	}
 
 	return h.Uninstall()
+}
+
+func (a *API) RunSession(spec *output_itf.RunSessionSpec) (*output_itf.RunSessionResult, error) {
+	if spec == nil || len(spec.Tasks) == 0 {
+		return nil, custom_error.Critical("run session spec has no tasks")
+	}
+
+	sessionID, err := a.sessions.NewSession(&core_itf.InitSession{
+		WorkingDirPath: spec.WorkingDirPath,
+		ContextDirPath: spec.ContextDirPath,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	clientToTask := map[string]uuid.UUID{}
+	remaining := append([]*output_itf.RunTaskSpec{}, spec.Tasks...)
+
+	for len(remaining) > 0 {
+		next := make([]*output_itf.RunTaskSpec, 0, len(remaining))
+
+		for _, task := range remaining {
+			deps, resolved := resolveDeps(task.DependsOn, clientToTask)
+			if !resolved {
+				next = append(next, task)
+				continue
+			}
+
+			taskID, err := a.addSessionTask(sessionID, task, deps)
+			if err != nil {
+				return nil, err
+			}
+
+			clientToTask[task.ClientID] = taskID
+		}
+
+		if len(next) == len(remaining) {
+			return nil, custom_error.Critical("task dependencies are unresolvable or cyclic")
+		}
+
+		remaining = next
+	}
+
+	if err := a.coordinator.Run(sessionID); err != nil {
+		return nil, err
+	}
+
+	taskIDs := make(map[string]string, len(clientToTask))
+	for clientID, taskID := range clientToTask {
+		taskIDs[clientID] = taskID.String()
+	}
+
+	return &output_itf.RunSessionResult{
+		SessionID: sessionID.String(),
+		TaskIDs:   taskIDs,
+	}, nil
+}
+
+func (a *API) AgentDefaults() ([]*output_itf.AgentDefaultInfo, error) {
+	stored := a.userConfig.AgentDefaults()
+
+	infos := make([]*output_itf.AgentDefaultInfo, 0, len(stored))
+
+	for _, level := range enums.TaskLevels() {
+		agentDefault := stored[level]
+		if agentDefault == nil {
+			continue
+		}
+
+		infos = append(infos, &output_itf.AgentDefaultInfo{
+			TaskLevel:     level.String(),
+			Model:         agentDefault.Model.String(),
+			ModelLabel:    agentDefault.Model.DisplayName(),
+			ThinkingLevel: agentDefault.ThinkingLevel.String(),
+		})
+	}
+
+	return infos, nil
+}
+
+func (a *API) SetAgentDefault(taskLevel string, model string, thinkingLevel string) error {
+	return a.userConfig.SetAgentDefault(enums.TaskLevel(taskLevel), &output_itf.AgentDefault{
+		Model:         enums.ModelName(model),
+		ThinkingLevel: enums.ThinkingLevel(thinkingLevel),
+	})
+}
+
+func (a *API) AgentDefaultOptions() (*output_itf.AgentDefaultOptionsInfo, error) {
+	levels := enums.TaskLevels()
+	taskLevels := make([]string, 0, len(levels))
+
+	for _, level := range levels {
+		taskLevels = append(taskLevels, level.String())
+	}
+
+	names := enums.ModelNames()
+	models := make([]*output_itf.ModelOptionInfo, 0, len(names))
+
+	for _, name := range names {
+		models = append(models, &output_itf.ModelOptionInfo{
+			Model: name.String(),
+			Label: name.DisplayName(),
+		})
+	}
+
+	levelsOfThinking := enums.ThinkingLevels()
+	thinkingLevels := make([]string, 0, len(levelsOfThinking))
+
+	for _, level := range levelsOfThinking {
+		thinkingLevels = append(thinkingLevels, level.String())
+	}
+
+	return &output_itf.AgentDefaultOptionsInfo{
+		TaskLevels:     taskLevels,
+		Models:         models,
+		ThinkingLevels: thinkingLevels,
+	}, nil
+}
+
+func (a *API) addSessionTask(sessionID uuid.UUID, task *output_itf.RunTaskSpec, deps []uuid.UUID) (uuid.UUID, error) {
+	agentDefault, err := a.userConfig.AgentDefault(enums.TaskLevel(task.TaskLevel))
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	return a.sessions.AddTask(sessionID, &core_itf.AddTask{
+		Name:               task.Name,
+		AutoRetry:          task.AutoRetry,
+		FileWriteAllowance: enums.FileAllowAll,
+		ExtraGuidance:      task.Prompt,
+		DependsOn:          deps,
+		AgentSpecs: &core_itf.AgentRequest{
+			Name:          agentDefault.Model,
+			Role:          task.Role,
+			ThinkingLevel: agentDefault.ThinkingLevel,
+			SystemPrompts: task.SystemPrompts,
+		},
+	})
+}
+
+func resolveDeps(dependsOn []string, clientToTask map[string]uuid.UUID) ([]uuid.UUID, bool) {
+	deps := make([]uuid.UUID, 0, len(dependsOn))
+
+	for _, clientID := range dependsOn {
+		taskID, found := clientToTask[clientID]
+		if !found {
+			return nil, false
+		}
+
+		deps = append(deps, taskID)
+	}
+
+	return deps, true
+}
+
+func (a *API) SessionStatus(sessionID string) (*output_itf.SessionStatusInfo, error) {
+	parsed, err := sessionUUID(sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	status, err := a.sessions.Status(parsed)
+	if err != nil {
+		return nil, err
+	}
+
+	return sessionStatusInfo(status), nil
+}
+
+func (a *API) RetrySessionTask(taskID string) error {
+	parsed, err := uuid.Parse(taskID)
+	if err != nil {
+		return custom_error.Critical("invalid task id %s: %v", taskID, err)
+	}
+
+	return a.sessions.RetryTask(parsed)
+}
+
+func sessionUUID(id string) (uuid.UUID, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return uuid.Nil, custom_error.Critical("invalid session id %s: %v", id, err)
+	}
+
+	return parsed, nil
+}
+
+func sessionStatusInfo(status *core_itf.SessionStatus) *output_itf.SessionStatusInfo {
+	if status == nil {
+		return nil
+	}
+
+	tasks := make([]*output_itf.SessionTaskInfo, 0, len(status.Tasks))
+
+	for taskID, report := range status.Tasks {
+		tasks = append(tasks, sessionTaskInfo(taskID, report))
+	}
+
+	sort.Slice(tasks, func(i, j int) bool { return tasks[i].TaskID < tasks[j].TaskID })
+
+	return &output_itf.SessionStatusInfo{
+		SessionID: status.ID.String(),
+		Status:    string(status.Status),
+		Tasks:     tasks,
+	}
+}
+
+func sessionTaskInfo(taskID uuid.UUID, report *core_itf.TaskReport) *output_itf.SessionTaskInfo {
+	info := &output_itf.SessionTaskInfo{
+		TaskID:       taskID.String(),
+		HandoverDocs: []*output_itf.HandoverDocInfo{},
+	}
+
+	if report == nil {
+		return info
+	}
+
+	info.Status = string(report.Status)
+
+	for _, doc := range report.HandoverDocs {
+		info.HandoverDocs = append(info.HandoverDocs, handoverDocInfo(doc))
+	}
+
+	return info
+}
+
+func handoverDocInfo(doc *core_itf.HandoverDoc) *output_itf.HandoverDocInfo {
+	if doc == nil {
+		return nil
+	}
+
+	return &output_itf.HandoverDocInfo{
+		Task:              doc.Task,
+		Outcome:           doc.Outcome,
+		Blockers:          doc.Blockers,
+		ApprovedDecisions: doc.ApprovedDecisions,
+		RejectedDecisions: doc.RejectedDecisions,
+		CurrentBehaviors:  doc.CurrentBehaviors,
+		ChangedBehaviors:  doc.ChangedBehaviors,
+		MustAvoid:         doc.MustAvoid,
+		Nuances:           doc.Nuances,
+		KnownGaps:         doc.KnownGaps,
+	}
 }

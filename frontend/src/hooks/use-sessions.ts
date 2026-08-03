@@ -49,7 +49,7 @@ export function useSessions() {
         queryKey: SESSIONS_KEY,
         queryFn: api.listSessions,
         refetchInterval: (query) =>
-            query.state.data?.some(graph.hasRunningTask) ? RUN_POLL_MS : false,
+            query.state.data?.some(graph.hasActiveTask) ? RUN_POLL_MS : false,
     })
 
     const create = useSessionMutation(
@@ -76,6 +76,13 @@ export function useSessions() {
             api.updateSession(args.sessionId, {name: args.name}),
         (sessions, {sessionId, name}) =>
             editDraft(sessions, sessionId, (session) => ({...session, name})),
+    )
+
+    const setWorkingDir = useSessionMutation(
+        (args: {sessionId: string; workingDir: string}) =>
+            api.updateSession(args.sessionId, {workingDir: args.workingDir}),
+        (sessions, {sessionId, workingDir}) =>
+            editDraft(sessions, sessionId, (session) => ({...session, workingDir})),
     )
 
     const finalize = useSessionMutation(
@@ -134,6 +141,7 @@ export function useSessions() {
         createSession: create.mutate,
         cloneSession: clone.mutate,
         renameSession: rename.mutate,
+        setSessionWorkingDir: setWorkingDir.mutate,
         finalizeSession: finalize.mutate,
         deleteSession: remove.mutate,
         createTask: createTask.mutate,

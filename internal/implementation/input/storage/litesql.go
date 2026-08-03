@@ -100,6 +100,7 @@ var migrations = []string{
 	)`,
 	`ALTER TABLE sessions ADD COLUMN working_dir_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE sessions ADD COLUMN context_dir_path TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tasks ADD COLUMN depends_on_task_ids TEXT NOT NULL DEFAULT '[]'`,
 }
 
 const templateColumns = `id, name, role, task_level, retryable, params, system_prompts, created_at, updated_at`
@@ -401,7 +402,7 @@ func (s *taskStore) Find(taskID uuid.UUID) (*input_itf.TaskEntity, error) {
 	t := &input_itf.TaskEntity{}
 
 	var id, sessionID, model, thinkingLevel, allowance string
-	var systemPrompts, allowedPaths, templatePaths, childrenIDs string
+	var systemPrompts, allowedPaths, templatePaths, childrenIDs, dependsOnIDs string
 	var status, prevID, nextID, lastReportID string
 	var createdAt, updatedAt string
 
@@ -409,13 +410,13 @@ func (s *taskStore) Find(taskID uuid.UUID) (*input_itf.TaskEntity, error) {
 		thinking_level, system_prompts, auto_retry,
 		file_write_allowance, allowed_file_paths, template_file_paths, extra_guidance,
 		retry_count, status, prev_task_id, next_task_id, children_task_ids,
-		last_report_id, created_at, updated_at
+		depends_on_task_ids, last_report_id, created_at, updated_at
 		FROM tasks WHERE id = ?`, taskID.String()).
 		Scan(&id, &sessionID, &t.Name, &t.AgentRole, &model,
 			&thinkingLevel, &systemPrompts, &t.AutoRetry,
 			&allowance, &allowedPaths, &templatePaths, &t.ExtraGuidance,
 			&t.RetryCount, &status, &prevID, &nextID, &childrenIDs,
-			&lastReportID, &createdAt, &updatedAt)
+			&dependsOnIDs, &lastReportID, &createdAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -445,6 +446,9 @@ func (s *taskStore) Find(taskID uuid.UUID) (*input_itf.TaskEntity, error) {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(childrenIDs), &t.ChildrenTaskIDs); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(dependsOnIDs), &t.DependsOnTaskIDs); err != nil {
 		return nil, err
 	}
 
@@ -563,12 +567,18 @@ func saveTask(e execer, t *input_itf.TaskEntity) error {
 		return err
 	}
 
+	dependsOnIDs, err := json.Marshal(t.DependsOnTaskIDs)
+	if err != nil {
+		return err
+	}
+
 	_, err = e.Exec(`INSERT OR REPLACE INTO tasks
 		(id, session_id, name, agent_role, preferred_model, thinking_level, system_prompts,
 		auto_retry, file_write_allowance,
 		allowed_file_paths, template_file_paths, extra_guidance, retry_count, status,
-		prev_task_id, next_task_id, children_task_ids, last_report_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		prev_task_id, next_task_id, children_task_ids, depends_on_task_ids,
+		last_report_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID.String(),
 		t.SessionID.String(),
 		t.Name,
@@ -586,6 +596,7 @@ func saveTask(e execer, t *input_itf.TaskEntity) error {
 		t.PrevTaskID.String(),
 		t.NextTaskID.String(),
 		string(childrenIDs),
+		string(dependsOnIDs),
 		t.LastReportID.String(),
 		formatTime(t.CreatedAt),
 		formatTime(t.UpdatedAt),

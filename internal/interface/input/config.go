@@ -14,8 +14,9 @@ type AppConfig struct {
 }
 
 type SessionConfig struct {
-	HeartbeatTimeout      time.Duration `mapstructure:"heartbeat_timeout" validate:"gt=0"`
-	HeartbeatScanInterval time.Duration `mapstructure:"heartbeat_scan_interval" validate:"gt=0,ltefield=HeartbeatTimeout"`
+	HeartbeatTimeout       time.Duration `mapstructure:"heartbeat_timeout" validate:"gt=0"`
+	HeartbeatScanInterval  time.Duration `mapstructure:"heartbeat_scan_interval" validate:"gt=0,ltefield=HeartbeatTimeout"`
+	AgentHeartbeatInterval time.Duration `mapstructure:"agent_heartbeat_interval" validate:"gt=0,ltefield=HeartbeatTimeout"`
 }
 
 type ApprovalBrokerConfig struct {

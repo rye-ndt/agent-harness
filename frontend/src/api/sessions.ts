@@ -1,17 +1,21 @@
 /**
- * Stand-in for the Go task-graph API, which does not exist yet — the backend's
- * FEAPI port is agent-lifecycle only. Sessions live in this module's memory,
- * and finalizing one starts a simulated run that walks the graph in order.
- * When the real Wails bindings land, this is the only file that changes.
+ * The task-graph seam, and the only file that touches the session bindings.
+ * Sessions are authored in this module's memory. Finalizing one inside the
+ * Wails webview builds a RunSessionSpec, starts the real run through the
+ * generated bindings, and polls SessionStatus until the run settles; outside
+ * the webview (the plain vite dev server) there is no runtime, so finalizing
+ * falls back to a simulated run that walks the graph in order.
  */
 
-import {TaskState} from '@/lib/enums'
+import {listTemplates} from '@/api/templates'
+import {TaskLevel, TaskState} from '@/lib/enums'
 import {mockOutcome, MOCK_SESSIONS} from '@/lib/mock-sessions'
 import {
     createSession as buildSession,
     createTask as buildTask,
     createsCycle,
     duplicateSession,
+    hasActiveTask,
     hasRunningTask,
     isRunnable,
     isSettled,
@@ -21,13 +25,22 @@ import {
     withoutDependency,
     withoutTask,
 } from '@/lib/session'
-import type {Point, Session, Task, TaskDraft} from '@/types/session'
+import type {HandoverDoc, Point, Session, Task, TaskDraft} from '@/types/session'
+import {output_itf} from '../../wailsjs/go/models'
+import {RunSession, SessionStatus} from '../../wailsjs/go/wails_api/API'
 
 const TICK_MS = 900
 
 let sessions: Session[] = structuredClone(MOCK_SESSIONS)
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
+
+type RemoteRun = {
+    remoteSessionId: string
+    clientTaskIds: Map<string, string>
+}
+
+const runs = new Map<string, RemoteRun>()
 
 function findSession(sessionId: string) {
     const session = sessions.find((session) => session.id === sessionId)
@@ -142,6 +155,155 @@ function stopRun(sessionId: string) {
     timers.delete(sessionId)
 }
 
+function hasWailsRuntime() {
+    try {
+        const bindings = window as Window & {go?: {wails_api?: {API?: object}}}
+        return Boolean(bindings.go?.wails_api?.API)
+    } catch {
+        return false
+    }
+}
+
+function resolvedPrompt(task: Task) {
+    const entries = Object.entries(task.values ?? {}).filter(([, value]) => String(value) !== '')
+    if (entries.length === 0) return task.prompt
+
+    const lines = entries.map(([key, value]) => `- ${key}: ${String(value)}`)
+    return `${task.prompt}\n\nInputs:\n${lines.join('\n')}`
+}
+
+async function buildRunSpec(session: Session): Promise<output_itf.RunSessionSpec> {
+    const templates = await listTemplates()
+    const templateById = new Map(templates.map((template) => [template.id, template]))
+
+    return new output_itf.RunSessionSpec({
+        working_dir_path: session.workingDir.trim(),
+        context_dir_path: '',
+        tasks: session.tasks.map((task) => {
+            const template = task.templateId ? templateById.get(task.templateId) : undefined
+            return {
+                client_id: task.id,
+                name: task.title,
+                prompt: resolvedPrompt(task),
+                role: template?.role ?? '',
+                task_level: template?.taskLevel ?? TaskLevel.Daily,
+                system_prompts: template?.systemPrompts.map((prompt) => prompt.value) ?? [],
+                depends_on: [...task.dependsOn],
+                auto_retry: false,
+            }
+        }),
+    })
+}
+
+async function startRemoteRun(session: Session): Promise<boolean> {
+    if (!hasWailsRuntime()) return false
+    if (runs.has(session.id)) return true
+    if (!session.workingDir.trim())
+        throw new Error('Set a working directory before running this session.')
+
+    const spec = await buildRunSpec(session)
+    const result = await RunSession(spec)
+    const clientTaskIds = new Map(
+        Object.entries(result.task_ids ?? {}).map(([clientId, remoteId]) => [remoteId, clientId]),
+    )
+
+    runs.set(session.id, {remoteSessionId: result.session_id, clientTaskIds})
+    pollRemoteRun(session.id)
+    return true
+}
+
+function pollRemoteRun(sessionId: string) {
+    if (timers.has(sessionId)) return
+
+    timers.set(
+        sessionId,
+        setTimeout(() => {
+            timers.delete(sessionId)
+            void pollRemoteTick(sessionId)
+        }, TICK_MS),
+    )
+}
+
+async function pollRemoteTick(sessionId: string) {
+    const run = runs.get(sessionId)
+    const session = sessions.find((session) => session.id === sessionId)
+    if (!run || !session) return
+
+    try {
+        const status = await SessionStatus(run.remoteSessionId)
+        const next = replaceSession(applyRemoteStatus(session, run, status))
+        if (!hasActiveTask(next)) {
+            runs.delete(sessionId)
+            return
+        }
+    } catch {}
+
+    pollRemoteRun(sessionId)
+}
+
+const REMOTE_STATES: Record<string, TaskState> = {
+    processing: TaskState.Running,
+    completed: TaskState.Done,
+    failed: TaskState.Failed,
+    cancelled: TaskState.Failed,
+}
+
+function applyRemoteStatus(
+    session: Session,
+    run: RemoteRun,
+    status: output_itf.SessionStatusInfo,
+): Session {
+    const now = new Date().toISOString()
+    const infoByClientId = new Map(
+        (status.tasks ?? []).map((info) => [run.clientTaskIds.get(info.task_id), info]),
+    )
+
+    return label({
+        ...session,
+        tasks: session.tasks.map((task) => {
+            const info = infoByClientId.get(task.id)
+            return info ? applyRemoteTask(task, info, now) : task
+        }),
+    })
+}
+
+function applyRemoteTask(task: Task, info: output_itf.SessionTaskInfo, now: string): Task {
+    const state = REMOTE_STATES[info.status]
+    if (!state) return task
+
+    const startedAt = task.run?.startedAt ?? now
+    const finishedAt = state === TaskState.Running ? undefined : (task.run?.finishedAt ?? now)
+
+    return {
+        ...task,
+        state,
+        run: {...task.run, startedAt, finishedAt},
+        report:
+            state === TaskState.Running
+                ? task.report
+                : {
+                      status: state,
+                      fileChanges: [],
+                      handoverDocs: (info.handover_docs ?? []).map(toHandoverDoc),
+                  },
+    }
+}
+
+function toHandoverDoc(info: output_itf.HandoverDocInfo): HandoverDoc {
+    return {
+        task: info.task ?? '',
+        outcome: info.outcome ?? '',
+        blockers: info.blockers ?? {},
+        approvedDecisions: info.approved_decisions ?? {},
+        rejectedDecisions: info.rejected_decisions ?? {},
+        currentBehaviors: info.current_behaviors ?? {},
+        changedBehaviors: info.changed_behaviors ?? {},
+        mustAvoid: info.must_avoid ?? {},
+        nuances: info.nuances ?? {},
+        knownGaps: info.known_gaps ?? {},
+    }
+}
+
 for (const session of sessions) if (hasRunningTask(session)) schedule(session.id)
 
 export async function listSessions(): Promise<Session[]> {
@@ -162,21 +324,24 @@ export async function cloneSession(sourceId: string, sessionId: string): Promise
 
 export async function updateSession(
     sessionId: string,
-    patch: Partial<Pick<Session, 'name' | 'finalized'>>,
+    patch: Partial<Pick<Session, 'name' | 'finalized' | 'workingDir'>>,
 ): Promise<Session> {
     if (patch.finalized === false)
         throw new Error('A finalized session cannot go back to a draft. Duplicate it instead.')
 
     const session = patch.finalized ? findSession(sessionId) : findOpenSession(sessionId)
+    const started = patch.finalized ? await startRemoteRun({...session, ...patch}) : false
+
     replaceSession({...session, ...patch})
 
-    if (patch.finalized) tick(sessionId)
+    if (patch.finalized && !started) tick(sessionId)
 
     return structuredClone(findSession(sessionId))
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
     stopRun(sessionId)
+    runs.delete(sessionId)
     sessions = sessions.filter((session) => session.id !== sessionId)
 }
 

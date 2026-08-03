@@ -31,6 +31,7 @@ export function createSession(index: number): Session {
         name: `Session ${index + 1}`,
         createdAt: new Date().toISOString(),
         finalized: false,
+        workingDir: '',
         tasks: [],
     }
 }
@@ -44,6 +45,7 @@ export function duplicateSession(session: Session): Session {
         name: `${session.name} copy`,
         createdAt: new Date().toISOString(),
         finalized: false,
+        workingDir: session.workingDir,
         tasks: session.tasks.map((task) => ({
             id: idMap.get(task.id)!,
             title: task.title,
@@ -123,6 +125,12 @@ export function sessionStatus(session: Session): SessionStatus {
 
 export function hasRunningTask(session: Session) {
     return session.tasks.some((task) => task.state === TaskState.Running)
+}
+
+export function hasActiveTask(session: Session) {
+    return session.tasks.some(
+        (task) => task.state === TaskState.Running || task.state === TaskState.Queued,
+    )
 }
 
 export function sessionProgress(session: Session) {
