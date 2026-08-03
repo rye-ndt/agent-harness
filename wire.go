@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -44,7 +45,7 @@ type App struct {
 	UserConfig      output_itf.UserConfig
 }
 
-func wire() (*App, error) {
+func wire(assets fs.FS) (*App, error) {
 	cfg, err := viper.New("config.yaml")
 	if err != nil {
 		return nil, err
@@ -144,7 +145,7 @@ func wire() (*App, error) {
 		DataWarning:  dataWarning,
 	})
 
-	appBuilder := wails.New(cfg, feAPI)
+	appBuilder := wails.New(cfg, feAPI, assets)
 
 	return &App{
 		Config:          cfg,

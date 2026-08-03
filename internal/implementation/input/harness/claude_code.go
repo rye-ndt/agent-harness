@@ -185,6 +185,7 @@ type claudeCode struct {
 	agents      map[string]*agentProc
 	uninstalled bool
 	authMu      sync.Mutex
+	installMu   sync.Mutex
 	auth        *authSession
 	loginMu     sync.Mutex
 	cfg         *ClaudeCodeCfg
@@ -268,6 +269,9 @@ func (c *claudeCode) atLimit() bool {
 }
 
 func (c *claudeCode) Install(onProgress func(input_itf.InstallProgress)) error {
+	c.installMu.Lock()
+	defer c.installMu.Unlock()
+
 	if onProgress == nil {
 		onProgress = func(input_itf.InstallProgress) {}
 	}

@@ -1,7 +1,8 @@
 package wails
 
 import (
-	"embed"
+	"io/fs"
+
 	"hexago/internal/helpers"
 	input_itf "hexago/internal/interface/input"
 	output_itf "hexago/internal/interface/output"
@@ -10,20 +11,21 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 )
 
-var assets embed.FS
-
 type wailsInstance struct {
 	config input_itf.Config
 	api    output_itf.FEAPI
+	assets fs.FS
 }
 
 func New(
 	config input_itf.Config,
 	api output_itf.FEAPI,
+	assets fs.FS,
 ) output_itf.AppBuilder {
 	return &wailsInstance{
 		config: config,
 		api:    api,
+		assets: assets,
 	}
 }
 
@@ -34,7 +36,7 @@ func (w *wailsInstance) Run() error {
 		Title:            app.Name,
 		Width:            app.W,
 		Height:           app.H,
-		Assets:           assets,
+		Assets:           w.assets,
 		BackgroundColour: helpers.HexColour(app.Bg),
 		OnStartup:        w.api.Startup,
 		OnShutdown:       w.api.Shutdown,

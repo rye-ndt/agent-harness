@@ -140,6 +140,7 @@ type openCode struct {
 	agents       map[string]*openCodeProc
 	uninstalled  bool
 	authMu       sync.Mutex
+	installMu    sync.Mutex
 	cfg          *OpenCodeCfg
 	httpCli      input_itf.HttpCli
 	storage      input_itf.HarnessStorage
@@ -205,6 +206,9 @@ func (o *openCode) atLimit() bool {
 }
 
 func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
+	o.installMu.Lock()
+	defer o.installMu.Unlock()
+
 	if onProgress == nil {
 		onProgress = func(input_itf.InstallProgress) {}
 	}
@@ -280,7 +284,7 @@ func (o *openCode) Install(onProgress func(input_itf.InstallProgress)) error {
 
 	if err := o.storage.Save(&input_itf.HarnessEntity{
 		Name:     openCodeName,
-		Version:  release.TagName,
+		Version:  strings.TrimPrefix(release.TagName, "v"),
 		Platform: enums.OS(platform),
 		Path:     o.binPath,
 	}); err != nil {

@@ -6,7 +6,7 @@ import type {Agent} from '@/types/agent'
 
 function metaLine(agent: Agent) {
     if (!agent.installed) return 'Not installed'
-    return `v${agent.version} · ${agent.instanceCount} running`
+    return `v${agent.version.replace(/^v/, '')} · ${agent.instanceCount} running`
 }
 
 function dotClass(agent: Agent) {
