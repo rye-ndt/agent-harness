@@ -49,7 +49,7 @@ function ParamField({
 
     if (param.type === ParamType.Boolean)
         return (
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2">
                 <label htmlFor={id} className="flex min-w-0 flex-col gap-1">
                     <span className="text-base font-medium">{label}</span>
                     <span className="truncate font-mono text-sm text-muted-foreground">

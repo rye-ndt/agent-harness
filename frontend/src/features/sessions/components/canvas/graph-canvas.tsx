@@ -112,7 +112,7 @@ function Canvas({
                 draggable: !locked,
                 deletable: false,
                 className: cn(
-                    'rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-live',
+                    'rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-live',
                     locked && 'is-locked',
                 ),
             })),
@@ -211,7 +211,7 @@ function Canvas({
     }
 
     return (
-        <div className="relative min-h-0 flex-1" onDoubleClick={addAtCursor}>
+        <div className="relative min-h-0 flex-1 bg-background" onDoubleClick={addAtCursor}>
             <ReactFlow<TaskNodeType, GraphEdge>
                 nodes={nodes}
                 edges={edges}
@@ -276,7 +276,7 @@ function ZoomCluster() {
 
     return (
         <Panel position="bottom-left" style={{margin: 12}}>
-            <div className="flex flex-col divide-y divide-border overflow-hidden rounded-lg bg-background ring-1 ring-border">
+            <div className="flex flex-col divide-y divide-border overflow-hidden rounded-lg bg-card shadow-[0_2px_16px_rgba(27,28,30,0.04)] ring-1 ring-border">
                 <Button
                     variant="ghost"
                     size="icon-sm"

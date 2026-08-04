@@ -39,7 +39,7 @@ export function HandoverDocs({docs}: {docs: HandoverDoc[]}) {
             {docs.map((doc, index) => (
                 <p
                     key={index}
-                    className="rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs leading-[1.8] whitespace-pre-wrap"
+                    className="rounded-xl border border-border bg-muted/30 p-3 font-mono text-xs leading-[1.8] whitespace-pre-wrap"
                 >
                     {docText(doc)}
                 </p>

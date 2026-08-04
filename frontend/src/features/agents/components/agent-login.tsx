@@ -39,7 +39,7 @@ export function AgentLogin({
     }
 
     return (
-        <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3 ring-1 ring-border">
+        <div className="flex flex-col gap-3 rounded-xl bg-muted/40 p-3 ring-1 ring-border">
             <p className="text-sm text-muted-foreground">
                 A login page opened in your browser.{' '}
                 <button

@@ -41,7 +41,7 @@ export function SessionHeader({
 
     return (
         <header className="shrink-0">
-            <div className="flex h-14 items-center gap-3 border-b border-border bg-background px-4">
+            <div className="flex h-14 items-center gap-3 border-b border-border bg-card px-4">
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                     {session &&
                         (locked ? (
@@ -107,7 +107,7 @@ export function SessionHeader({
             {error && (
                 <p
                     role="alert"
-                    className="border-b border-border px-4 py-3 text-sm text-destructive"
+                    className="border-b border-border bg-state-failed-tint px-4 py-3 text-sm text-destructive"
                 >
                     {error}
                 </p>
@@ -145,7 +145,7 @@ function HeaderAction({
 function FinalizedName({name}: {name: string}) {
     return (
         <span className="flex w-full max-w-96 min-w-40 items-center gap-1">
-            <span className="truncate text-xl font-semibold">{name}</span>
+            <span className="truncate text-xl font-bold">{name}</span>
             <Tooltip>
                 <TooltipTrigger asChild>
                     <button
@@ -192,7 +192,7 @@ function SessionNameInput({name, onRename}: {name: string; onRename: (name: stri
             onChange={change}
             onBlur={commit}
             onKeyDown={handleKeys}
-            className="-ml-2 w-full max-w-96 min-w-40 rounded-md bg-transparent px-2 py-1 text-xl font-semibold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live"
+            className="-ml-2 w-full max-w-96 min-w-40 rounded-md bg-transparent px-2 py-1 text-xl font-bold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live"
         />
     )
 }
@@ -245,7 +245,7 @@ function SessionIdentity({session}: {session: Session}) {
         <span className="flex shrink-0 items-center gap-3">
             <span
                 className={cn(
-                    'inline-flex h-5 items-center rounded-md px-2 text-xs font-medium',
+                    'inline-flex items-center rounded-sm px-2.5 py-1 text-xs font-bold tracking-[0.05em] uppercase',
                     STATUS_CLASSES[status],
                 )}
             >

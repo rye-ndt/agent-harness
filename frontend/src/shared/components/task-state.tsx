@@ -6,7 +6,7 @@ import {cn} from '@/shared/lib/utils'
 const BADGE_CLASSES: Record<TaskState, string> = {
     [TaskState.Idle]: 'bg-state-idle-tint text-muted-foreground',
     [TaskState.Blocked]: 'bg-state-idle-tint text-muted-foreground',
-    [TaskState.Queued]: 'bg-live-tint text-live',
+    [TaskState.Queued]: 'bg-info-tint text-info',
     [TaskState.Running]: 'bg-state-running-tint text-state-running',
     [TaskState.AwaitingApproval]: 'bg-state-approval-tint text-state-approval',
     [TaskState.Done]: 'bg-state-done-tint text-state-done',
@@ -14,7 +14,7 @@ const BADGE_CLASSES: Record<TaskState, string> = {
 }
 
 const RING_CLASSES: Partial<Record<TaskState, string>> = {
-    [TaskState.Queued]: 'border-live/40',
+    [TaskState.Queued]: 'border-info/40',
     [TaskState.Blocked]: 'border-dashed border-muted-foreground/50',
     [TaskState.Idle]: 'border-muted-foreground/40',
 }
@@ -98,7 +98,7 @@ export function StateBadge({state, className}: {state: TaskState; className?: st
     return (
         <span
             className={cn(
-                'inline-flex h-5 items-center rounded-md px-2 text-xs font-medium',
+                'inline-flex items-center rounded-sm px-2.5 py-1 text-xs leading-none font-bold tracking-[0.05em] uppercase',
                 BADGE_CLASSES[state],
                 className,
             )}

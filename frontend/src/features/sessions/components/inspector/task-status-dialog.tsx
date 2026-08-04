@@ -33,7 +33,7 @@ function emptyLine(task: Task) {
 
 function Stat({label, value}: {label: string; value: string}) {
     return (
-        <div className="flex min-w-0 flex-col gap-2 rounded-lg border border-border p-3">
+        <div className="flex min-w-0 flex-col gap-2 rounded-xl border border-border p-3">
             <span className="micro-label">{label}</span>
             <span className="truncate font-mono text-base">{value}</span>
         </div>

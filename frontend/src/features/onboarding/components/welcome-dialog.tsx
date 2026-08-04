@@ -35,7 +35,7 @@ export function WelcomeDialog({
         <Dialog open>
             <DialogContent
                 showCloseButton={false}
-                className="flex flex-col gap-6 p-8 outline-none sm:max-w-lg"
+                className="flex flex-col gap-6 rounded-[20px] bg-card p-8 outline-none sm:max-w-lg"
                 onEscapeKeyDown={stayOpen}
                 onPointerDownOutside={stayOpen}
                 onInteractOutside={stayOpen}
@@ -45,7 +45,7 @@ export function WelcomeDialog({
                     <DialogTitle className="text-xl">Install Dependencies</DialogTitle>
                 </DialogHeader>
 
-                <div className="divide-y divide-border rounded-lg ring-1 ring-border">
+                <div className="divide-y divide-border rounded-xl border border-border">
                     {dependencies.map((dependency) => (
                         <DependencyRow key={dependency.id} dependency={dependency} />
                     ))}
@@ -54,13 +54,16 @@ export function WelcomeDialog({
                 <div className="flex flex-col gap-2">
                     <div className="flex items-baseline justify-between">
                         <span className="text-sm text-muted-foreground">{label}</span>
-                        <span className="font-mono text-xs text-muted-foreground">{percent}%</span>
+                        <span className="font-mono text-xs font-semibold text-muted-foreground">
+                            {percent}%
+                        </span>
                     </div>
 
                     <Progress
                         aria-label={label}
                         value={percent}
-                        indicatorClassName={error ? 'bg-state-failed' : undefined}
+                        className="h-2 rounded-full bg-progress-track"
+                        indicatorClassName={error ? 'bg-state-failed' : 'bg-progress'}
                     />
                 </div>
 

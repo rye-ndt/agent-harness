@@ -1,7 +1,6 @@
 import {Button} from '@/shared/ui/button'
 import {useMCPServers} from '@/features/settings/use-mcp'
 import {formatRelative} from '@/shared/lib/format'
-import {cn} from '@/shared/lib/utils'
 import type {MCPServer} from '@/features/settings/types'
 
 export function MCPPanel() {
@@ -67,25 +66,21 @@ function MCPServerRow({
 
     return (
         <div className="flex items-center gap-3 px-4 py-3">
-            <span
-                className={cn(
-                    'size-2 shrink-0 rounded-full',
-                    server.authorized
-                        ? 'bg-state-done'
-                        : 'bg-transparent ring-1 ring-inset ring-border',
-                )}
-            />
-
             <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <p className="truncate text-base font-medium">{server.name}</p>
                 <p className="truncate font-mono text-sm text-muted-foreground">{server.url}</p>
             </div>
 
             {server.authorized ? (
-                <span className="shrink-0 text-sm text-muted-foreground">
-                    {server.authorizedAt
-                        ? `Authorized ${formatRelative(server.authorizedAt)}`
-                        : 'Authorized'}
+                <span className="flex shrink-0 items-center gap-2">
+                    {server.authorizedAt && (
+                        <span className="text-sm text-muted-foreground">
+                            {formatRelative(server.authorizedAt)}
+                        </span>
+                    )}
+                    <span className="rounded-sm bg-state-done-tint px-2.5 py-1 text-xs leading-none font-bold tracking-[0.05em] text-state-done uppercase">
+                        Authorized
+                    </span>
                 </span>
             ) : (
                 <Button size="sm" className="shrink-0" disabled={busy} onClick={authorize}>

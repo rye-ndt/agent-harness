@@ -15,7 +15,7 @@ export function ContextDonut({used, total}: {used: number; total: number}) {
                     cy="40"
                     r={RADIUS}
                     fill="none"
-                    stroke="var(--muted)"
+                    stroke="var(--progress-track)"
                     strokeWidth="7"
                 />
                 <circle
@@ -23,7 +23,7 @@ export function ContextDonut({used, total}: {used: number; total: number}) {
                     cy="40"
                     r={RADIUS}
                     fill="none"
-                    stroke="var(--live)"
+                    stroke="var(--progress)"
                     strokeWidth="7"
                     strokeDasharray={CIRCUMFERENCE}
                     strokeDashoffset={CIRCUMFERENCE * (1 - share)}

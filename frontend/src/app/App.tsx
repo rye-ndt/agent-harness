@@ -88,8 +88,8 @@ function App() {
     }
 
     return (
-        <div className="flex h-screen overflow-hidden bg-background text-foreground">
-            <main className="flex min-w-0 flex-1 flex-col">
+        <div className="flex h-screen gap-3 overflow-hidden bg-background p-3 text-foreground">
+            <main className="surface-card flex min-w-0 flex-1 flex-col overflow-hidden">
                 <SessionHeader
                     session={session}
                     error={store.error}
@@ -112,7 +112,7 @@ function App() {
                         onNewNode={setNewNodeAt}
                     />
                 ) : (
-                    <div className="flex flex-1 items-center justify-center">
+                    <div className="flex flex-1 items-center justify-center bg-background">
                         <p className="text-base text-muted-foreground">
                             No session open. Create one to start a chain of tasks.
                         </p>

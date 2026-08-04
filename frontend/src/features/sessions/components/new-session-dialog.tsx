@@ -101,7 +101,7 @@ export function NewSessionDialog({
                     />
 
                     {agents.error && (
-                        <p className="border-t border-border px-4 py-3 text-sm text-destructive">
+                        <p className="border-t border-border bg-state-failed-tint px-4 py-3 text-sm text-destructive">
                             {agents.error}
                         </p>
                     )}

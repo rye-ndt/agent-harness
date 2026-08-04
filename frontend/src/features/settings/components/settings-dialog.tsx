@@ -33,7 +33,7 @@ export function SettingsDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="flex h-[560px] max-w-[760px] gap-0 overflow-hidden p-0">
+            <DialogContent className="flex h-[560px] max-w-[760px] gap-0 overflow-hidden rounded-[20px] bg-card p-0">
                 <DialogDescription className="sr-only">
                     Settings shared by every session.
                 </DialogDescription>

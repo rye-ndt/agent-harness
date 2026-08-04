@@ -48,12 +48,18 @@ function SettingsNavItem<TId extends string>({
             type="button"
             onClick={select}
             className={cn(
-                'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-base outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+                'relative flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-base outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
                 active
-                    ? 'bg-sidebar-accent font-medium text-foreground'
-                    : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground',
+                    ? 'bg-live-tint font-medium text-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
             )}
         >
+            {active && (
+                <span
+                    aria-hidden="true"
+                    className="absolute inset-y-1 left-0 w-1 rounded-full bg-live"
+                />
+            )}
             <Icon className="size-4 shrink-0" />
             {tab.label}
         </button>

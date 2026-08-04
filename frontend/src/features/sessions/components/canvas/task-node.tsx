@@ -20,7 +20,7 @@ export type TaskNodeType = Node<TaskNodeData, 'task'>
 const UNTITLED = 'Untitled task'
 
 function meterClass(ratio: number) {
-    if (ratio < 0.7) return 'bg-live'
+    if (ratio < 0.7) return 'bg-progress'
     if (ratio < 0.9) return 'bg-state-approval'
     return 'bg-state-failed'
 }
@@ -45,21 +45,21 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
     return (
         <div
             className={cn(
-                'relative w-[260px] rounded-lg bg-background p-3 shadow-sm transition-all duration-120',
+                'relative w-[260px] rounded-xl bg-card p-3 shadow-[0_2px_16px_rgba(27,28,30,0.04)] transition-all duration-120',
                 blocked
                     ? 'border border-dashed border-border opacity-60 ring-0'
                     : 'ring-1 ring-border',
-                running && 'ring-1 ring-live',
+                running && 'bg-live-tint ring-1 ring-live',
                 selected && 'ring-2 ring-live',
                 unlinkable && 'opacity-30',
             )}
         >
             {running && (
-                <span className="pointer-events-none absolute inset-0 rounded-lg bg-live-tint/60" />
+                <span className="pointer-events-none absolute inset-y-0 left-0 w-1 rounded-full bg-live" />
             )}
 
             {task.state === TaskState.AwaitingApproval && (
-                <span className="absolute inset-y-0 left-0 w-[3px] rounded-l-lg bg-state-approval" />
+                <span className="pointer-events-none absolute inset-y-0 left-0 w-1 rounded-full bg-state-approval" />
             )}
 
             <Handle type="target" position={Position.Left} isConnectable={connectable} />
@@ -70,6 +70,7 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                     className={cn(
                         'min-w-0 flex-1 truncate text-lg font-medium',
                         !task.title && 'text-muted-foreground',
+                        task.state === TaskState.Done && 'text-muted-foreground line-through',
                     )}
                 >
                     {task.title || UNTITLED}
@@ -104,9 +105,9 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
             )}
 
             {context && (
-                <span className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden rounded-b-lg bg-border">
+                <span className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden rounded-b-xl bg-progress-track">
                     <span
-                        className={cn('block h-full rounded-bl-lg', meterClass(ratio))}
+                        className={cn('block h-full rounded-bl-xl', meterClass(ratio))}
                         style={{width: `${ratio * 100}%`}}
                     />
                 </span>

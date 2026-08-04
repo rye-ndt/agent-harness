@@ -26,7 +26,7 @@ export function PromptEditor({
         onChange(index, {value: event.target.value})
 
     return (
-        <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3">
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-muted/40 p-3">
             <div className="flex items-center gap-2">
                 <Input
                     value={prompt.key}
@@ -44,7 +44,7 @@ export function PromptEditor({
                 value={prompt.value}
                 aria-label="Prompt text"
                 placeholder="You review code. Report only defects you can point to a line for."
-                className="bg-background"
+                className="bg-background font-mono text-sm"
                 onChange={changeValue}
             />
         </div>

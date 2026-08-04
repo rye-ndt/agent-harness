@@ -27,7 +27,7 @@ function Counts({additions, deletions}: {additions: number; deletions: number}) 
 
 function FileDiff({change}: {change: FileChange}) {
     return (
-        <div className="overflow-hidden rounded-lg border border-border">
+        <div className="overflow-hidden rounded-xl border border-border">
             <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2">
                 <span className="micro-label shrink-0">{change.changeType}</span>
                 <span className="min-w-0 flex-1 truncate font-mono text-sm">

@@ -74,7 +74,7 @@ function TemplateCard({
 
     if (confirming)
         return (
-            <div className="flex items-center gap-3 rounded-lg border border-border p-3">
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
                 <p className="min-w-0 flex-1 text-sm text-muted-foreground">
                     Delete <span className="font-medium text-foreground">{template.name}</span>?
                     Nodes built from it keep their prompt.
@@ -95,15 +95,15 @@ function TemplateCard({
         )
 
     return (
-        <div className="group relative rounded-lg border border-border transition-colors hover:border-foreground/25 hover:bg-muted/40">
+        <div className="group relative rounded-xl border border-border bg-card transition-colors hover:border-foreground/25 hover:bg-muted/40">
             <button
                 type="button"
                 onClick={pick}
-                className="flex w-full flex-col gap-2 rounded-lg p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-live"
+                className="flex w-full flex-col gap-2 rounded-xl p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
                 <span className="flex items-center gap-2 pr-16">
                     <span className="truncate text-base font-medium">{template.name}</span>
-                    <span className="inline-flex h-5 shrink-0 items-center rounded-md bg-state-idle-tint px-2 text-xs font-medium text-muted-foreground">
+                    <span className="shrink-0 rounded-sm bg-muted px-2.5 py-1 text-xs leading-none font-bold tracking-[0.05em] text-muted-foreground uppercase">
                         {TASK_LEVEL_LABELS[template.taskLevel]}
                     </span>
                     {!template.retryable && (

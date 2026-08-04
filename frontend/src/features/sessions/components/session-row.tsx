@@ -9,8 +9,9 @@ import {
     DropdownMenuTrigger,
 } from '@/shared/ui/dropdown-menu'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/shared/ui/tooltip'
+import {SessionStatus} from '@/shared/lib/enums'
 import {formatRelative} from '@/shared/lib/format'
-import {sessionProgress} from '@/features/sessions/graph'
+import {sessionProgress, sessionStatus} from '@/features/sessions/graph'
 import {cn} from '@/shared/lib/utils'
 import type {Session} from '@/features/sessions/types'
 
@@ -31,6 +32,7 @@ export function SessionRow({
 }) {
     const {done, total} = sessionProgress(session)
     const relative = formatRelative(session.createdAt)
+    const finished = sessionStatus(session) === SessionStatus.Done
 
     const select = () => onSelect(session.id)
     const clone = () => onClone(session.id)
@@ -44,12 +46,19 @@ export function SessionRow({
                 onClick={select}
                 aria-current={active}
                 className={cn(
-                    'flex w-full flex-col gap-2 rounded-md px-2 py-3 pr-8 text-left transition-colors duration-[120ms] outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring/50',
-                    active && 'bg-sidebar-accent',
+                    'flex w-full flex-col gap-2 rounded-xl px-3 py-3 pr-8 text-left transition-colors duration-[120ms] outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50',
+                    active && 'bg-live-tint hover:bg-live-tint',
                 )}
             >
                 <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-base font-medium">{session.name}</span>
+                    <span
+                        className={cn(
+                            'truncate text-base font-medium',
+                            finished && 'text-muted-foreground line-through',
+                        )}
+                    >
+                        {session.name}
+                    </span>
                     {session.finalized && (
                         <Tooltip>
                             <TooltipTrigger asChild>
@@ -89,7 +98,7 @@ export function SessionRow({
             </button>
 
             {active && (
-                <span className="pointer-events-none absolute inset-y-1 left-0 w-0.5 rounded-full bg-live" />
+                <span className="pointer-events-none absolute inset-y-1 left-0 w-1 rounded-full bg-live" />
             )}
 
             <DropdownMenu>
@@ -98,7 +107,7 @@ export function SessionRow({
                         type="button"
                         aria-label={`Options for ${session.name}`}
                         onClick={stopPropagation}
-                        className="absolute top-2 right-1 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity duration-[120ms] outline-none hover:bg-sidebar-border hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100 aria-expanded:opacity-100"
+                        className="absolute top-2 right-1 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity duration-[120ms] outline-none hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100 aria-expanded:opacity-100"
                     >
                         <MoreHorizontal className="size-3.5" />
                     </button>

@@ -9,16 +9,11 @@ function metaLine(agent: Agent) {
     return `v${agent.version.replace(/^v/, '')} · ${agent.instanceCount} running`
 }
 
-function dotClass(agent: Agent) {
-    if (!agent.installed) return 'bg-transparent ring-1 ring-inset ring-border'
-    return agent.loggedIn ? 'bg-state-done' : 'bg-state-idle'
-}
-
 function LoginBadge({loggedIn}: {loggedIn: boolean}) {
     return (
         <span
             className={cn(
-                'inline-flex h-5 shrink-0 items-center rounded-md px-2 text-xs font-medium',
+                'shrink-0 rounded-sm px-2.5 py-1 text-xs leading-none font-bold tracking-[0.05em] uppercase',
                 loggedIn
                     ? 'bg-state-done-tint text-state-done'
                     : 'bg-state-idle-tint text-muted-foreground',
@@ -115,11 +110,11 @@ function AgentRow({
     return (
         <div className="flex flex-col gap-3 px-4 py-3">
             <div className="flex items-center gap-3">
-                <span className={cn('size-2 shrink-0 rounded-full', dotClass(agent))} />
-
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <p className="flex items-center gap-2">
-                        <span className="truncate text-base font-medium">{agent.name}</span>
+                        <span className="truncate font-mono text-base font-medium">
+                            {agent.name}
+                        </span>
                         {agent.installed && <LoginBadge loggedIn={agent.loggedIn} />}
                     </p>
                     <p className="truncate font-mono text-sm text-muted-foreground">
