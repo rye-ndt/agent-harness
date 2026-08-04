@@ -142,6 +142,8 @@ type FEAPI interface {
 	AgentDefaults() ([]*AgentDefaultInfo, error)
 	SetAgentDefault(taskLevel string, model string, thinkingLevel string) error
 	AgentDefaultOptions() (*AgentDefaultOptionsInfo, error)
+	Onboarded() bool
+	CompleteOnboarding() error
 	RunSession(spec *RunSessionSpec) (*RunSessionResult, error)
 	SessionStatus(sessionID string) (*SessionStatusInfo, error)
 	RetrySessionTask(taskID string) error

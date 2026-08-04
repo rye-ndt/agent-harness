@@ -557,6 +557,14 @@ func (a *API) SetAgentDefault(taskLevel string, model string, thinkingLevel stri
 	})
 }
 
+func (a *API) Onboarded() bool {
+	return a.userConfig.Onboarded()
+}
+
+func (a *API) CompleteOnboarding() error {
+	return a.userConfig.CompleteOnboarding()
+}
+
 func (a *API) AgentDefaultOptions() (*output_itf.AgentDefaultOptionsInfo, error) {
 	levels := enums.TaskLevels()
 	taskLevels := make([]string, 0, len(levels))

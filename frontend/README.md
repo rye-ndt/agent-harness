@@ -1,6 +1,6 @@
 # Frontend
 
-The UI for the agent-harness control plane: sessions are authored as a graph of
+The UI for the Nexo control plane: sessions are authored as a graph of
 task nodes on a canvas, finalized into a run, and watched while agents work
 through them. The backend is ahead of the UI, so much of this frontend runs
 against mocks — but always behind a seam that the real Wails bindings slot into

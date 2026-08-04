@@ -1,132 +1,104 @@
-# master_harness
+# Nexo
 
-A desktop control plane for orchestrating a fleet of coding agents.
+Set up a workflow, hand it to a fleet of AI agents, go play pickleball. Either approve or revert it once you are back. That's everything. _n8n_, but AI-native.
 
-You author work as a **graph of nodes**. Each node is a scoped unit of work —
-a role, a model preference, a bounded set of files it is allowed to write, and
-whatever extra guidance it needs. Nodes are linked into a chain, and the app
-drives agents through them: assigning work, watching for silence, capturing the
-diff, and carrying what was learned forward into the next node.
+Want help setting this up for your team, custom templates, or tuning it for your company? Please contact nduytung.1611@gmail.com.
 
-It is local-first (SQLite plus a write-ahead log in your user config dir) and
-vendor-agnostic: the app installs and authenticates the underlying agent CLIs
-itself, so using it never requires knowing a CLI is involved.
+<!-- Drop a screenshot of the canvas mid-run here. Nothing sells a desktop app faster. -->
 
-## The ideas that shape the code
+## How it works
 
-**Nodes form a DAG, not a queue.** `TaskEntity` carries `PrevTaskID`,
-`NextTaskID` and `ChildrenTaskIDs`. Chaining is the point; the session is just
-how a node gets picked up.
+You draw the work as a graph. Each node is one scoped task: a role, a model, the
+files it's allowed to touch, plus whatever guidance it needs. Nexo runs agents
+through the graph, watches them, captures the diff, and feeds what each node
+learned into the next node's prompt.
 
-**Context is the hard part, not scheduling.** When a node finishes it produces a
-`HandoverDoc` — outcome, blockers, approved and *rejected* decisions, current vs
-changed behaviours, what to avoid, nuances, known gaps. That document is the
-payload that flows into the next node's prompt. Passing forward what an agent
-was told **not** to do matters as much as passing forward what it did.
+## Requirements
 
-**Agents fail, so the system assumes it.** Every mutation is written to a WAL
-before it is committed, and replayed into SQLite on the next start. Assigned
-agents send heartbeats; when one goes quiet its task is dropped and becomes
-takeable again. Failed and cancelled tasks are re-pickable by design, and every
-file change is stored as a unified diff so work can be reverted without
-depending on the repo's VCS state.
+- macOS. Windows is half-built and untested.
+- Go 1.25+
+- Node 20+
+- Wails: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
 
-**Agents never hold credentials.** MCP servers are authorized once, by the app,
-over a loopback OAuth flow with PKCE; tokens are encrypted at rest. Agents send
-a placeholder (`auth_key_name`) and the proxy substitutes the real secret on the
-way out, refusing any request aimed at an authorization endpoint.
+Wails installs to `~/go/bin`, which might not be on your PATH. The Makefile
+finds it either way.
 
-## Status
-
-The backend is ahead of the UI. Built and wired into `wire.go`: the WAL and
-WAL-to-SQLite sync, agent install/auth/spawn for Claude Code and OpenCode, the
-MCP proxy including request forwarding, the operator approval broker, and agent
-template storage. `FEAPI` covers agent lifecycle, approvals, per-agent context
-usage, and templates.
-
-Not yet wired: `session_manager` — the task graph, task/session event pub-sub
-and heartbeat-drop — is written but never constructed in `wire.go`, so nothing
-in the graph is reachable from the frontend, and no component yet owns the
-coordinator role — *node finished, build the next node's context from its
-handover doc, assign it*. That is the current focus. `message_queue` is
-likewise unconstructed, and `TaskStorage` has no `Update`, so task status
-reaches SQLite only through WAL replay at the next startup.
-
-On the frontend, only `src/api/agents.ts` talks to the real bindings. Sessions,
-templates and MCP still run against in-memory mocks behind the `src/api/*.ts`
-seam — templates included, even though the Go side and its bindings now exist.
-
-## Roadmap
-
-- [ ] Single node work e2e
-- [ ] Node linking & chaining
-- [ ] Revert workflow
-- [x] Centralized MCP credential storage — auth and forwarding done; token
-      refresh and an agent-facing listener remain
-- [ ] Repo knowledge engineering
-- [ ] Context engineering
-
-## Architecture
-
-Hexagonal, with this project's own naming: every technology sits behind an
-interface, and only `wire.go` knows which implementation fills which interface.
-
-```
-main.go                        entrypoint: wire, then run the app builder
-wire.go                        composition root: the only place implementations are chosen
-config.yaml                    app, session, mcp_servers, agent_harness settings
-Makefile                       dev / build / run / test
-internal/
-  interface/                   ports — pure contracts, no tech
-    core/    agent_manager, agent_template, approval, session_manager, mcp_proxy
-    input/   config, http_cli, harness, cache (WAL),
-             storage_{harness,task,mcp,template}
-    output/  logger, app_builder, fe_api, message_queue
-  implementation/              one package per technology
-    core/
-      agent_manager/           resolves a configured harness by name
-      session_manager/v1.go    add task / report / heartbeat / events (unwired)
-      template_manager/v1.go   agent template CRUD over TemplateStore
-      manual_approval_broker/  operator approvals, served as a local MCP tool
-      mcp_proxy/v1.go          OAuth broker + request forwarding (helpers/)
-      wal_sync/                startup replay: WAL -> SQLite -> reset
-      custom_error/            severity- and type-tagged errors
-    input/
-      config/viper.go          Config from config.yaml
-      http_cli/basic.go        GET / JSON / checksummed download / streaming
-      harness/                 claude_code.go, open_code.go + harness_helper (pty, proc)
-      storage/litesql.go       SQLite (modernc) with user_version migrations
-      wal/file.go              JSONL append with coalescing fsync
-    output/
-      logger/slog.go
-      app_builder/wails.go
-      fe_api/wails_api.go      the API bound to JS
-      message_queue/           in-process pub-sub (unwired)
-  helpers/                     small shared utilities and enums/
-frontend/                      React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui
-  src/api/                     the only seam to Go — agents.ts is the only one
-                               on real bindings; the rest are mocks
-  src/components/              agents, canvas, common, inspector, nodes,
-                               onboarding, sessions, settings, templates, ui
-  src/hooks/ src/lib/ src/types/
-  wailsjs/                     generated bindings — regenerate, don't hand-edit
-```
-
-The rules:
-
-- `interface/` knows nothing about any technology.
-- `implementation/` packages depend on `interface/`, never on each other.
-- `wire.go` is the only place a concrete implementation is chosen.
-- All ids are UUIDv7, generated inline at the call site.
-
-## Commands
+## Run it
 
 ```sh
-make dev     # start with hot reload (recommended for development)
-make run     # build the production .app and launch it
-make build   # build the production .app only
-make test    # run Go tests
+git clone https://github.com/rye-ndt/nexo.git
+cd nexo
+make dev
 ```
 
-Note: the app reads `config.yaml` from the working directory, so run it from
-the repo root. `go run .` fails with a Wails build-tag error — use `make dev`.
+Then, in the app:
+
+1. install and sign in to Claude Code / Open Code in settings
+2. authorize any MCP servers you need
+3. start a session
+4. make templates — each one is a kind of agent that does a kind of work
+5. drop nodes on the canvas and wire them together, mixing agent types freely
+6. finalize the session, run it
+7. go play pickleball
+8. come back, review, revert what you don't like
+9. commit
+
+Two things that will bite you: run from the repo root, because `config.yaml` is
+read from the working directory. And use `make dev` — `go run .` dies on a Wails
+build tag.
+
+## Config
+
+`config.yaml` holds window size, timeouts, model lists, and the MCP servers you
+can authorize.
+
+**Change `encode_key` before you use this for real.** It encrypts your stored
+OAuth tokens, and the default value is committed to this repo, so it isn't a
+secret. Also: a typo anywhere in that file surfaces as a nil panic instead of a
+readable error. Blame viper.
+
+### Is this an another LLM wrapper?
+
+No. And the reasons are
+
+**Nodes are a DAG, not a queue.** Chaining is the entire point.
+
+**The handover doc is the product.** A finished node writes down what it did,
+what blocked it, what got approved, what got _rejected_, what to avoid, and
+what's still broken. That doc becomes the next node's context. Telling the next
+agent what **not** to do matters as much as telling it what happened.
+
+**It assumes agents fail.** Every write hits a WAL before it commits and replays
+into SQLite on restart. Agents send heartbeats — go quiet and your task drops
+back into the pool. Every file change is stored as a unified diff, so you can
+revert without depending on git.
+
+**Agents never see your secrets.** Nexo does the OAuth once, encrypts the token,
+and hands agents a placeholder name. The proxy swaps in the real key on the way
+out, and refuses anything aimed at an auth endpoint.
+
+## Why not just Claude Code?
+
+Claude Code and OpenCode are great at one task, and Nexo runs on top of them
+anyway. But:
+
+- can you delegate a 10-step job, walk away, and trust it without reading every line?
+- can you make it follow _your_ procedure instead of improvising one?
+- can you see why it chose what it chose?
+- what happens when your vendor triples the price?
+- can you undo step 4 and keep steps 1 through 3?
+
+That's what this is for.
+
+v0.0.1 · MIT · last big update Aug 4, 2026
+
+## Is this vibe-coded?
+
+No. I built the backend and the architecture by hand, so I know how it works.
+Claude helped with the frontend.
+
+## Buy me a coffee
+
+- BTC `bc1q5kaek7dnkfah0h958ys4lzn574yu6lpu2tzwsr`
+- EVM `0xeb8d8C405C4d377fcFB61FFF3b0Bb730B103A51f`
+- SVM `rypBpVeH5HmMXKkMRHy3W4fWRhCUSPHsxD3hDy46QPG`

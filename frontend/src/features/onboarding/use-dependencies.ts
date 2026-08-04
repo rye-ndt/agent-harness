@@ -2,12 +2,14 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 
 import {installAgent, listAgents, onInstallProgress} from '@/features/agents/api'
+import {completeOnboarding, hasOnboarded} from '@/features/onboarding/api'
 import {InstallStage} from '@/shared/lib/enums'
 import {errorMessage} from '@/shared/lib/errors'
 import {overallRatio} from '@/features/onboarding/install'
 import type {Agent, Dependency, InstallProgress} from '@/features/agents/types'
 
 const AGENTS_KEY = ['agents']
+const ONBOARDED_KEY = ['onboarded']
 
 type Failure = {agentId: string; message: string}
 
@@ -15,6 +17,7 @@ export function useDependencies() {
     const queryClient = useQueryClient()
 
     const {data, isPending} = useQuery({queryKey: AGENTS_KEY, queryFn: listAgents})
+    const onboarding = useQuery({queryKey: ONBOARDED_KEY, queryFn: hasOnboarded})
 
     const [progress, setProgress] = useState<Record<string, InstallProgress>>({})
     const [installed, setInstalled] = useState<string[]>([])
@@ -73,16 +76,26 @@ export function useDependencies() {
         [installed],
     )
 
-    useEffect(() => {
-        if (started.current || isPending) return
+    const finish = useCallback(() => {
+        void completeOnboarding().catch(() => {})
+        queryClient.setQueryData(ONBOARDED_KEY, true)
+    }, [queryClient])
 
-        const missing = agents.filter((agent) => !agent.installed)
-        if (missing.length === 0) return
+    useEffect(() => {
+        if (started.current || isPending || onboarding.isPending) return
 
         started.current = true
+        if (onboarding.data) return
+
+        const missing = agents.filter((agent) => !agent.installed)
+        if (missing.length === 0) {
+            finish()
+            return
+        }
+
         setNeeded(true)
         void install(missing)
-    }, [agents, isPending, install])
+    }, [agents, isPending, onboarding.isPending, onboarding.data, install, finish])
 
     const dependencies: Dependency[] = agents.map((agent) => {
         const ready = !isMissing(agent)
@@ -101,7 +114,7 @@ export function useDependencies() {
     const anyReady = agents.some((agent) => !isMissing(agent))
 
     return {
-        ready: !isPending,
+        ready: !isPending && !onboarding.isPending,
         required: needed && !dismissed,
         settled: !running && failures.length === 0 && !agents.some(isMissing),
         canContinue: !running && anyReady,
@@ -109,6 +122,9 @@ export function useDependencies() {
         ratio: overallRatio(dependencies),
         error: failures[0]?.message ?? '',
         retry: () => void install(agents.filter(isMissing)),
-        dismiss: () => setDismissed(true),
+        dismiss: () => {
+            setDismissed(true)
+            finish()
+        },
     }
 }

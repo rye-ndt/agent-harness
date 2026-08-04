@@ -34,6 +34,10 @@ export function ChooseDirectory(arg1) {
   return window['go']['wails_api']['API']['ChooseDirectory'](arg1);
 }
 
+export function CompleteOnboarding() {
+  return window['go']['wails_api']['API']['CompleteOnboarding']();
+}
+
 export function DeleteSessionDraft(arg1) {
   return window['go']['wails_api']['API']['DeleteSessionDraft'](arg1);
 }
@@ -48,6 +52,10 @@ export function KillAgent(arg1, arg2) {
 
 export function MCPServers() {
   return window['go']['wails_api']['API']['MCPServers']();
+}
+
+export function Onboarded() {
+  return window['go']['wails_api']['API']['Onboarded']();
 }
 
 export function PendingApprovals() {

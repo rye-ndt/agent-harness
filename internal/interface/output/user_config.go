@@ -11,4 +11,6 @@ type UserConfig interface {
 	AgentDefaults() map[enums.TaskLevel]*AgentDefault
 	AgentDefault(level enums.TaskLevel) (*AgentDefault, error)
 	SetAgentDefault(level enums.TaskLevel, agentDefault *AgentDefault) error
+	Onboarded() bool
+	CompleteOnboarding() error
 }

@@ -16,6 +16,7 @@ import (
 
 type file struct {
 	AgentDefaults map[enums.TaskLevel]*output_itf.AgentDefault `json:"agent_defaults"`
+	Onboarded     bool                                         `json:"onboarded"`
 }
 
 type v1 struct {
@@ -144,6 +145,31 @@ func (c *v1) SetAgentDefault(level enums.TaskLevel, agentDefault *output_itf.Age
 
 	if err := c.write(); err != nil {
 		c.cfg.AgentDefaults[level] = previous
+		return err
+	}
+
+	return nil
+}
+
+func (c *v1) Onboarded() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.cfg.Onboarded
+}
+
+func (c *v1) CompleteOnboarding() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.cfg.Onboarded {
+		return nil
+	}
+
+	c.cfg.Onboarded = true
+
+	if err := c.write(); err != nil {
+		c.cfg.Onboarded = false
 		return err
 	}
 

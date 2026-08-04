@@ -12,7 +12,7 @@ build:
 
 # Build and launch the production app.
 run: build
-	./build/bin/master_harness.app/Contents/MacOS/master_harness
+	./build/bin/nexo.app/Contents/MacOS/nexo
 
 test:
 	go test ./...

@@ -20,6 +20,8 @@ export function AuthorizeMCPServer(arg1:string):Promise<void>;
 
 export function ChooseDirectory(arg1:string):Promise<string>;
 
+export function CompleteOnboarding():Promise<void>;
+
 export function DeleteSessionDraft(arg1:string):Promise<void>;
 
 export function InstallAgent(arg1:string):Promise<void>;
@@ -27,6 +29,8 @@ export function InstallAgent(arg1:string):Promise<void>;
 export function KillAgent(arg1:string,arg2:string):Promise<void>;
 
 export function MCPServers():Promise<Array<output_itf.MCPServerInfo>>;
+
+export function Onboarded():Promise<boolean>;
 
 export function PendingApprovals():Promise<Array<output_itf.ApprovalInfo>>;
 
