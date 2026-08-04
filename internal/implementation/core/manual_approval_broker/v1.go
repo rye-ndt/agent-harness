@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"hexago/internal/helpers"
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
-	"hexago/internal/implementation/core/custom_error"
 	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
 

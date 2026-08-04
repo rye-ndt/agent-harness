@@ -7,8 +7,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
-	"hexago/internal/implementation/core/custom_error"
 )
 
 func NewCipher(encodeKey string) (cipher.AEAD, error) {

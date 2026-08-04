@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	"hexago/internal/helpers"
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
-	"hexago/internal/implementation/core/custom_error"
 	output_itf "hexago/internal/interface/output"
 )
 

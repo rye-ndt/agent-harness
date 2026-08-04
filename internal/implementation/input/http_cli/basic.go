@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	neturl "net/url"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"hexago/internal/helpers/custom_error"
 	input_itf "hexago/internal/interface/input"
 )
 
@@ -48,7 +48,7 @@ func (f *basic) get(url string) (*http.Response, error) {
 	}
 	if res.StatusCode != http.StatusOK {
 		res.Body.Close()
-		return nil, fmt.Errorf("GET %s: %s", url, res.Status)
+		return nil, custom_error.Critical("GET %s: %s", url, res.Status)
 	}
 	return res, nil
 }
@@ -85,7 +85,7 @@ func (f *basic) post(url, contentType string, body io.Reader) (*http.Response, e
 	if res.StatusCode < http.StatusOK || res.StatusCode > 299 {
 		detail, _ := io.ReadAll(io.LimitReader(res.Body, 2048))
 		res.Body.Close()
-		return nil, fmt.Errorf("POST %s: %s: %s", url, res.Status, strings.TrimSpace(string(detail)))
+		return nil, custom_error.Critical("POST %s: %s: %s", url, res.Status, strings.TrimSpace(string(detail)))
 	}
 	return res, nil
 }
@@ -160,7 +160,7 @@ func (f *basic) Download(url, path string, p *input_itf.DownloadParams) error {
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: %s", url, res.Status)
+		return custom_error.Critical("GET %s: %s", url, res.Status)
 	}
 
 	file, err := os.Create(path)
@@ -184,7 +184,7 @@ func (f *basic) Download(url, path string, p *input_itf.DownloadParams) error {
 	if p != nil && p.Checksum != "" {
 		if sum := hex.EncodeToString(h.Sum(nil)); sum != p.Checksum {
 			os.Remove(path)
-			return fmt.Errorf("checksum mismatch: got %s, want %s", sum, p.Checksum)
+			return custom_error.Critical("checksum mismatch: got %s, want %s", sum, p.Checksum)
 		}
 	}
 	return nil

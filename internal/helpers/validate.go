@@ -1,8 +1,8 @@
 package helpers
 
 import (
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
-	"hexago/internal/implementation/core/custom_error"
 	"reflect"
 	"strings"
 

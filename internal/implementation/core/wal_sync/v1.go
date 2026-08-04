@@ -1,8 +1,8 @@
 package wal_sync
 
 import (
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
-	"hexago/internal/implementation/core/custom_error"
 	input_itf "hexago/internal/interface/input"
 
 	"github.com/google/uuid"

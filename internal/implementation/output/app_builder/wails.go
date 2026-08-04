@@ -1,4 +1,4 @@
-package wails
+package app_builder
 
 import (
 	"io/fs"

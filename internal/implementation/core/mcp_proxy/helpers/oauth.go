@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
-	"hexago/internal/implementation/core/custom_error"
 	input_itf "hexago/internal/interface/input"
 )
 
@@ -204,7 +204,7 @@ func ListenLoopback(cfg *input_itf.MCPServersConfig, host string) (*http.Server,
 	addr, ok := ln.Addr().(*net.TCPAddr)
 	if !ok {
 		ln.Close()
-		return nil, "", nil, fmt.Errorf("unexpected listener address %v", ln.Addr())
+		return nil, "", nil, custom_error.Critical("unexpected listener address %v", ln.Addr())
 	}
 
 	results := make(chan *CallbackResult, 1)

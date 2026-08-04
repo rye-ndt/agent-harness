@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/prompts"
-	"hexago/internal/implementation/core/custom_error"
 )
 
 const contextProtocolTemplate = `

@@ -3,11 +3,12 @@
 package harness_helper
 
 import (
-	"errors"
 	"os"
 	"os/exec"
+
+	"hexago/internal/helpers/custom_error"
 )
 
 func StartPty(cmd *exec.Cmd, cols, rows uint16) (*os.File, error) {
-	return nil, errors.New("pty login is not supported on windows")
+	return nil, custom_error.Critical("pty login is not supported on windows")
 }

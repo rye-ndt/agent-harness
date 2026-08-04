@@ -1,4 +1,4 @@
-package harness
+package claude_code
 
 import (
 	"bufio"
@@ -20,9 +20,9 @@ import (
 
 	"hexago/internal/helpers"
 	"hexago/internal/helpers/constances"
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
 	"hexago/internal/helpers/prompts"
-	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/input/harness/harness_helper"
 	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
@@ -163,7 +163,7 @@ func (a *agentProc) snapshotUsage() *input_itf.ContextUsage {
 	return &snapshot
 }
 
-type ClaudeCodeCfg struct {
+type claudeCodeCfg struct {
 	Name          string            `mapstructure:"name" validate:"required"`
 	BinName       string            `mapstructure:"bin_name" validate:"required"`
 	ReleaseBase   string            `mapstructure:"release_base" validate:"required,http_url"`
@@ -188,7 +188,7 @@ type claudeCode struct {
 	installMu   sync.Mutex
 	auth        *authSession
 	loginMu     sync.Mutex
-	cfg         *ClaudeCodeCfg
+	cfg         *claudeCodeCfg
 	httpCli     input_itf.HttpCli
 	storage     input_itf.HarnessStorage
 	tokenRe     *regexp.Regexp
@@ -199,13 +199,18 @@ type claudeCode struct {
 	ctxWindow   int
 }
 
-func NewClaudeCode(
-	globalCfg input_itf.Config,
+func New(
+	cfg input_itf.Config,
 	httpCli input_itf.HttpCli,
-	db input_itf.HarnessStorage,
+	store input_itf.HarnessStorage,
 	mcpGateway *core_itf.MCPGateway,
-	claudeCfg *ClaudeCodeCfg,
+	raw map[string]any,
 ) (input_itf.AgentHarness, error) {
+	claudeCfg, err := harness_helper.DecodeCfg[claudeCodeCfg](raw)
+	if err != nil {
+		return nil, err
+	}
+
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return nil, custom_error.Critical("%v", err)
@@ -226,24 +231,24 @@ func NewClaudeCode(
 		return nil, err
 	}
 
-	dir := filepath.Join(base, globalCfg.Read().App.Name, "harness", harnessName)
+	dir := filepath.Join(base, cfg.Read().App.Name, "harness", harnessName)
 	configDir := filepath.Join(dir, "config")
 
 	return &claudeCode{
 		dir:           dir,
-		binPath:       binPath(dir, claudeCfg.BinName),
+		binPath:       harness_helper.BinPath(dir, claudeCfg.BinName),
 		configDir:     configDir,
 		tokenPath:     filepath.Join(dir, "credentials"),
 		workspacesDir: filepath.Join(dir, "workspaces"),
 		agents:        map[string]*agentProc{},
 		cfg:           claudeCfg,
 		httpCli:       httpCli,
-		storage:       db,
+		storage:       store,
 		tokenRe:       tokenRe,
 		ansiRe:        ansiRe,
 		mcpCfg:        mcpCfg,
-		baseEnv:       append(cleanEnv(), "CLAUDE_CONFIG_DIR="+configDir),
-		ctxWindow:     globalCfg.Read().AgentManager.AllowedAgentContextWindow,
+		baseEnv:       append(harness_helper.CleanEnv(), "CLAUDE_CONFIG_DIR="+configDir),
+		ctxWindow:     cfg.Read().AgentManager.AllowedAgentContextWindow,
 		spawnArgs: []string{"-p",
 			"--input-format", "stream-json",
 			"--output-format", "stream-json",
@@ -377,7 +382,7 @@ func (c *claudeCode) Auth() (string, error) {
 	}
 
 	cmd := exec.Command(c.binPath, "setup-token")
-	cmd.Env = append(cleanEnv(),
+	cmd.Env = append(harness_helper.CleanEnv(),
 		"CLAUDE_CONFIG_DIR="+c.configDir,
 		"TERM=xterm-256color",
 	)
@@ -852,14 +857,6 @@ func claudeMCPConfig(gateway *core_itf.MCPGateway) ([]byte, error) {
 	return raw, nil
 }
 
-func binPath(dir, name string) string {
-	if runtime.GOOS == enums.Windows.String() {
-		name += ".exe"
-	}
-
-	return filepath.Join(dir, "bin", name)
-}
-
 func platformString() (string, error) {
 	goos := map[string]string{"darwin": "darwin", "linux": "linux", "windows": "win32"}[runtime.GOOS]
 	arch := map[string]string{"arm64": "arm64", "amd64": "x64"}[runtime.GOARCH]
@@ -867,23 +864,4 @@ func platformString() (string, error) {
 		return "", custom_error.Critical("unsupported platform %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 	return goos + "-" + arch, nil
-}
-
-func cleanEnv(extra ...string) []string {
-	drop := append([]string{
-		"ANTHROPIC_API_KEY=", "ANTHROPIC_AUTH_TOKEN=",
-		"CLAUDE_CODE_OAUTH_TOKEN=", "CLAUDE_CONFIG_DIR=",
-		"CLAUDE_CODE_USE_BEDROCK=", "CLAUDE_CODE_USE_VERTEX=",
-	}, extra...)
-	var env []string
-outer:
-	for _, kv := range os.Environ() {
-		for _, d := range drop {
-			if strings.HasPrefix(kv, d) {
-				continue outer
-			}
-		}
-		env = append(env, kv)
-	}
-	return env
 }

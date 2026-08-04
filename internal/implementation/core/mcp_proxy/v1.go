@@ -11,8 +11,8 @@ import (
 
 	"hexago/internal/helpers"
 	"hexago/internal/helpers/constances"
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
-	"hexago/internal/implementation/core/custom_error"
 	mcp_helpers "hexago/internal/implementation/core/mcp_proxy/helpers"
 	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"

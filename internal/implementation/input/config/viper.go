@@ -1,19 +1,19 @@
-package viper
+package config
 
 import (
-	lib "github.com/spf13/viper"
+	"github.com/spf13/viper"
 
 	"hexago/internal/helpers"
-	"hexago/internal/implementation/core/custom_error"
+	"hexago/internal/helpers/custom_error"
 	input_itf "hexago/internal/interface/input"
 )
 
-type viper struct {
+type viperConfig struct {
 	cfg *input_itf.ConfigStruct
 }
 
 func New(path string) (input_itf.Config, error) {
-	v := lib.New()
+	v := viper.New()
 	v.SetConfigFile(path)
 
 	if err := v.ReadInConfig(); err != nil {
@@ -30,9 +30,9 @@ func New(path string) (input_itf.Config, error) {
 		return nil, custom_error.Critical("invalid %s: %v", path, err)
 	}
 
-	return &viper{cfg: cfg}, nil
+	return &viperConfig{cfg: cfg}, nil
 }
 
-func (c *viper) Read() *input_itf.ConfigStruct {
+func (c *viperConfig) Read() *input_itf.ConfigStruct {
 	return c.cfg
 }

@@ -5,13 +5,11 @@ import (
 	"time"
 
 	"hexago/internal/helpers"
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
-	"hexago/internal/implementation/core/custom_error"
-	"hexago/internal/implementation/input/harness"
 	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
 
-	mapstructure "github.com/go-viper/mapstructure/v2"
 	"github.com/google/uuid"
 )
 
@@ -32,59 +30,20 @@ type agentManagerV1 struct {
 }
 
 func InitV1(
-	cfg input_itf.Config,
+	cfg *input_itf.AgentManagerConfig,
 	httpCli input_itf.HttpCli,
-	store input_itf.HarnessStorage,
-	mcpGateway *core_itf.MCPGateway,
+	harnesses map[enums.AgentHarness]input_itf.AgentHarness,
 	approvalBroker core_itf.ApprovalBroker,
 ) (core_itf.AgentManager, error) {
-	managerCfg := cfg.Read().AgentManager
-	if managerCfg == nil {
+	if cfg == nil {
 		return nil, custom_error.Critical("agent manager config not found")
-	}
-
-	supportedAgents := cfg.Read().AgentHarness
-
-	list := map[enums.AgentHarness]input_itf.AgentHarness{}
-
-	for name, config := range supportedAgents {
-		switch name {
-		case enums.ClaudeCode:
-			claudeCfg, err := decodeAgentCfg[harness.ClaudeCodeCfg](config)
-			if err != nil {
-				return nil, err
-			}
-
-			claudeManager, err := harness.NewClaudeCode(cfg, httpCli, store, mcpGateway, claudeCfg)
-			if err != nil {
-				return nil, err
-			}
-
-			list[enums.ClaudeCode] = claudeManager
-
-		case enums.OpenCode:
-			openCodeCfg, err := decodeAgentCfg[harness.OpenCodeCfg](config)
-			if err != nil {
-				return nil, err
-			}
-
-			openCodeManager, err := harness.NewOpenCode(cfg, httpCli, store, mcpGateway, openCodeCfg)
-			if err != nil {
-				return nil, err
-			}
-
-			list[enums.OpenCode] = openCodeManager
-
-		default:
-			return nil, custom_error.Critical("agent harness %s has no initializer", name)
-		}
 	}
 
 	return &agentManagerV1{
 		locker:         sync.Mutex{},
-		cfg:            managerCfg,
+		cfg:            cfg,
 		httpCli:        httpCli,
-		harnessTool:    list,
+		harnessTool:    harnesses,
 		instances:      map[enums.ModelName][]*core_itf.Agent{},
 		heartBeats:     map[uuid.UUID]int64{},
 		approvalBroker: approvalBroker,
@@ -362,26 +321,4 @@ func (m *agentManagerV1) toolForAgent(agentID uuid.UUID) (input_itf.AgentHarness
 	}
 
 	return tool, nil
-}
-
-func decodeAgentCfg[T any](raw map[string]any) (*T, error) {
-	out := new(T)
-
-	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		DecodeHook: mapstructure.StringToTimeDurationHookFunc(),
-		Result:     out,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	if err := dec.Decode(raw); err != nil {
-		return nil, err
-	}
-
-	if err := helpers.ValidateStruct(out); err != nil {
-		return nil, custom_error.Critical("invalid agent harness config: %v", err)
-	}
-
-	return out, nil
 }

@@ -6,21 +6,24 @@ import (
 	"path/filepath"
 	"time"
 
+	"hexago/internal/helpers/custom_error"
+	"hexago/internal/helpers/enums"
 	"hexago/internal/implementation/core/agent_manager"
 	"hexago/internal/implementation/core/coordinator"
-	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/core/manual_approval_broker"
 	"hexago/internal/implementation/core/mcp_proxy"
 	"hexago/internal/implementation/core/session_manager"
 	"hexago/internal/implementation/core/template_manager"
 	"hexago/internal/implementation/core/wal_sync"
-	viper "hexago/internal/implementation/input/config"
+	"hexago/internal/implementation/input/config"
+	"hexago/internal/implementation/input/harness/claude_code"
+	"hexago/internal/implementation/input/harness/open_code"
 	"hexago/internal/implementation/input/http_cli"
 	"hexago/internal/implementation/input/storage"
 	"hexago/internal/implementation/input/wal"
-	wails "hexago/internal/implementation/output/app_builder"
+	"hexago/internal/implementation/output/app_builder"
 	wails_api "hexago/internal/implementation/output/fe_api"
-	slogger "hexago/internal/implementation/output/logger"
+	"hexago/internal/implementation/output/logger"
 	"hexago/internal/implementation/output/message_queue"
 	"hexago/internal/implementation/output/user_config"
 	core_itf "hexago/internal/interface/core"
@@ -46,12 +49,12 @@ type App struct {
 }
 
 func wire(assets fs.FS) (*App, error) {
-	cfg, err := viper.New("config.yaml")
+	cfg, err := config.New("config.yaml")
 	if err != nil {
 		return nil, err
 	}
 
-	logger := slogger.New(cfg)
+	appLogger := logger.New(cfg)
 
 	httpCli := http_cli.New(&http_cli.BasicHttpCliCfg{Timeout: 30 * time.Second})
 
@@ -79,11 +82,11 @@ func wire(assets fs.FS) (*App, error) {
 
 	dataWarning := ""
 	if err := wal_sync.Run(taskWAL, taskStore); err != nil {
-		logger.Error("wal sync", "err", err)
+		appLogger.Error("wal sync", "err", err)
 		dataWarning = "Task history from the previous session is corrupted or could not be saved. The app will continue without it."
 	}
 
-	mq := message_queue.InitMQV1()
+	mq := message_queue.InitV1()
 
 	sessionCfg := cfg.Read().Session
 	if sessionCfg == nil {
@@ -115,7 +118,41 @@ func wire(assets fs.FS) (*App, error) {
 		return nil, err
 	}
 
-	agentManager, err := agent_manager.InitV1(cfg, httpCli, store, mcpGateway, approvalBroker)
+	managerCfg := cfg.Read().AgentManager
+	if managerCfg == nil {
+		mcpProxy.Close()
+		return nil, custom_error.Critical("agent manager config not found")
+	}
+
+	harnesses := map[enums.AgentHarness]input_itf.AgentHarness{}
+
+	for name, raw := range cfg.Read().AgentHarness {
+		switch name {
+		case enums.ClaudeCode:
+			claudeHarness, err := claude_code.New(cfg, httpCli, store, mcpGateway, raw)
+			if err != nil {
+				mcpProxy.Close()
+				return nil, err
+			}
+
+			harnesses[enums.ClaudeCode] = claudeHarness
+
+		case enums.OpenCode:
+			openCodeHarness, err := open_code.New(cfg, httpCli, store, mcpGateway, raw)
+			if err != nil {
+				mcpProxy.Close()
+				return nil, err
+			}
+
+			harnesses[enums.OpenCode] = openCodeHarness
+
+		default:
+			mcpProxy.Close()
+			return nil, custom_error.Critical("agent harness %s has no initializer", name)
+		}
+	}
+
+	agentManager, err := agent_manager.InitV1(managerCfg, httpCli, harnesses, approvalBroker)
 	if err != nil {
 		mcpProxy.Close()
 		return nil, err
@@ -145,11 +182,11 @@ func wire(assets fs.FS) (*App, error) {
 		DataWarning:  dataWarning,
 	})
 
-	appBuilder := wails.New(cfg, feAPI, assets)
+	appBuilder := app_builder.New(cfg, feAPI, assets)
 
 	return &App{
 		Config:          cfg,
-		Logger:          logger,
+		Logger:          appLogger,
 		AppBuilder:      appBuilder,
 		HttpFetcher:     httpCli,
 		Storage:         store,

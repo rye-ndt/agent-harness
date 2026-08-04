@@ -3,7 +3,7 @@ package message_queue
 import (
 	"sync"
 
-	"hexago/internal/implementation/core/custom_error"
+	"hexago/internal/helpers/custom_error"
 	output_itf "hexago/internal/interface/output"
 
 	"github.com/google/uuid"
@@ -21,7 +21,7 @@ type v1 struct {
 	streams map[subscription]chan any
 }
 
-func InitMQV1() output_itf.MessageQ {
+func InitV1() output_itf.MessageQ {
 	return &v1{
 		locker:  sync.Mutex{},
 		streams: map[subscription]chan any{},

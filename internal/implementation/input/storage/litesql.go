@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
 	input_itf "hexago/internal/interface/input"
 )
@@ -165,11 +166,11 @@ func migrate(db *sql.DB) error {
 		}
 		if _, err := tx.Exec(migrations[i]); err != nil {
 			tx.Rollback()
-			return fmt.Errorf("migration %d: %w", i+1, err)
+			return custom_error.Critical("migration %d: %v", i+1, err)
 		}
 		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, i+1)); err != nil {
 			tx.Rollback()
-			return fmt.Errorf("migration %d: %w", i+1, err)
+			return custom_error.Critical("migration %d: %v", i+1, err)
 		}
 		if err := tx.Commit(); err != nil {
 			return err

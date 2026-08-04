@@ -1,4 +1,4 @@
-package harness
+package open_code
 
 import (
 	"archive/zip"
@@ -25,9 +25,9 @@ import (
 
 	"hexago/internal/helpers"
 	"hexago/internal/helpers/constances"
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
 	"hexago/internal/helpers/prompts"
-	"hexago/internal/implementation/core/custom_error"
 	"hexago/internal/implementation/input/harness/harness_helper"
 	core_itf "hexago/internal/interface/core"
 	input_itf "hexago/internal/interface/input"
@@ -120,7 +120,7 @@ func (p *openCodeProc) snapshotUsage() *input_itf.ContextUsage {
 	return &snapshot
 }
 
-type OpenCodeCfg struct {
+type openCodeCfg struct {
 	Name          string            `mapstructure:"name" validate:"required"`
 	BinName       string            `mapstructure:"bin_name" validate:"required"`
 	ReleaseBase   string            `mapstructure:"release_base" validate:"required,http_url"`
@@ -141,7 +141,7 @@ type openCode struct {
 	uninstalled  bool
 	authMu       sync.Mutex
 	installMu    sync.Mutex
-	cfg          *OpenCodeCfg
+	cfg          *openCodeCfg
 	httpCli      input_itf.HttpCli
 	storage      input_itf.HarnessStorage
 	agentCfg     map[string]any
@@ -151,45 +151,50 @@ type openCode struct {
 	ctxWindow    int
 }
 
-func NewOpenCode(
-	globalCfg input_itf.Config,
+func New(
+	cfg input_itf.Config,
 	httpCli input_itf.HttpCli,
-	db input_itf.HarnessStorage,
+	store input_itf.HarnessStorage,
 	mcpGateway *core_itf.MCPGateway,
-	openCodeCfg *OpenCodeCfg,
+	raw map[string]any,
 ) (input_itf.AgentHarness, error) {
+	openCfg, err := harness_helper.DecodeCfg[openCodeCfg](raw)
+	if err != nil {
+		return nil, err
+	}
+
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return nil, custom_error.Critical("%v", err)
 	}
 
-	dir := filepath.Join(base, globalCfg.Read().App.Name, "harness", openCodeName)
+	dir := filepath.Join(base, cfg.Read().App.Name, "harness", openCodeName)
 	dataDir := filepath.Join(dir, "config")
 
-	cfg := map[string]any{
+	agentCfg := map[string]any{
 		"permission": openCodePermissions,
 	}
 
 	if block := openCodeMCPCfg(mcpGateway); block != nil {
-		cfg["mcp"] = block
+		agentCfg["mcp"] = block
 	}
 
 	return &openCode{
 		dir:           dir,
-		binPath:       binPath(dir, openCodeCfg.BinName),
+		binPath:       harness_helper.BinPath(dir, openCfg.BinName),
 		dataDir:       dataDir,
 		authPath:      filepath.Join(dataDir, "opencode", "auth.json"),
 		workspacesDir: filepath.Join(dir, "workspaces"),
 
 		agents:       map[string]*openCodeProc{},
-		cfg:          openCodeCfg,
+		cfg:          openCfg,
 		httpCli:      httpCli,
-		storage:      db,
-		agentCfg:     cfg,
+		storage:      store,
+		agentCfg:     agentCfg,
 		systemPrompt: prompts.System(),
-		env:          append(cleanEnv("XDG_DATA_HOME=", "OPENCODE_"), "XDG_DATA_HOME="+dataDir),
+		env:          append(harness_helper.CleanEnv("XDG_DATA_HOME=", "OPENCODE_"), "XDG_DATA_HOME="+dataDir),
 		sessionCli:   &http.Client{Timeout: 2 * time.Second},
-		ctxWindow:    globalCfg.Read().AgentManager.AllowedAgentContextWindow,
+		ctxWindow:    cfg.Read().AgentManager.AllowedAgentContextWindow,
 	}, nil
 }
 

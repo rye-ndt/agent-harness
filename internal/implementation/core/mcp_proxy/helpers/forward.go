@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
+	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
-	"hexago/internal/implementation/core/custom_error"
 )
 
 var authSegments = map[string]any{
