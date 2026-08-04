@@ -92,6 +92,7 @@ function App() {
             <main className="flex min-w-0 flex-1 flex-col">
                 <SessionHeader
                     session={session}
+                    error={store.error}
                     onRename={renameSession}
                     onEditLocations={openLocations}
                     onFinalize={finalizeSession}

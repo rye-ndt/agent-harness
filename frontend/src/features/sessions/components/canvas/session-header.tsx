@@ -1,4 +1,4 @@
-import {useState, type ChangeEvent, type KeyboardEvent} from 'react'
+import {useState, type ChangeEvent, type ComponentType, type KeyboardEvent} from 'react'
 import {Copy, Folder, Lock, Plus, Settings} from 'lucide-react'
 
 import {Button} from '@/shared/ui/button'
@@ -20,6 +20,7 @@ const FINALIZED_HINT = 'Finalized — duplicate to make changes.'
 
 export function SessionHeader({
     session,
+    error,
     onRename,
     onEditLocations,
     onFinalize,
@@ -28,6 +29,7 @@ export function SessionHeader({
     onOpenSettings,
 }: {
     session: Session | null
+    error: string
     onRename: (name: string) => void
     onEditLocations: () => void
     onFinalize: () => void
@@ -61,20 +63,26 @@ export function SessionHeader({
                     {session && (
                         <>
                             {!locked && (
-                                <Button variant="outline" size="sm" onClick={onNewNode}>
-                                    <Plus />
-                                    New node
-                                </Button>
+                                <HeaderAction
+                                    label="New node"
+                                    icon={Plus}
+                                    variant="outline"
+                                    onClick={onNewNode}
+                                />
                             )}
-                            <Button variant="ghost" size="sm" onClick={onClone}>
-                                <Copy />
-                                Duplicate
-                            </Button>
+                            <HeaderAction
+                                label="Duplicate"
+                                icon={Copy}
+                                variant="ghost"
+                                onClick={onClone}
+                            />
                             {!locked && (
-                                <Button variant="outline" size="sm" onClick={onFinalize}>
-                                    <Lock />
-                                    Finalize
-                                </Button>
+                                <HeaderAction
+                                    label="Finalize"
+                                    icon={Lock}
+                                    variant="outline"
+                                    onClick={onFinalize}
+                                />
                             )}
                             <span className="mx-1 h-5 w-px bg-border" />
                         </>
@@ -95,13 +103,48 @@ export function SessionHeader({
                     </Tooltip>
                 </div>
             </div>
+
+            {error && (
+                <p
+                    role="alert"
+                    className="border-b border-border px-4 py-3 text-sm text-destructive"
+                >
+                    {error}
+                </p>
+            )}
         </header>
+    )
+}
+
+function HeaderAction({
+    label,
+    icon: Icon,
+    variant,
+    onClick,
+}: {
+    label: string
+    icon: ComponentType<{className?: string}>
+    variant: 'outline' | 'ghost'
+    onClick: () => void
+}) {
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <Button variant={variant} size="sm" aria-label={label} onClick={onClick}>
+                    <Icon />
+                    <span className="hidden xl:inline">{label}</span>
+                </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="xl:hidden">
+                {label}
+            </TooltipContent>
+        </Tooltip>
     )
 }
 
 function FinalizedName({name}: {name: string}) {
     return (
-        <span className="flex min-w-0 items-center gap-1">
+        <span className="flex w-full max-w-96 min-w-40 items-center gap-1">
             <span className="truncate text-xl font-semibold">{name}</span>
             <Tooltip>
                 <TooltipTrigger asChild>
@@ -149,7 +192,7 @@ function SessionNameInput({name, onRename}: {name: string; onRename: (name: stri
             onChange={change}
             onBlur={commit}
             onKeyDown={handleKeys}
-            className="-ml-2 w-full max-w-96 min-w-0 rounded-md bg-transparent px-2 py-1 text-xl font-semibold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live"
+            className="-ml-2 w-full max-w-96 min-w-40 rounded-md bg-transparent px-2 py-1 text-xl font-semibold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live"
         />
     )
 }
@@ -160,7 +203,7 @@ function SessionDirectories({session, onEdit}: {session: Session; onEdit: () => 
 
     if (session.finalized)
         return (
-            <span className="max-w-72 shrink truncate font-mono text-sm text-muted-foreground">
+            <span className="hidden min-w-0 shrink truncate font-mono text-sm text-muted-foreground lg:block lg:max-w-40 xl:max-w-72">
                 {session.workingDir}
             </span>
         )
@@ -172,10 +215,10 @@ function SessionDirectories({session, onEdit}: {session: Session; onEdit: () => 
                     type="button"
                     aria-label="Session directories"
                     onClick={onEdit}
-                    className="flex max-w-72 shrink items-center gap-2 rounded-md px-2 py-1 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-live"
+                    className="flex min-w-0 shrink items-center gap-2 rounded-md px-2 py-1 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-live lg:max-w-40 xl:max-w-72"
                 >
                     <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate font-mono text-sm text-muted-foreground">
+                    <span className="hidden truncate font-mono text-sm text-muted-foreground lg:block">
                         {session.workingDir}
                     </span>
                 </button>

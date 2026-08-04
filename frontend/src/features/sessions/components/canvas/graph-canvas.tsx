@@ -1,4 +1,4 @@
-import {useMemo, useState, type MouseEvent} from 'react'
+import {useEffect, useMemo, useRef, useState, type MouseEvent} from 'react'
 import {
     Background,
     BackgroundVariant,
@@ -9,20 +9,15 @@ import {
     type Connection,
     type Edge,
     type HandleType,
+    type NodeChange,
     type OnConnectStartParams,
 } from '@xyflow/react'
 import {Maximize, Minus, Plus} from 'lucide-react'
 
-import {
-    TaskNode,
-    type TaskNodeAgent,
-    type TaskNodeType,
-} from '@/features/sessions/components/canvas/task-node'
+import {TaskNode, type TaskNodeType} from '@/features/sessions/components/canvas/task-node'
 import {Button} from '@/shared/ui/button'
-import {useAgentDefaults} from '@/features/settings/use-agent-defaults'
 import {useTemplates} from '@/features/templates/use-templates'
-import {agentDefaultFor} from '@/features/settings/agent-default'
-import {TaskState} from '@/shared/lib/enums'
+import {TaskState, type TaskLevel} from '@/shared/lib/enums'
 import {createsCycle, unlinkableFrom, unlinkableInto} from '@/features/sessions/graph'
 import {cn} from '@/shared/lib/utils'
 import type {Point, Session} from '@/features/sessions/types'
@@ -48,6 +43,8 @@ const fitViewOptions = {padding: 0.3, maxZoom: 1}
 const ORIGIN: Point = {x: 0, y: 0}
 
 const NODE_CURSOR_OFFSET: Point = {x: 130, y: 40}
+
+const NO_DRAG: Record<string, Point> = {}
 
 const EDGE_TONES: Partial<Record<TaskState, string>> = {
     [TaskState.Running]: 'is-live',
@@ -75,9 +72,10 @@ function Canvas({
 }: GraphCanvasProps) {
     const {screenToFlowPosition} = useReactFlow()
     const {templates} = useTemplates()
-    const {defaults} = useAgentDefaults()
     const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
     const [connectingFrom, setConnectingFrom] = useState<ConnectionOrigin | null>(null)
+    const [dragPositions, setDragPositions] = useState<Record<string, Point>>(NO_DRAG)
+    const dragging = useRef(false)
 
     const locked = session.finalized
     const isEmpty = session.tasks.length === 0
@@ -90,34 +88,25 @@ function Canvas({
             : unlinkableInto(session.tasks, connectingFrom.nodeId)
     }, [session.tasks, connectingFrom])
 
-    const agentByTask = useMemo(() => {
+    const levelByTask = useMemo(() => {
         const levelOf = new Map(templates.map((template) => [template.id, template.taskLevel]))
 
-        return new Map<string, TaskNodeAgent | null>(
-            session.tasks.map((task) => {
-                const agentDefault = agentDefaultFor(defaults, levelOf.get(task.templateId ?? ''))
-
-                return [
-                    task.id,
-                    agentDefault
-                        ? {model: agentDefault.model, effort: agentDefault.thinkingLevel}
-                        : null,
-                ]
-            }),
+        return new Map<string, TaskLevel | null>(
+            session.tasks.map((task) => [task.id, levelOf.get(task.templateId ?? '') ?? null]),
         )
-    }, [session.tasks, templates, defaults])
+    }, [session.tasks, templates])
 
     const nodes = useMemo<TaskNodeType[]>(
         () =>
             session.tasks.map((task) => ({
                 id: task.id,
                 type: 'task' as const,
-                position: task.position,
+                position: dragPositions[task.id] ?? task.position,
                 data: {
                     task,
                     session,
                     unlinkable: unlinkable?.has(task.id) ?? false,
-                    agent: agentByTask.get(task.id) ?? null,
+                    taskLevel: levelByTask.get(task.id) ?? null,
                 },
                 selected: task.id === selectedTaskId,
                 draggable: !locked,
@@ -127,7 +116,7 @@ function Canvas({
                     locked && 'is-locked',
                 ),
             })),
-        [session, locked, selectedTaskId, unlinkable, agentByTask],
+        [session, locked, selectedTaskId, unlinkable, levelByTask, dragPositions],
     )
 
     const edges = useMemo<GraphEdge[]>(() => {
@@ -156,7 +145,30 @@ function Canvas({
         )
     }, [session, locked, selectedEdgeId])
 
-    const dropNode = (_: unknown, node: TaskNodeType) => onMoveTask(node.id, node.position)
+    useEffect(() => {
+        if (dragging.current) return
+        setDragPositions((current) => (current === NO_DRAG ? current : NO_DRAG))
+    }, [session.tasks])
+
+    const trackDrag = (changes: NodeChange<TaskNodeType>[]) => {
+        const moved = changes.flatMap((change) =>
+            change.type === 'position' && change.position
+                ? ([[change.id, change.position]] as const)
+                : [],
+        )
+        if (moved.length === 0) return
+
+        setDragPositions((current) => ({...current, ...Object.fromEntries(moved)}))
+    }
+
+    const liftNode = () => {
+        dragging.current = true
+    }
+
+    const dropNode = (_: unknown, node: TaskNodeType) => {
+        dragging.current = false
+        onMoveTask(node.id, node.position)
+    }
 
     const selectNode = (_: unknown, node: TaskNodeType) => {
         setSelectedEdgeId(null)
@@ -212,6 +224,8 @@ function Canvas({
                 nodesConnectable={!locked}
                 deleteKeyCode={['Backspace', 'Delete']}
                 proOptions={{hideAttribution: true}}
+                onNodesChange={trackDrag}
+                onNodeDragStart={liftNode}
                 onNodeDragStop={dropNode}
                 onNodeClick={selectNode}
                 onEdgeClick={selectEdge}

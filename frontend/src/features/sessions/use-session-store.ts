@@ -108,6 +108,7 @@ export function useSessionStore() {
 
     return {
         sessions,
+        error: store.error,
         activeSession,
         activeSessionId,
         selectedTaskId,

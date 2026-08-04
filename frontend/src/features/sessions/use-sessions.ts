@@ -2,6 +2,7 @@ import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 
 import * as api from '@/features/sessions/api'
 import * as graph from '@/features/sessions/graph'
+import {errorMessage} from '@/shared/lib/errors'
 import type {Point, Session, SessionDraft, Task, TaskDraft} from '@/features/sessions/types'
 
 const SESSIONS_KEY = ['sessions']
@@ -29,9 +30,9 @@ function useSessionMutation<TArgs>(
     return useMutation({
         mutationFn,
         onMutate: async (args: TArgs) => {
+            await queryClient.cancelQueries({queryKey: SESSIONS_KEY})
             const previous = queryClient.getQueryData<Session[]>(SESSIONS_KEY) ?? []
             queryClient.setQueryData<Session[]>(SESSIONS_KEY, optimistic(previous, args))
-            await queryClient.cancelQueries({queryKey: SESSIONS_KEY})
             return {previous}
         },
         onError: (_error, _args, context) => {
@@ -143,8 +144,23 @@ export function useSessions() {
             ),
     )
 
+    const writes = [
+        create,
+        clone,
+        rename,
+        setLocations,
+        finalize,
+        remove,
+        createTask,
+        updateTask,
+        deleteTask,
+        connect,
+        disconnect,
+    ]
+
     return {
         sessions: data ?? [],
+        error: errorMessage(writes.find((write) => write.error)?.error),
         createSession: create.mutate,
         cloneSession: clone.mutate,
         renameSession: rename.mutate,

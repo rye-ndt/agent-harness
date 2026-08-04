@@ -2,22 +2,17 @@ import {Handle, Position, type Node, type NodeProps} from '@xyflow/react'
 
 import {StateBadge, StateIcon} from '@/shared/components/task-state'
 import {useElapsed} from '@/shared/hooks/use-elapsed'
-import {TaskState} from '@/shared/lib/enums'
+import {TASK_LEVEL_LABELS, TaskState, type TaskLevel} from '@/shared/lib/enums'
 import {clampRatio, formatTokens} from '@/shared/lib/format'
 import {upstreamOf} from '@/features/sessions/graph'
 import {cn} from '@/shared/lib/utils'
 import type {Session, Task} from '@/features/sessions/types'
 
-export type TaskNodeAgent = {
-    model: string
-    effort: string
-}
-
 export type TaskNodeData = {
     task: Task
     session: Session
     unlinkable: boolean
-    agent: TaskNodeAgent | null
+    taskLevel: TaskLevel | null
 }
 
 export type TaskNodeType = Node<TaskNodeData, 'task'>
@@ -36,7 +31,7 @@ function upstreamLine(upstream: Task[]) {
 }
 
 export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
-    const {task, session, unlinkable, agent} = data
+    const {task, session, unlinkable, taskLevel} = data
     const elapsed = useElapsed(task.run?.startedAt, task.run?.finishedAt)
 
     const upstream = upstreamOf(session, task)
@@ -87,10 +82,9 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
             </div>
 
             <div className="relative mt-2 flex items-center justify-between gap-2 text-sm">
-                {agent && (
-                    <span className="flex min-w-0 items-center gap-1 font-mono text-muted-foreground">
-                        <span className="truncate">{agent.model}</span>
-                        <span className="shrink-0">· {agent.effort}</span>
+                {taskLevel && (
+                    <span className="min-w-0 truncate text-muted-foreground">
+                        {TASK_LEVEL_LABELS[taskLevel]}
                     </span>
                 )}
                 <span className="flex shrink-0 items-center gap-2">
