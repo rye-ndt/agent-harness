@@ -50,11 +50,15 @@ agent lifecycle, approvals, context usage and templates.
   is a deliberate design rather than framework defaults.
 - **No Go wiring yet — mock everything, but against a contract.** Do not add
   ports in `internal/interface/` or bindings in `frontend/wailsjs/` for new
-  frontend work. Instead: declare the shape the frontend expects in
-  `src/types/`, back it with a fixture in `src/lib/mock-*.ts`, and expose it
-  through `src/api/*.ts` as an async function. `api/*.ts` is the only seam that
-  will ever be swapped for a real call — nothing above it may import a mock
-  directly. The contract is a working guess and will change; write it as the
+  frontend work. Instead: declare the shape the frontend expects in the
+  feature's `src/features/<domain>/types.ts`, back it with a fixture next to
+  the feature's api module (`src/features/<domain>/mock-*.ts`, shared ones in
+  `src/shared/api/`), and expose it through that api module
+  (`src/features/<domain>/api`, or `src/shared/api/` for cross-feature seams)
+  as an async function. The api layer is the only seam that will ever be
+  swapped for a real call — nothing above it may import a mock directly,
+  enforced by ESLint `no-restricted-imports`. The contract is a working guess
+  and will change; write it as the
   DTO the Go side would plausibly return (string ids, ISO timestamps), not as
   whatever is convenient for the component.
 - **Every flow must be end-to-end testable in the browser.** Mocks model state
@@ -65,11 +69,12 @@ agent lifecycle, approvals, context usage and templates.
 - **The dev server is web-based on port 8888** (`npm run dev` in `frontend/`,
   pinned in `vite.config.ts`). Under a plain `vite` server there is no Wails
   runtime — see the `frontend/wailsjs/` gotcha below; this is exactly why the
-  `api/*.ts` seam must never reach for a binding while we are mocking.
+  feature `api` seam must never reach for a binding while we are mocking.
 - **Written for a human maintainer, not a bot.** Small components with one job,
   names that say what the thing is, no cleverness that needs a comment to
   survive. Pure presentational components take props and render; state lives in
-  hooks (`src/hooks/`) and TanStack Query. Duplicate before you abstract — a
+  hooks (the feature's `use-*.ts`, shared ones in `src/shared/hooks/`) and
+  TanStack Query. Duplicate before you abstract — a
   wrong abstraction costs more than a repeated block.
 
 # Performance
@@ -109,6 +114,8 @@ Inspector against the WebContent process for the frontend.
 - `viper.Read()` returns nil on unmarshal error, so a config typo surfaces as a
   nil dereference rather than a clear error.
 - Typecheck the frontend with `npx tsc --noEmit` in `frontend/`.
+- Lint and format the frontend with `npm run lint` / `npm run format` in
+  `frontend/`.
 - The generated bindings in `frontend/wailsjs/` dereference `window.go` /
   `window.runtime` **synchronously**, so outside the Wails webview they throw
   rather than reject. `.catch()` on the returned promise never fires — wrap the
