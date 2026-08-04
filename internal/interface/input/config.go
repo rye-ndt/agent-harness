@@ -7,10 +7,11 @@ import (
 )
 
 type AppConfig struct {
-	Name string `mapstructure:"name" validate:"required"`
-	W    int    `mapstructure:"w" validate:"gt=0"`
-	H    int    `mapstructure:"h" validate:"gt=0"`
-	Bg   string `mapstructure:"bg" validate:"required,hexcolor"`
+	Name    string `mapstructure:"name" validate:"required"`
+	DataDir string `mapstructure:"data_dir" validate:"required"`
+	W       int    `mapstructure:"w" validate:"gt=0"`
+	H       int    `mapstructure:"h" validate:"gt=0"`
+	Bg      string `mapstructure:"bg" validate:"required,hexcolor"`
 }
 
 type SessionConfig struct {

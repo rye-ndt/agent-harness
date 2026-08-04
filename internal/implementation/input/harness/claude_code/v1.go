@@ -231,7 +231,7 @@ func New(
 		return nil, err
 	}
 
-	dir := filepath.Join(base, cfg.Read().App.Name, "harness", harnessName)
+	dir := filepath.Join(base, cfg.Read().App.DataDir, "harness", harnessName)
 	configDir := filepath.Join(dir, "config")
 
 	return &claudeCode{

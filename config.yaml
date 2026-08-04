@@ -1,6 +1,9 @@
 # Application configuration. Fields go here as Config grows.
 app:
-  name: master_harness
+  name: nexo
+  # Storage key for every on-disk path. Renaming `name` is cosmetic; renaming
+  # this orphans the database, the installed harnesses and the user config.
+  data_dir: nexo
   w: 1024
   h: 768
   bg: "#1B2636"
@@ -23,7 +26,7 @@ agent_manager:
 
 mcp_servers:
   auth_timeout: 5m
-  client_name: master_harness
+  client_name: nexo
   callback_path: /callback
   shutdown_grace: 2s
   verifier_bytes: 32
@@ -36,8 +39,12 @@ mcp_servers:
   supported_servers:
     atlassian:
       name: atlassian
-      url: https://idontknowhowto
+      url: https://mcp.atlassian.com/v1/mcp/authv2
       auth_key_name: ATLASSIAN_OAUTH_SECRET
+    github:
+      name: github
+      url: https://api.githubcopilot.com/mcp/
+      auth_key_name: GITHUB_OAUTH_SECRET
   encode_key: sk-abcxyz
 
 agent_harness:

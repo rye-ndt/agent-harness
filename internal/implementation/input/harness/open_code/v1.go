@@ -168,7 +168,7 @@ func New(
 		return nil, custom_error.Critical("%v", err)
 	}
 
-	dir := filepath.Join(base, cfg.Read().App.Name, "harness", openCodeName)
+	dir := filepath.Join(base, cfg.Read().App.DataDir, "harness", openCodeName)
 	dataDir := filepath.Join(dir, "config")
 
 	agentCfg := map[string]any{

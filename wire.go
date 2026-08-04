@@ -63,17 +63,17 @@ func wire(assets fs.FS) (*App, error) {
 		return nil, err
 	}
 
-	store, err := storage.New(filepath.Join(base, cfg.Read().App.Name, "harness.db"))
+	store, err := storage.New(filepath.Join(base, cfg.Read().App.DataDir,"harness.db"))
 	if err != nil {
 		return nil, err
 	}
 
-	taskWAL, err := wal.New(filepath.Join(base, cfg.Read().App.Name, "task.wal"))
+	taskWAL, err := wal.New(filepath.Join(base, cfg.Read().App.DataDir,"task.wal"))
 	if err != nil {
 		return nil, err
 	}
 
-	userCfg, err := user_config.InitV1(filepath.Join(base, cfg.Read().App.Name, "user_config.json"))
+	userCfg, err := user_config.InitV1(filepath.Join(base, cfg.Read().App.DataDir,"user_config.json"))
 	if err != nil {
 		return nil, err
 	}
