@@ -26,4 +26,5 @@ const (
 	ErrMcpCredentialsExpired ErrorType = "err_mcp_credentials_expired"
 	ErrMcpForbiddenRequest   ErrorType = "err_mcp_forbidden_request"
 	ErrMcpRequestFailed      ErrorType = "err_mcp_request_failed"
+	ErrMcpTokenRequired      ErrorType = "err_mcp_token_required"
 )

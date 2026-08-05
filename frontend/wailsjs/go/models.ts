@@ -270,6 +270,7 @@ export namespace output_itf {
 	    url: string;
 	    authorized: boolean;
 	    authorized_at: string;
+	    kind: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new MCPServerInfo(source);
@@ -281,6 +282,7 @@ export namespace output_itf {
 	        this.url = source["url"];
 	        this.authorized = source["authorized"];
 	        this.authorized_at = source["authorized_at"];
+	        this.kind = source["kind"];
 	    }
 	}
 	

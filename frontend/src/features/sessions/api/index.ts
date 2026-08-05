@@ -1,16 +1,20 @@
 /**
  * The task-graph seam. Sessions are authored in this module's memory: inside
- * the Wails webview they are hydrated from the stored drafts and finalizing
+ * the Wails webview they are hydrated from the stored drafts and running one
  * starts the real run over the bindings; outside the webview (the plain vite
- * dev server) finalizing falls back to a simulated run.
+ * dev server) it falls back to a simulated run. Finalizing only locks the
+ * graph — the run waits for an explicit start.
  */
 
 import {bridge, hasWailsRuntime} from '@/shared/api/bridge'
+import {TaskState} from '@/shared/lib/enums'
 import {
     createSession as buildSession,
     createTask as buildTask,
+    cancelRun,
     createsCycle,
     duplicateSession,
+    isSettled,
     label,
     withDependency,
     withTask,
@@ -18,6 +22,9 @@ import {
     withoutDependency,
     withoutTask,
 } from '@/features/sessions/graph'
+import {isHeld, pendingParams, templateOf} from '@/features/sessions/task-inputs'
+import {cachedTemplates, listTemplates} from '@/features/templates/api'
+import type {ParamValue} from '@/features/templates/types'
 import type {Point, Session, SessionDraft, Task, TaskDraft} from '@/features/sessions/types'
 import {
     findOpenSession,
@@ -30,7 +37,7 @@ import {
     setSessions,
 } from '@/features/sessions/api/store'
 import {stopRun, tick} from '@/features/sessions/api/simulated-run'
-import {runs, startRemoteRun} from '@/features/sessions/api/remote-run'
+import {cancelRemoteRun, runs, startRemoteRun} from '@/features/sessions/api/remote-run'
 import {DeleteSessionDraft} from '@wailsjs/go/wails_api/API'
 
 export async function listSessions(): Promise<Session[]> {
@@ -63,7 +70,7 @@ export async function cloneSession(sourceId: string, sessionId: string): Promise
 
 export async function updateSession(
     sessionId: string,
-    patch: Partial<Pick<Session, 'name' | 'finalized' | 'workingDir' | 'contextDir'>>,
+    patch: Partial<Pick<Session, 'name' | 'finalized' | 'started' | 'workingDir' | 'contextDir'>>,
 ): Promise<Session> {
     if (patch.finalized === false)
         throw new Error('A finalized session cannot go back to a draft. Duplicate it instead.')
@@ -76,20 +83,95 @@ export async function updateSession(
 
     await hydrate()
 
-    const session = patch.finalized ? findSession(sessionId) : findOpenSession(sessionId)
-    const started = patch.finalized ? await startRemoteRun({...session, ...patch}) : false
+    const locking = patch.finalized || patch.started
+    const session = locking ? findSession(sessionId) : findOpenSession(sessionId)
 
-    replaceSession(patch.finalized ? label({...session, ...patch}) : {...session, ...patch})
+    if (patch.started && !session.finalized)
+        throw new Error('Finalize the session before running it.')
 
-    if (patch.finalized && !started) tick(sessionId)
+    if (patch.started && session.cancelled)
+        throw new Error('This run was cancelled. Duplicate the session to run it again.')
+
+    if (!patch.started) {
+        replaceSession({...session, ...patch})
+        return structuredClone(findSession(sessionId))
+    }
+
+    await listTemplates()
+    await startRun(label({...session, ...patch}))
 
     return structuredClone(findSession(sessionId))
+}
+
+/**
+ * A real run submits the whole graph in one call, so every node is checked for
+ * its inputs up front. The simulated run walks the graph itself and holds each
+ * node as its turn comes.
+ */
+function holdPendingInputs(session: Session): Session {
+    const templates = cachedTemplates()
+
+    return {
+        ...session,
+        tasks: session.tasks.map((task) =>
+            !isSettled(task.state) && pendingParams(task, templateOf(task, templates)).length > 0
+                ? {...task, state: TaskState.NeedsInput}
+                : task,
+        ),
+    }
+}
+
+async function startRun(session: Session) {
+    if (!hasWailsRuntime()) {
+        replaceSession(session)
+        tick(session.id)
+        return
+    }
+
+    const next = replaceSession(holdPendingInputs(session))
+    if (!next.tasks.some(isHeld)) await startRemoteRun(next)
+}
+
+/** Fills the inputs a held node was waiting on and lets the run carry on. */
+export async function fillTaskInputs(
+    sessionId: string,
+    taskId: string,
+    values: Record<string, ParamValue>,
+): Promise<Task> {
+    await hydrate()
+    await listTemplates()
+
+    const session = findSession(sessionId)
+    const task = findTask(session, taskId)
+    const filled = {...task, values: {...task.values, ...values}}
+
+    if (pendingParams(filled, templateOf(filled, cachedTemplates())).length > 0)
+        throw new Error('This node still needs an input before it can run.')
+
+    await startRun(withTaskPatch(session, taskId, {values: filled.values, state: TaskState.Queued}))
+
+    return structuredClone(findTask(findSession(sessionId), taskId))
+}
+
+/** Cancel is terminal — the node that was running loses its work and the session can only be duplicated. */
+export async function cancelSession(sessionId: string): Promise<Session> {
+    await hydrate()
+
+    const session = findSession(sessionId)
+    if (!session.started) throw new Error('This session is not running.')
+    if (session.cancelled) return structuredClone(session)
+
+    stopRun(sessionId)
+    await cancelRemoteRun(sessionId)
+
+    return replaceSession(cancelRun(session))
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
     await hydrate()
 
     stopRun(sessionId)
+    await cancelRemoteRun(sessionId).catch(() => {})
     runs.delete(sessionId)
     setSessions(sessions.filter((session) => session.id !== sessionId))
 

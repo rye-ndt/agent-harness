@@ -171,6 +171,15 @@ func New(
 	dir := filepath.Join(base, cfg.Read().App.DataDir, "harness", openCodeName)
 	dataDir := filepath.Join(dir, "config")
 
+	sandboxEnv, err := harness_helper.SandboxEnv(
+		filepath.Join(base, cfg.Read().App.DataDir, "tools"),
+		"XDG_DATA_HOME=",
+		"OPENCODE_",
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	agentCfg := map[string]any{
 		"permission": openCodePermissions,
 	}
@@ -192,7 +201,7 @@ func New(
 		storage:      store,
 		agentCfg:     agentCfg,
 		systemPrompt: prompts.System(),
-		env:          append(harness_helper.CleanEnv("XDG_DATA_HOME=", "OPENCODE_"), "XDG_DATA_HOME="+dataDir),
+		env:          append(sandboxEnv, "XDG_DATA_HOME="+dataDir),
 		sessionCli:   &http.Client{Timeout: 2 * time.Second},
 		ctxWindow:    cfg.Read().AgentManager.AllowedAgentContextWindow,
 	}, nil

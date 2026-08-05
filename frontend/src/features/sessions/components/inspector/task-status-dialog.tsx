@@ -26,9 +26,17 @@ function summarize(template?: Template, agentDefault?: AgentDefault) {
 }
 
 function emptyLine(task: Task) {
+    if (task.state === TaskState.Cancelled)
+        return 'This node never started. The run was cancelled before its turn came.'
     if (task.state === TaskState.Blocked)
         return 'This node has not run. It is waiting on the nodes upstream of it.'
     return 'This node has not run yet.'
+}
+
+function pendingLine(task: Task) {
+    if (task.state === TaskState.Cancelled)
+        return 'You cancelled the run while this node was working. Its work was discarded, so there is no report.'
+    return 'The report lands when this node stops.'
 }
 
 function Stat({label, value}: {label: string; value: string}) {
@@ -77,7 +85,10 @@ export function TaskStatusDialog({task, onClose}: {task: Task; onClose: () => vo
                 <div className="divide-y divide-border">
                     <div className="grid grid-cols-2 gap-2 px-4 py-4">
                         <Stat label="Started" value={formatMoment(run.startedAt)} />
-                        <Stat label="Finished" value={formatMoment(run.finishedAt)} />
+                        <Stat
+                            label={task.state === TaskState.Cancelled ? 'Stopped' : 'Finished'}
+                            value={formatMoment(run.finishedAt)}
+                        />
                         <Stat label="Elapsed" value={elapsed ?? '—'} />
                         {retried && <Stat label="Retries" value={String(run.retryCount)} />}
                     </div>
@@ -105,7 +116,7 @@ export function TaskStatusDialog({task, onClose}: {task: Task; onClose: () => vo
                         </>
                     ) : (
                         <p className="px-4 py-4 text-base text-muted-foreground">
-                            The report lands when this node stops.
+                            {pendingLine(task)}
                         </p>
                     )}
                 </div>

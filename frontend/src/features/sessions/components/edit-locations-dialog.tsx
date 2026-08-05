@@ -1,5 +1,6 @@
 import {useState} from 'react'
 
+import {ConfirmDialog} from '@/shared/components/confirm-dialog'
 import {DialogShell} from '@/shared/components/dialog-shell'
 import {SessionLocationsFields} from '@/features/sessions/components/session-locations'
 import {Button} from '@/shared/ui/button'
@@ -16,6 +17,7 @@ export function EditLocationsDialog({
 }) {
     const [workingDir, setWorkingDir] = useState(session.workingDir)
     const [contextDir, setContextDir] = useState(session.contextDir)
+    const [confirming, setConfirming] = useState(false)
 
     const changed = workingDir !== session.workingDir || contextDir !== session.contextDir
     const ready = changed && workingDir.length > 0 && contextDir.length > 0
@@ -25,8 +27,13 @@ export function EditLocationsDialog({
     }
 
     const save = () => {
-        if (!ready) return
+        if (ready) setConfirming(true)
+    }
 
+    const cancelConfirm = () => setConfirming(false)
+
+    const commit = () => {
+        setConfirming(false)
         onSave({workingDir, contextDir})
         onClose()
     }
@@ -55,6 +62,16 @@ export function EditLocationsDialog({
                 onWorkingDirChange={setWorkingDir}
                 onContextDirChange={setContextDir}
             />
+
+            {confirming && (
+                <ConfirmDialog
+                    title="Move this session?"
+                    description="Nodes that already ran keep their reports, but every node from here on runs against the new directories."
+                    confirmLabel="Save directories"
+                    onConfirm={commit}
+                    onClose={cancelConfirm}
+                />
+            )}
         </DialogShell>
     )
 }

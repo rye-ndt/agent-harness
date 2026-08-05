@@ -648,6 +648,15 @@ func (a *API) SessionStatus(sessionID string) (*output_itf.SessionStatusInfo, er
 	return sessionStatusInfo(status), nil
 }
 
+func (a *API) CancelSession(sessionID string) error {
+	parsed, err := sessionUUID(sessionID)
+	if err != nil {
+		return err
+	}
+
+	return a.coordinator.Cancel(parsed)
+}
+
 func (a *API) RetrySessionTask(taskID string) error {
 	parsed, err := uuid.Parse(taskID)
 	if err != nil {
@@ -726,6 +735,7 @@ func (a *API) MCPServers() ([]*output_itf.MCPServerInfo, error) {
 			URL:          server.URL,
 			Authorized:   server.Authenticated,
 			AuthorizedAt: authorizedAt,
+			Kind:         server.Kind,
 		})
 	}
 
@@ -736,6 +746,10 @@ func (a *API) MCPServers() ([]*output_itf.MCPServerInfo, error) {
 
 func (a *API) AuthorizeMCPServer(name string) error {
 	return a.mcpProxy.Authorize(name)
+}
+
+func (a *API) SetMCPCredential(name, secret string) error {
+	return a.mcpProxy.SetCredential(name, secret)
 }
 
 func sessionUUID(id string) (uuid.UUID, error) {

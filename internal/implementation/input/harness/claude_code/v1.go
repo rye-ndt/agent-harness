@@ -234,6 +234,11 @@ func New(
 	dir := filepath.Join(base, cfg.Read().App.DataDir, "harness", harnessName)
 	configDir := filepath.Join(dir, "config")
 
+	sandboxEnv, err := harness_helper.SandboxEnv(filepath.Join(base, cfg.Read().App.DataDir, "tools"))
+	if err != nil {
+		return nil, err
+	}
+
 	return &claudeCode{
 		dir:           dir,
 		binPath:       harness_helper.BinPath(dir, claudeCfg.BinName),
@@ -247,7 +252,7 @@ func New(
 		tokenRe:       tokenRe,
 		ansiRe:        ansiRe,
 		mcpCfg:        mcpCfg,
-		baseEnv:       append(harness_helper.CleanEnv(), "CLAUDE_CONFIG_DIR="+configDir),
+		baseEnv:       append(sandboxEnv, "CLAUDE_CONFIG_DIR="+configDir),
 		ctxWindow:     cfg.Read().AgentManager.AllowedAgentContextWindow,
 		spawnArgs: []string{"-p",
 			"--input-format", "stream-json",
@@ -382,10 +387,7 @@ func (c *claudeCode) Auth() (string, error) {
 	}
 
 	cmd := exec.Command(c.binPath, "setup-token")
-	cmd.Env = append(harness_helper.CleanEnv(),
-		"CLAUDE_CONFIG_DIR="+c.configDir,
-		"TERM=xterm-256color",
-	)
+	cmd.Env = append(slices.Clone(c.baseEnv), "TERM=xterm-256color")
 
 	tty, err := harness_helper.StartPty(cmd, 500, 50)
 	if err != nil {

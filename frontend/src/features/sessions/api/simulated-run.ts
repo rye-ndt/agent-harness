@@ -7,6 +7,8 @@
 import {TaskState} from '@/shared/lib/enums'
 import {mockOutcome} from '@/features/sessions/mock-sessions'
 import {hasRunningTask, isRunnable, label} from '@/features/sessions/graph'
+import {pendingParams, templateOf} from '@/features/sessions/task-inputs'
+import {cachedTemplates} from '@/features/templates/api'
 import type {Session, Task} from '@/features/sessions/types'
 import {replaceSession, sessions} from '@/features/sessions/api/store'
 import {TICK_MS, timers} from '@/features/sessions/api/timers'
@@ -47,6 +49,7 @@ function progress(task: Task, now: number): Task {
 
 function advance(session: Session): Session {
     const now = Date.now()
+    const templates = cachedTemplates()
 
     const progressed = label({
         ...session,
@@ -57,15 +60,19 @@ function advance(session: Session): Session {
 
     return label({
         ...progressed,
-        tasks: progressed.tasks.map((task) =>
-            isRunnable(progressed, task) ? start(task, now) : task,
-        ),
+        tasks: progressed.tasks.map((task) => {
+            if (!isRunnable(progressed, task)) return task
+            if (pendingParams(task, templateOf(task, templates)).length > 0)
+                return {...task, state: TaskState.NeedsInput}
+
+            return start(task, now)
+        }),
     })
 }
 
 export function tick(sessionId: string) {
     const session = sessions.find((session) => session.id === sessionId)
-    if (!session?.finalized) return
+    if (!session?.started || session.cancelled) return
 
     const next = replaceSession(advance(session))
     if (hasRunningTask(next)) schedule(sessionId)
@@ -91,4 +98,5 @@ export function stopRun(sessionId: string) {
     timers.delete(sessionId)
 }
 
-for (const session of sessions) if (hasRunningTask(session)) schedule(session.id)
+for (const session of sessions)
+    if (!session.cancelled && hasRunningTask(session)) schedule(session.id)

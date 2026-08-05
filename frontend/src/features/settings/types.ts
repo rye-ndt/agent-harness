@@ -6,6 +6,7 @@ export type MCPServer = {
     url: string
     authorized: boolean
     authorizedAt?: string
+    kind: 'dcr' | 'device' | 'token'
 }
 
 export type AgentDefault = {

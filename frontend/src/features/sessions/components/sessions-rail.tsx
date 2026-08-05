@@ -22,7 +22,7 @@ export function SessionsRail({
     onDelete: (sessionId: string) => void
 }) {
     return (
-        <aside className="surface-card flex h-full w-[280px] shrink-0 flex-col overflow-hidden">
+        <aside className="surface-card flex h-full w-[280px] shrink-0 flex-col overflow-hidden ring-1 ring-border-strong">
             <div className="flex h-14 shrink-0 items-center justify-between border-b border-border pr-2 pl-4">
                 <span className="micro-label">Sessions</span>
                 <Tooltip>

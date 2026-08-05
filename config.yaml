@@ -1,6 +1,6 @@
 # Application configuration. Fields go here as Config grows.
 app:
-  name: nexo
+  name: Nexo
   # Storage key for every on-disk path. Renaming `name` is cosmetic; renaming
   # this orphans the database, the installed harnesses and the user config.
   data_dir: nexo
@@ -41,10 +41,22 @@ mcp_servers:
       name: atlassian
       url: https://mcp.atlassian.com/v1/mcp/authv2
       auth_key_name: ATLASSIAN_OAUTH_SECRET
+      auth_flow: dcr
     github:
       name: github
       url: https://api.githubcopilot.com/mcp/
       auth_key_name: GITHUB_OAUTH_SECRET
+      auth_flow: device
+      client_id: Ov23lihq27C9yT8Flsk3
+      device_auth_url: https://github.com/login/device/code
+      token_ttl: 8760h
+    figma: # edge case
+      name: figma
+      auth_key_name: figma
+      auth_flow: token
+      client_id: ""
+      url: https://api.figma.com
+      token_ttl: 8760h
   encode_key: sk-abcxyz
 
 agent_harness:

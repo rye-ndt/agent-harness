@@ -24,7 +24,7 @@ type v1 struct {
 	cfg      *input_itf.SessionConfig
 	sessions core_itf.SessionManager
 	agents   core_itf.AgentManager
-	running  map[uuid.UUID]struct{}
+	running  map[uuid.UUID]chan struct{}
 	watchers map[uuid.UUID]chan struct{}
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -44,7 +44,7 @@ func InitV1(
 		cfg:      cfg,
 		sessions: sessions,
 		agents:   agents,
-		running:  map[uuid.UUID]struct{}{},
+		running:  map[uuid.UUID]chan struct{}{},
 		watchers: map[uuid.UUID]chan struct{}{},
 		stop:     make(chan struct{}),
 	}, nil
@@ -52,6 +52,7 @@ func InitV1(
 
 func (c *v1) Run(session uuid.UUID) error {
 	var err error
+	var halt chan struct{}
 
 	c.raceSafe(func() {
 		if _, found := c.running[session]; found {
@@ -59,7 +60,8 @@ func (c *v1) Run(session uuid.UUID) error {
 			return
 		}
 
-		c.running[session] = struct{}{}
+		halt = make(chan struct{})
+		c.running[session] = halt
 	})
 
 	if err != nil {
@@ -68,21 +70,52 @@ func (c *v1) Run(session uuid.UUID) error {
 
 	progress, err := c.sessions.Execute(session)
 	if err != nil {
-		c.raceSafe(func() { delete(c.running, session) })
+		c.raceSafe(func() {
+			if c.running[session] == halt {
+				delete(c.running, session)
+			}
+		})
+
 		return err
 	}
 
-	go c.runSession(session, progress)
+	go c.runSession(session, halt, progress)
 
 	return nil
+}
+
+func (c *v1) Cancel(session uuid.UUID) error {
+	var halt chan struct{}
+
+	c.raceSafe(func() {
+		halt = c.running[session]
+		delete(c.running, session)
+	})
+
+	if halt != nil {
+		close(halt)
+	}
+
+	agentIDs, err := c.sessions.Cancel(session)
+
+	for _, agentID := range agentIDs {
+		c.stopWatcher(agentID)
+		_ = c.agents.Kill(agentID)
+	}
+
+	return err
 }
 
 func (c *v1) Stop() {
 	c.stopOnce.Do(func() { close(c.stop) })
 }
 
-func (c *v1) runSession(session uuid.UUID, progress <-chan *core_itf.SessionProgress) {
-	defer c.raceSafe(func() { delete(c.running, session) })
+func (c *v1) runSession(session uuid.UUID, halt <-chan struct{}, progress <-chan *core_itf.SessionProgress) {
+	defer c.raceSafe(func() {
+		if c.running[session] == halt {
+			delete(c.running, session)
+		}
+	})
 
 	ticker := time.NewTicker(scheduleInterval)
 	defer ticker.Stop()
@@ -92,6 +125,8 @@ func (c *v1) runSession(session uuid.UUID, progress <-chan *core_itf.SessionProg
 	for {
 		select {
 		case <-c.stop:
+			return
+		case <-halt:
 			return
 		case <-ticker.C:
 			c.schedule(session)

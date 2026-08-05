@@ -3,6 +3,8 @@ import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import * as api from '@/features/sessions/api'
 import * as graph from '@/features/sessions/graph'
 import {errorMessage} from '@/shared/lib/errors'
+import {TaskState} from '@/shared/lib/enums'
+import type {ParamValue} from '@/features/templates/types'
 import type {Point, Session, SessionDraft, Task, TaskDraft} from '@/features/sessions/types'
 
 const SESSIONS_KEY = ['sessions']
@@ -97,6 +99,17 @@ export function useSessions() {
             editSession(sessions, sessionId, (session) => ({...session, finalized: true})),
     )
 
+    const start = useSessionMutation(
+        (args: {sessionId: string}) => api.updateSession(args.sessionId, {started: true}),
+        (sessions, {sessionId}) =>
+            editSession(sessions, sessionId, (session) => ({...session, started: true})),
+    )
+
+    const cancel = useSessionMutation(
+        (args: {sessionId: string}) => api.cancelSession(args.sessionId),
+        (sessions, {sessionId}) => editSession(sessions, sessionId, graph.cancelRun),
+    )
+
     const remove = useSessionMutation(
         (args: {sessionId: string}) => api.deleteSession(args.sessionId),
         (sessions, {sessionId}) => sessions.filter((session) => session.id !== sessionId),
@@ -117,6 +130,18 @@ export function useSessions() {
         (sessions, {sessionId, taskId, patch}) =>
             editDraft(sessions, sessionId, (session) =>
                 graph.withTaskPatch(session, taskId, patch),
+            ),
+    )
+
+    const fillInputs = useSessionMutation(
+        (args: {sessionId: string; taskId: string; values: Record<string, ParamValue>}) =>
+            api.fillTaskInputs(args.sessionId, args.taskId, args.values),
+        (sessions, {sessionId, taskId, values}) =>
+            editSession(sessions, sessionId, (session) =>
+                graph.withTaskPatch(session, taskId, {
+                    values: {...graph.findTask(session, taskId)?.values, ...values},
+                    state: TaskState.Queued,
+                }),
             ),
     )
 
@@ -150,9 +175,12 @@ export function useSessions() {
         rename,
         setLocations,
         finalize,
+        start,
+        cancel,
         remove,
         createTask,
         updateTask,
+        fillInputs,
         deleteTask,
         connect,
         disconnect,
@@ -166,9 +194,15 @@ export function useSessions() {
         renameSession: rename.mutate,
         setSessionLocations: setLocations.mutate,
         finalizeSession: finalize.mutate,
+        startSession: start.mutate,
+        startingSession: start.isPending,
+        cancelSession: cancel.mutate,
+        cancellingSession: cancel.isPending,
         deleteSession: remove.mutate,
         createTask: createTask.mutate,
         updateTask: updateTask.mutate,
+        fillTaskInputs: fillInputs.mutate,
+        fillingTaskInputs: fillInputs.isPending,
         deleteTask: deleteTask.mutate,
         connectTasks: connect.mutate,
         disconnectTasks: disconnect.mutate,

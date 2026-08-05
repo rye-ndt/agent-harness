@@ -1,22 +1,39 @@
 import {useState, type ChangeEvent, type ComponentType, type KeyboardEvent} from 'react'
-import {Copy, Folder, Lock, Plus, Settings} from 'lucide-react'
+import {
+    CircleStop,
+    Copy,
+    Folder,
+    Lock,
+    PanelLeftClose,
+    PanelLeftOpen,
+    Play,
+    Plus,
+    Settings,
+} from 'lucide-react'
 
 import {Button} from '@/shared/ui/button'
+import {ConfirmDialog} from '@/shared/components/confirm-dialog'
+import {SessionMenu} from '@/features/sessions/components/canvas/session-menu'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/shared/ui/tooltip'
 import {SessionStatus, SESSION_STATUS_LABELS} from '@/shared/lib/enums'
-import {sessionProgress, sessionStatus} from '@/features/sessions/graph'
+import {isCancellable, sessionProgress, sessionStatus} from '@/features/sessions/graph'
 import {cn} from '@/shared/lib/utils'
 import type {Session} from '@/features/sessions/types'
 
 const STATUS_CLASSES: Record<SessionStatus, string> = {
     [SessionStatus.Empty]: 'bg-state-idle-tint text-muted-foreground',
     [SessionStatus.Draft]: 'bg-state-idle-tint text-muted-foreground',
+    [SessionStatus.Ready]: 'bg-info-tint text-info',
     [SessionStatus.Running]: 'bg-state-running-tint text-state-running',
     [SessionStatus.Done]: 'bg-state-done-tint text-state-done',
     [SessionStatus.Failed]: 'bg-state-failed-tint text-state-failed',
+    [SessionStatus.Cancelled]: 'bg-state-idle text-white',
 }
 
 const FINALIZED_HINT = 'Finalized — duplicate to make changes.'
+
+const CANCEL_BODY =
+    'The node running right now loses its work — there will be no report for it. Finished nodes keep theirs, and the session stays on the rail. You cannot resume a cancelled run; duplicate it to start over.'
 
 export function SessionHeader({
     session,
@@ -24,24 +41,67 @@ export function SessionHeader({
     onRename,
     onEditLocations,
     onFinalize,
+    onRun,
+    onCancel,
+    cancelling,
     onClone,
     onNewNode,
     onOpenSettings,
+    railOpen,
+    onToggleRail,
 }: {
     session: Session | null
     error: string
     onRename: (name: string) => void
     onEditLocations: () => void
     onFinalize: () => void
+    onRun: () => void
+    onCancel: () => void
+    cancelling: boolean
     onClone: () => void
     onNewNode: () => void
     onOpenSettings: () => void
+    railOpen: boolean
+    onToggleRail: () => void
 }) {
     const locked = session?.finalized ?? false
+    const runnable = locked && !session?.started
+    const cancellable = session ? isCancellable(session) : false
+    const [confirmingFinalize, setConfirmingFinalize] = useState(false)
+    const [confirmingCancel, setConfirmingCancel] = useState(false)
+
+    const askFinalize = () => setConfirmingFinalize(true)
+    const cancelFinalize = () => setConfirmingFinalize(false)
+
+    const askCancel = () => setConfirmingCancel(true)
+    const keepRunning = () => setConfirmingCancel(false)
+
+    const finalize = () => {
+        setConfirmingFinalize(false)
+        onFinalize()
+    }
+
+    const cancelRun = () => {
+        setConfirmingCancel(false)
+        onCancel()
+    }
 
     return (
         <header className="shrink-0">
-            <div className="flex h-14 items-center gap-3 border-b border-border bg-card px-4">
+            <div className="flex h-14 items-center gap-3 border-b border-border-strong bg-card px-4">
+                <RailToggle open={railOpen} onToggle={onToggleRail} />
+
+                <SessionMenu
+                    session={session}
+                    onEditLocations={onEditLocations}
+                    onFinalize={askFinalize}
+                    onRun={onRun}
+                    onCancel={askCancel}
+                    onClone={onClone}
+                    onNewNode={onNewNode}
+                    onOpenSettings={onOpenSettings}
+                />
+
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                     {session &&
                         (locked ? (
@@ -59,7 +119,7 @@ export function SessionHeader({
                     {session && <SessionIdentity session={session} />}
                 </div>
 
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="hidden shrink-0 items-center gap-2 lg:flex">
                     {session && (
                         <>
                             {!locked && (
@@ -81,7 +141,23 @@ export function SessionHeader({
                                     label="Finalize"
                                     icon={Lock}
                                     variant="outline"
-                                    onClick={onFinalize}
+                                    onClick={askFinalize}
+                                />
+                            )}
+                            {runnable && (
+                                <HeaderAction
+                                    label="Run"
+                                    icon={Play}
+                                    variant="default"
+                                    onClick={onRun}
+                                />
+                            )}
+                            {cancellable && (
+                                <HeaderAction
+                                    label="Cancel run"
+                                    icon={CircleStop}
+                                    variant="outline"
+                                    onClick={askCancel}
                                 />
                             )}
                             <span className="mx-1 h-5 w-px bg-border" />
@@ -112,7 +188,51 @@ export function SessionHeader({
                     {error}
                 </p>
             )}
+
+            {confirmingFinalize && session && (
+                <ConfirmDialog
+                    title={`Finalize “${session.name}”?`}
+                    description="The graph and its directories lock for good. To change anything after this you have to duplicate the session. Nothing runs until you press Run."
+                    confirmLabel="Finalize session"
+                    onConfirm={finalize}
+                    onClose={cancelFinalize}
+                />
+            )}
+
+            {confirmingCancel && session && (
+                <ConfirmDialog
+                    title="Cancel the run?"
+                    description={CANCEL_BODY}
+                    confirmLabel="Cancel run"
+                    dismissLabel="Keep running"
+                    destructive
+                    busy={cancelling}
+                    onConfirm={cancelRun}
+                    onClose={keepRunning}
+                />
+            )}
         </header>
+    )
+}
+
+function RailToggle({open, onToggle}: {open: boolean; onToggle: () => void}) {
+    const label = open ? 'Hide sessions' : 'Show sessions'
+
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="-ml-1 shrink-0"
+                    aria-label={label}
+                    onClick={onToggle}
+                >
+                    {open ? <PanelLeftClose /> : <PanelLeftOpen />}
+                </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{label}</TooltipContent>
+        </Tooltip>
     )
 }
 
@@ -124,7 +244,7 @@ function HeaderAction({
 }: {
     label: string
     icon: ComponentType<{className?: string}>
-    variant: 'outline' | 'ghost'
+    variant: 'default' | 'outline' | 'ghost'
     onClick: () => void
 }) {
     return (
@@ -132,10 +252,15 @@ function HeaderAction({
             <TooltipTrigger asChild>
                 <Button variant={variant} size="sm" aria-label={label} onClick={onClick}>
                     <Icon />
-                    <span className="hidden xl:inline">{label}</span>
+                    <span className={cn(variant === 'default' ? 'inline' : 'hidden xl:inline')}>
+                        {label}
+                    </span>
                 </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="xl:hidden">
+            <TooltipContent
+                side="bottom"
+                className={variant === 'default' ? 'hidden' : 'xl:hidden'}
+            >
                 {label}
             </TooltipContent>
         </Tooltip>
@@ -144,7 +269,7 @@ function HeaderAction({
 
 function FinalizedName({name}: {name: string}) {
     return (
-        <span className="flex w-full max-w-96 min-w-40 items-center gap-1">
+        <span className="flex w-full max-w-96 min-w-0 items-center gap-1 lg:min-w-40">
             <span className="truncate text-xl font-bold">{name}</span>
             <Tooltip>
                 <TooltipTrigger asChild>
@@ -192,7 +317,7 @@ function SessionNameInput({name, onRename}: {name: string; onRename: (name: stri
             onChange={change}
             onBlur={commit}
             onKeyDown={handleKeys}
-            className="-ml-2 w-full max-w-96 min-w-40 rounded-md bg-transparent px-2 py-1 text-xl font-bold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live"
+            className="-ml-2 w-full max-w-96 min-w-0 truncate rounded-md bg-transparent px-2 py-1 text-xl font-bold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live lg:min-w-40"
         />
     )
 }
@@ -215,7 +340,7 @@ function SessionDirectories({session, onEdit}: {session: Session; onEdit: () => 
                     type="button"
                     aria-label="Session directories"
                     onClick={onEdit}
-                    className="flex min-w-0 shrink items-center gap-2 rounded-md px-2 py-1 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-live lg:max-w-40 xl:max-w-72"
+                    className="hidden min-w-0 shrink items-center gap-2 rounded-md px-2 py-1 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-live lg:flex lg:max-w-40 xl:max-w-72"
                 >
                     <Folder className="size-3.5 shrink-0 text-muted-foreground" />
                     <span className="hidden truncate font-mono text-sm text-muted-foreground lg:block">
@@ -252,7 +377,7 @@ function SessionIdentity({session}: {session: Session}) {
                 {SESSION_STATUS_LABELS[status]}
             </span>
 
-            <span className="font-mono text-sm text-muted-foreground">
+            <span className="hidden font-mono text-sm text-muted-foreground lg:block">
                 {done}/{total}
             </span>
         </span>

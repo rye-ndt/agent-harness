@@ -29,7 +29,7 @@ export function PreferencesPanel() {
     return (
         <section className="flex flex-col">
             <div className="flex flex-col gap-1 px-4 pt-4 pb-3">
-                <h3 className="text-base font-medium">Model per task level</h3>
+                <h3 className="text-lg font-medium">Model per task level</h3>
                 <p className="text-sm text-muted-foreground">
                     Every node inherits its model and effort from its task level. Change a row and
                     every node at that level follows, including nodes you have already drawn.

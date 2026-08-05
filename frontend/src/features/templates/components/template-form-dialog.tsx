@@ -1,5 +1,6 @@
 import {useState} from 'react'
 
+import {ConfirmDialog} from '@/shared/components/confirm-dialog'
 import {DialogShell} from '@/shared/components/dialog-shell'
 import {TemplateForm} from '@/features/templates/components/template-form'
 import {Button} from '@/shared/ui/button'
@@ -21,6 +22,7 @@ export function TemplateFormDialog({
         template ? structuredClone(template) : emptyTemplate(),
     )
     const [error, setError] = useState('')
+    const [confirming, setConfirming] = useState(false)
 
     const issues = templateIssues(draft)
 
@@ -28,8 +30,8 @@ export function TemplateFormDialog({
         if (!open) onClose()
     }
 
-    const save = async () => {
-        if (issues.length > 0) return
+    const commit = async () => {
+        setConfirming(false)
 
         try {
             await saveTemplate(draft)
@@ -38,6 +40,14 @@ export function TemplateFormDialog({
             setError(errorMessage(error))
         }
     }
+
+    const save = () => {
+        if (issues.length > 0) return
+        if (template) setConfirming(true)
+        else void commit()
+    }
+
+    const cancelConfirm = () => setConfirming(false)
 
     const saveLabel = template ? 'Save changes' : 'Create template'
 
@@ -66,6 +76,17 @@ export function TemplateFormDialog({
             }
         >
             <TemplateForm draft={draft} onChange={setDraft} />
+
+            {confirming && template && (
+                <ConfirmDialog
+                    title={`Save changes to “${template.name}”?`}
+                    description="The template is overwritten. Nodes already built from it keep their prompt."
+                    confirmLabel="Save changes"
+                    busy={saving}
+                    onConfirm={commit}
+                    onClose={cancelConfirm}
+                />
+            )}
         </DialogShell>
     )
 }

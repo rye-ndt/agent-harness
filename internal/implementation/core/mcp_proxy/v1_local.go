@@ -116,7 +116,7 @@ func (s *v1) serveLocal(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case "initialize":
-		res.Result = initializeResult(req.Params)
+		res.Result = initializeResult(req.Params, constances.GatewayLocalServer)
 	case "tools/list":
 		res.Result = map[string]any{"tools": s.toolSchemas()}
 	case "tools/call":
@@ -128,7 +128,7 @@ func (s *v1) serveLocal(w http.ResponseWriter, r *http.Request) {
 	writeRPC(w, res)
 }
 
-func initializeResult(params json.RawMessage) map[string]any {
+func initializeResult(params json.RawMessage, serverName string) map[string]any {
 	requested := struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}{}
@@ -142,7 +142,7 @@ func initializeResult(params json.RawMessage) map[string]any {
 		"protocolVersion": protocol,
 		"capabilities":    map[string]any{"tools": map[string]any{}},
 		"serverInfo": map[string]any{
-			"name":    constances.GatewayLocalServer,
+			"name":    serverName,
 			"version": "1",
 		},
 	}

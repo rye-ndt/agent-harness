@@ -1,7 +1,8 @@
 import {Field} from '@/shared/components/field'
 import {ParamFields} from '@/features/templates/components/param-fields'
+import {PromptField} from '@/features/templates/components/prompt-field'
+import {PARAM_REF_HINT} from '@/features/templates/param-refs'
 import {Input} from '@/shared/ui/input'
-import {Textarea} from '@/shared/ui/textarea'
 import type {FieldValue, TemplateParam} from '@/features/templates/types'
 
 export function NodeForm({
@@ -35,13 +36,14 @@ export function NodeForm({
             <Field
                 htmlFor="node-prompt"
                 label="Prompt"
-                hint="Starts as the template's prompt. Edit it to change this node only."
+                hint={`Starts as the template's prompt. Edit it to change this node only. ${PARAM_REF_HINT}`}
             >
-                <Textarea
+                <PromptField
                     id="node-prompt"
                     rows={5}
                     value={prompt}
-                    onChange={(event) => onPromptChange(event.target.value)}
+                    params={params}
+                    onChange={onPromptChange}
                 />
             </Field>
 

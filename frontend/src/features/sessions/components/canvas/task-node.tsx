@@ -1,8 +1,9 @@
 import {Handle, Position, type Node, type NodeProps} from '@xyflow/react'
 
 import {StateBadge, StateIcon} from '@/shared/components/task-state'
+import {TaskLevelTag} from '@/shared/components/task-level-tag'
 import {useElapsed} from '@/shared/hooks/use-elapsed'
-import {TASK_LEVEL_LABELS, TaskState, type TaskLevel} from '@/shared/lib/enums'
+import {TaskState, type TaskLevel} from '@/shared/lib/enums'
 import {clampRatio, formatTokens} from '@/shared/lib/format'
 import {upstreamOf} from '@/features/sessions/graph'
 import {cn} from '@/shared/lib/utils'
@@ -40,6 +41,7 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
 
     const blocked = task.state === TaskState.Blocked
     const running = task.state === TaskState.Running
+    const cancelled = task.state === TaskState.Cancelled
     const connectable = !session.finalized && !unlinkable
 
     return (
@@ -50,6 +52,7 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                     ? 'border border-dashed border-border opacity-60 ring-0'
                     : 'ring-1 ring-border',
                 running && 'bg-live-tint ring-1 ring-live',
+                cancelled && 'bg-state-idle-tint ring-1 ring-state-idle/30',
                 selected && 'ring-2 ring-live',
                 unlinkable && 'opacity-30',
             )}
@@ -58,7 +61,11 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                 <span className="pointer-events-none absolute inset-y-0 left-0 w-1 rounded-full bg-live" />
             )}
 
-            {task.state === TaskState.AwaitingApproval && (
+            {cancelled && (
+                <span className="pointer-events-none absolute inset-y-0 left-0 w-1 rounded-full bg-state-idle" />
+            )}
+
+            {(task.state === TaskState.AwaitingApproval || task.state === TaskState.NeedsInput) && (
                 <span className="pointer-events-none absolute inset-y-0 left-0 w-1 rounded-full bg-state-approval" />
             )}
 
@@ -71,6 +78,7 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                         'min-w-0 flex-1 truncate text-lg font-medium',
                         !task.title && 'text-muted-foreground',
                         task.state === TaskState.Done && 'text-muted-foreground line-through',
+                        cancelled && 'text-muted-foreground',
                     )}
                 >
                     {task.title || UNTITLED}
@@ -83,11 +91,7 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
             </div>
 
             <div className="relative mt-2 flex items-center justify-between gap-2 text-sm">
-                {taskLevel && (
-                    <span className="min-w-0 truncate text-muted-foreground">
-                        {TASK_LEVEL_LABELS[taskLevel]}
-                    </span>
-                )}
+                {taskLevel && <TaskLevelTag taskLevel={taskLevel} />}
                 <span className="flex shrink-0 items-center gap-2">
                     {context && (
                         <span className="font-mono text-xs text-muted-foreground">

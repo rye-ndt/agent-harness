@@ -4,8 +4,10 @@ export const TaskState = {
     Queued: 'queued',
     Running: 'running',
     AwaitingApproval: 'awaiting_approval',
+    NeedsInput: 'needs_input',
     Done: 'done',
     Failed: 'failed',
+    Cancelled: 'cancelled',
 } as const
 
 export type TaskState = (typeof TaskState)[keyof typeof TaskState]
@@ -16,16 +18,20 @@ export const TASK_STATE_LABELS: Record<TaskState, string> = {
     [TaskState.Queued]: 'Ready',
     [TaskState.Running]: 'Running',
     [TaskState.AwaitingApproval]: 'Needs you',
+    [TaskState.NeedsInput]: 'Needs inputs',
     [TaskState.Done]: 'Done',
     [TaskState.Failed]: 'Failed',
+    [TaskState.Cancelled]: 'Cancelled',
 }
 
 export const SessionStatus = {
     Empty: 'empty',
     Draft: 'draft',
+    Ready: 'ready',
     Running: 'running',
     Done: 'done',
     Failed: 'failed',
+    Cancelled: 'cancelled',
 } as const
 
 export type SessionStatus = (typeof SessionStatus)[keyof typeof SessionStatus]
@@ -33,9 +39,11 @@ export type SessionStatus = (typeof SessionStatus)[keyof typeof SessionStatus]
 export const SESSION_STATUS_LABELS: Record<SessionStatus, string> = {
     [SessionStatus.Empty]: 'Empty',
     [SessionStatus.Draft]: 'Draft',
+    [SessionStatus.Ready]: 'Ready to run',
     [SessionStatus.Running]: 'Running',
     [SessionStatus.Done]: 'Done',
     [SessionStatus.Failed]: 'Failed',
+    [SessionStatus.Cancelled]: 'Cancelled',
 }
 
 export const FileChangeType = {

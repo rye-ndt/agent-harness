@@ -1,4 +1,4 @@
-import {Check, X} from 'lucide-react'
+import {Check, Square, X} from 'lucide-react'
 
 import {TaskState, TASK_STATE_LABELS} from '@/shared/lib/enums'
 import {cn} from '@/shared/lib/utils'
@@ -9,8 +9,10 @@ const BADGE_CLASSES: Record<TaskState, string> = {
     [TaskState.Queued]: 'bg-info-tint text-info',
     [TaskState.Running]: 'bg-state-running-tint text-state-running',
     [TaskState.AwaitingApproval]: 'bg-state-approval-tint text-state-approval',
+    [TaskState.NeedsInput]: 'bg-state-approval-tint text-state-approval',
     [TaskState.Done]: 'bg-state-done-tint text-state-done',
     [TaskState.Failed]: 'bg-state-failed-tint text-state-failed',
+    [TaskState.Cancelled]: 'bg-state-idle text-white',
 }
 
 const RING_CLASSES: Partial<Record<TaskState, string>> = {
@@ -68,7 +70,21 @@ export function StateIcon({state, className}: {state: TaskState; className?: str
         )
     }
 
-    if (state === TaskState.AwaitingApproval) {
+    if (state === TaskState.Cancelled) {
+        return (
+            <span
+                aria-hidden="true"
+                className={cn(
+                    'flex size-3.5 shrink-0 items-center justify-center rounded-full bg-state-idle',
+                    className,
+                )}
+            >
+                <Square className="size-1.5 fill-white text-white" />
+            </span>
+        )
+    }
+
+    if (state === TaskState.AwaitingApproval || state === TaskState.NeedsInput) {
         return (
             <span
                 aria-hidden="true"

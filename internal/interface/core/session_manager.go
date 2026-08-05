@@ -101,6 +101,7 @@ type SessionManager interface {
 	Assign(taskID, agentID uuid.UUID) error
 	Execute(session uuid.UUID) (<-chan *SessionProgress, error)
 	RetryTask(taskID uuid.UUID) error
+	Cancel(session uuid.UUID) ([]uuid.UUID, error)
 	Status(id uuid.UUID) (*SessionStatus, error)
 	HeartBeat(agentID uuid.UUID) error
 	Stop()

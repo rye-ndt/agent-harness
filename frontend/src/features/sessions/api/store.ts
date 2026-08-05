@@ -10,6 +10,8 @@ import {MOCK_SESSIONS} from '@/features/sessions/mock-sessions'
 import type {Session} from '@/features/sessions/types'
 import {SaveSessionDraft, SessionDrafts} from '@wailsjs/go/wails_api/API'
 
+const SETTLED_ON_DISK = new Set<TaskState>([TaskState.Done, TaskState.Failed, TaskState.Cancelled])
+
 export let sessions: Session[] = hasWailsRuntime() ? [] : structuredClone(MOCK_SESSIONS)
 
 let hydrated = false
@@ -53,19 +55,25 @@ export async function hydrate() {
     if (hydrated || !hasWailsRuntime()) return
 
     const drafts = await bridge(SessionDrafts)
-    sessions = drafts.map((draft) => resetUnfinished(JSON.parse(draft.doc) as Session))
+    sessions = drafts.map((draft) => restore(JSON.parse(draft.doc) as Session))
     hydrated = true
+}
+
+/** A cancelled session is terminal, so it comes back exactly as it was stored. */
+function restore(stored: Session): Session {
+    const session = {...stored, cancelled: Boolean(stored.cancelled)}
+    return session.cancelled ? session : resetUnfinished(session)
 }
 
 function resetUnfinished(session: Session): Session {
     return {
         ...session,
         tasks: session.tasks.map((task) =>
-            task.state === TaskState.Done || task.state === TaskState.Failed
+            SETTLED_ON_DISK.has(task.state)
                 ? task
                 : {
                       ...task,
-                      state: session.finalized ? TaskState.Failed : TaskState.Idle,
+                      state: session.started ? TaskState.Failed : TaskState.Idle,
                       run: undefined,
                       report: undefined,
                   },

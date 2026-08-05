@@ -1,7 +1,14 @@
 import {SessionStatus, TaskState} from '@/shared/lib/enums'
 import type {Point, Session, SessionDraft, Task, TaskDraft} from '@/features/sessions/types'
 
-const SETTLED_STATES = new Set<TaskState>([TaskState.Running, TaskState.Done, TaskState.Failed])
+const SETTLED_STATES = new Set<TaskState>([
+    TaskState.Running,
+    TaskState.Done,
+    TaskState.Failed,
+    TaskState.Cancelled,
+])
+
+const KEPT_ON_CANCEL = new Set<TaskState>([TaskState.Done, TaskState.Failed])
 
 const WAITING_STATES = new Set<TaskState>([TaskState.Idle, TaskState.Queued, TaskState.Blocked])
 
@@ -30,6 +37,8 @@ export function createSession(draft: SessionDraft): Session {
         name: draft.name.trim(),
         createdAt: new Date().toISOString(),
         finalized: false,
+        started: false,
+        cancelled: false,
         workingDir: draft.workingDir.trim(),
         contextDir: draft.contextDir.trim(),
         tasks: [],
@@ -45,6 +54,8 @@ export function duplicateSession(session: Session): Session {
         name: `${session.name} copy`,
         createdAt: new Date().toISOString(),
         finalized: false,
+        started: false,
+        cancelled: false,
         workingDir: session.workingDir,
         contextDir: session.contextDir,
         tasks: session.tasks.map((task) => ({
@@ -58,6 +69,33 @@ export function duplicateSession(session: Session): Session {
             values: task.values ? {...task.values} : undefined,
         })),
     }
+}
+
+/** Cancel is terminal: finished nodes keep their reports, everything else loses its work. */
+export function cancelRun(session: Session): Session {
+    const now = new Date().toISOString()
+
+    return {
+        ...session,
+        cancelled: true,
+        tasks: session.tasks.map((task) => {
+            if (KEPT_ON_CANCEL.has(task.state)) return task
+
+            return {
+                ...task,
+                state: TaskState.Cancelled,
+                run: task.run ? {...task.run, finishedAt: now, context: undefined} : undefined,
+                report: undefined,
+            }
+        }),
+    }
+}
+
+export function isCancellable(session: Session): boolean {
+    if (!session.started || session.cancelled) return false
+    return session.tasks.some(
+        (task) => !KEPT_ON_CANCEL.has(task.state) && task.state !== TaskState.Cancelled,
+    )
 }
 
 export function findSession(sessions: Session[], sessionId: string | null) {
@@ -127,7 +165,9 @@ export function freePosition(session: Session, wanted: Point): Point {
 
 export function sessionStatus(session: Session): SessionStatus {
     if (session.tasks.length === 0) return SessionStatus.Empty
+    if (session.cancelled) return SessionStatus.Cancelled
     if (!session.finalized) return SessionStatus.Draft
+    if (!session.started) return SessionStatus.Ready
     if (session.tasks.some((task) => task.state === TaskState.Failed)) return SessionStatus.Failed
     if (session.tasks.every((task) => task.state === TaskState.Done)) return SessionStatus.Done
     return SessionStatus.Running
@@ -148,20 +188,20 @@ export function sessionProgress(session: Session) {
     return {done, total: session.tasks.length}
 }
 
-/** Finalizing starts the run, so a task waits for that and for every upstream task — the fan-in join. */
+/** Running the session releases the roots; every other task also waits on its upstream — the fan-in join. */
 export function isRunnable(session: Session, task: Task) {
     const upstreamDone = task.dependsOn.every(
         (id) => findTask(session, id)?.state === TaskState.Done,
     )
 
-    return session.finalized && WAITING_STATES.has(task.state) && upstreamDone
+    return session.started && WAITING_STATES.has(task.state) && upstreamDone
 }
 
 export function label(session: Session): Session {
     return {
         ...session,
         tasks: session.tasks.map((task) => {
-            if (isSettled(task.state)) return task
+            if (isSettled(task.state) || task.state === TaskState.NeedsInput) return task
             return {
                 ...task,
                 state: isRunnable(session, task) ? TaskState.Queued : TaskState.Blocked,

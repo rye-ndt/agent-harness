@@ -1,9 +1,13 @@
 WAILS ?= $(shell command -v wails 2>/dev/null || echo $(HOME)/go/bin/wails)
 
-.PHONY: dev build run test
+.PHONY: dev dev-go build run test
 
-# Start the app in development mode (hot reload).
+# Start the app. Frontend hot-reloads; Go changes need a restart of this target.
 dev:
+	$(WAILS) dev -nogorebuild
+
+# Same, but rebuilds and relaunches on Go changes. macOS steals focus each time.
+dev-go:
 	$(WAILS) dev
 
 # Build the production .app bundle.

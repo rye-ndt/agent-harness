@@ -18,6 +18,8 @@ export function AuthAgent(arg1:string):Promise<string>;
 
 export function AuthorizeMCPServer(arg1:string):Promise<void>;
 
+export function CancelSession(arg1:string):Promise<void>;
+
 export function ChooseDirectory(arg1:string):Promise<string>;
 
 export function CompleteOnboarding():Promise<void>;
@@ -49,6 +51,8 @@ export function SessionDrafts():Promise<Array<output_itf.SessionDraftInfo>>;
 export function SessionStatus(arg1:string):Promise<output_itf.SessionStatusInfo>;
 
 export function SetAgentDefault(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SetMCPCredential(arg1:string,arg2:string):Promise<void>;
 
 export function Shutdown(arg1:context.Context):Promise<void>;
 

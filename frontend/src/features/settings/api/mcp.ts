@@ -8,7 +8,7 @@
 import {bridge, hasWailsRuntime} from '@/shared/api/bridge'
 import {MOCK_MCP_SERVERS} from '@/features/settings/mock-mcp'
 import type {MCPServer} from '@/features/settings/types'
-import {AuthorizeMCPServer, MCPServers} from '@wailsjs/go/wails_api/API'
+import {AuthorizeMCPServer, MCPServers, SetMCPCredential} from '@wailsjs/go/wails_api/API'
 
 const ROUNDTRIP_MS = 700
 
@@ -29,6 +29,7 @@ export async function listMCPServers(): Promise<MCPServer[]> {
         url: info.url,
         authorized: info.authorized,
         authorizedAt: info.authorized_at || undefined,
+        kind: info.kind as MCPServer['kind'],
     }))
 }
 
@@ -40,6 +41,25 @@ export async function authorizeMCPServer(serverId: string): Promise<void> {
 
     if (!servers.some((server) => server.id === serverId))
         throw new Error('That MCP server is no longer configured.')
+
+    await roundtrip()
+
+    servers = servers.map((server) =>
+        server.id === serverId
+            ? {...server, authorized: true, authorizedAt: new Date().toISOString()}
+            : server,
+    )
+}
+
+export async function setMCPCredential(serverId: string, token: string): Promise<void> {
+    if (hasWailsRuntime()) {
+        await bridge(() => SetMCPCredential(serverId, token))
+        return
+    }
+
+    const target = servers.find((server) => server.id === serverId)
+    if (!target) throw new Error('That MCP server is no longer configured.')
+    if (target.kind !== 'token') throw new Error('That MCP server does not take a pasted token.')
 
     await roundtrip()
 

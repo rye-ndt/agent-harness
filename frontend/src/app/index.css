@@ -79,6 +79,7 @@
     --color-chart-1: var(--chart-1);
     --color-ring: var(--ring);
     --color-input: var(--input);
+    --color-border-strong: var(--border-strong);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
     --color-accent-foreground: var(--accent-foreground);
@@ -121,6 +122,7 @@
     --accent-foreground: #1b1c1e;
     --destructive: #ff6c65;
     --border: #ecece9;
+    --border-strong: #dbdbd5;
     --input: #ecece9;
     --ring: #fd7b38;
     --chart-1: #545dad;
@@ -175,6 +177,7 @@
     --accent-foreground: oklch(0.985 0 0);
     --destructive: #ff6c65;
     --border: oklch(1 0 0 / 10%);
+    --border-strong: oklch(1 0 0 / 20%);
     --input: oklch(1 0 0 / 15%);
     --ring: #fd7b38;
     --chart-1: #545dad;

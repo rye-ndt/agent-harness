@@ -51,6 +51,7 @@ func (s *v1) Serve() (*core_itf.MCPGateway, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc(gatewayPath, s.forward)
 	mux.HandleFunc(gatewayPath+constances.GatewayLocalServer, s.serveLocal)
+	mux.HandleFunc(gatewayPath+constances.FigmaLocalServer, s.serveFigma)
 
 	s.gateway = &core_itf.MCPGateway{
 		BaseURL:     "http://" + ln.Addr().String(),

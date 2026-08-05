@@ -7,11 +7,12 @@ import {bridge, hasWailsRuntime} from '@/shared/api/bridge'
 import {listTemplates} from '@/features/templates/api'
 import {TaskLevel, TaskState} from '@/shared/lib/enums'
 import {hasActiveTask, isSettled, label} from '@/features/sessions/graph'
+import {resolvedPrompt} from '@/features/sessions/task-inputs'
 import type {HandoverDoc, Session, Task} from '@/features/sessions/types'
 import {replaceSession, sessions} from '@/features/sessions/api/store'
 import {TICK_MS, timers} from '@/features/sessions/api/timers'
 import {output_itf} from '@wailsjs/go/models'
-import {RunSession, SessionStatus} from '@wailsjs/go/wails_api/API'
+import {CancelSession, RunSession, SessionStatus} from '@wailsjs/go/wails_api/API'
 
 const MAX_FAILED_POLLS = 5
 
@@ -22,14 +23,6 @@ type RemoteRun = {
 }
 
 export const runs = new Map<string, RemoteRun>()
-
-function resolvedPrompt(task: Task) {
-    const entries = Object.entries(task.values ?? {}).filter(([, value]) => String(value) !== '')
-    if (entries.length === 0) return task.prompt
-
-    const lines = entries.map(([key, value]) => `- ${key}: ${String(value)}`)
-    return `${task.prompt}\n\nInputs:\n${lines.join('\n')}`
-}
 
 async function buildRunSpec(session: Session): Promise<output_itf.RunSessionSpec> {
     const templates = await listTemplates()
@@ -74,6 +67,14 @@ export async function startRemoteRun(session: Session): Promise<boolean> {
     return true
 }
 
+export async function cancelRemoteRun(sessionId: string): Promise<void> {
+    const run = runs.get(sessionId)
+    if (!run) return
+
+    await bridge(() => CancelSession(run.remoteSessionId))
+    runs.delete(sessionId)
+}
+
 function pollRemoteRun(sessionId: string) {
     if (timers.has(sessionId)) return
 
@@ -89,7 +90,7 @@ function pollRemoteRun(sessionId: string) {
 async function pollRemoteTick(sessionId: string) {
     const run = runs.get(sessionId)
     const session = sessions.find((session) => session.id === sessionId)
-    if (!run || !session) return
+    if (!run || !session || session.cancelled) return
 
     let status: output_itf.SessionStatusInfo | null = null
 

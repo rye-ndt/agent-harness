@@ -43,7 +43,7 @@ export function AgentsPanel() {
     return (
         <section className="flex flex-col">
             <div className="flex flex-col gap-1 px-4 pt-4 pb-3">
-                <h3 className="text-base font-medium">Harnesses that run your nodes</h3>
+                <h3 className="text-lg font-medium">Harnesses that run your nodes</h3>
                 <p className="text-sm text-muted-foreground">
                     A harness has to be installed and logged in before a session can assign work to
                     it.

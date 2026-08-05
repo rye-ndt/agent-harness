@@ -2,7 +2,8 @@ import {useState} from 'react'
 import {Pencil, Plus, Trash2} from 'lucide-react'
 
 import {Button} from '@/shared/ui/button'
-import {TASK_LEVEL_LABELS} from '@/shared/lib/enums'
+import {ConfirmDialog} from '@/shared/components/confirm-dialog'
+import {TaskLevelTag} from '@/shared/components/task-level-tag'
 import {paramSignature} from '@/features/templates/template'
 import type {Template} from '@/features/templates/types'
 
@@ -72,28 +73,6 @@ function TemplateCard({
     const cancelRemove = () => setConfirming(false)
     const remove = () => onRemove(template.id)
 
-    if (confirming)
-        return (
-            <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
-                <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-                    Delete <span className="font-medium text-foreground">{template.name}</span>?
-                    Nodes built from it keep their prompt.
-                </p>
-                <Button variant="ghost" size="sm" className="shrink-0" onClick={cancelRemove}>
-                    Cancel
-                </Button>
-                <Button
-                    autoFocus
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={remove}
-                >
-                    Delete
-                </Button>
-            </div>
-        )
-
     return (
         <div className="group relative rounded-xl border border-border bg-card transition-colors hover:border-foreground/25 hover:bg-muted/40">
             <button
@@ -103,9 +82,7 @@ function TemplateCard({
             >
                 <span className="flex items-center gap-2 pr-16">
                     <span className="truncate text-base font-medium">{template.name}</span>
-                    <span className="shrink-0 rounded-sm bg-muted px-2.5 py-1 text-xs leading-none font-bold tracking-[0.05em] text-muted-foreground uppercase">
-                        {TASK_LEVEL_LABELS[template.taskLevel]}
-                    </span>
+                    <TaskLevelTag taskLevel={template.taskLevel} />
                     {!template.retryable && (
                         <span className="shrink-0 text-xs text-muted-foreground">no retry</span>
                     )}
@@ -139,6 +116,17 @@ function TemplateCard({
                     <Trash2 />
                 </Button>
             </span>
+
+            {confirming && (
+                <ConfirmDialog
+                    title={`Delete “${template.name}”?`}
+                    description="Nodes already built from it keep their prompt. This cannot be undone."
+                    confirmLabel="Delete template"
+                    destructive
+                    onConfirm={remove}
+                    onClose={cancelRemove}
+                />
+            )}
         </div>
     )
 }

@@ -78,7 +78,15 @@ func (f *basic) GetJSON(url string, v any) error {
 }
 
 func (f *basic) post(url, contentType string, body io.Reader) (*http.Response, error) {
-	res, err := f.client.Post(url, contentType, body)
+	req, err := http.NewRequest(http.MethodPost, url, body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", "application/json")
+
+	res, err := f.client.Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -12,6 +12,7 @@ import {Textarea} from '@/shared/ui/textarea'
 import type {TaskLevel} from '@/shared/lib/enums'
 import {TASK_LEVELS, TASK_LEVEL_LABELS} from '@/shared/lib/enums'
 import {emptyParam, NO_PROMPTS_ISSUE} from '@/features/templates/template'
+import {PARAM_REF_HINT} from '@/features/templates/param-refs'
 import type {SystemPrompt, TemplateDraft, TemplateParam} from '@/features/templates/types'
 
 const EMPTY_PROMPT: SystemPrompt = {key: '', value: ''}
@@ -125,7 +126,11 @@ export function TemplateForm({
 
             <Section
                 title="Prompts"
-                hint={draft.systemPrompts.length === 0 ? NO_PROMPTS_ISSUE : undefined}
+                hint={
+                    draft.systemPrompts.length === 0
+                        ? NO_PROMPTS_ISSUE
+                        : `${PARAM_REF_HINT} A node cannot run until every embedded input has a value.`
+                }
                 onAdd={addPrompt}
                 addLabel="Add prompt"
             >
@@ -134,6 +139,7 @@ export function TemplateForm({
                         key={index}
                         index={index}
                         prompt={prompt}
+                        params={draft.params}
                         onChange={changePrompt}
                         onRemove={removePrompt}
                     />

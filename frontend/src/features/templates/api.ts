@@ -83,10 +83,13 @@ function toInfo(draft: TemplateDraft): output_itf.TemplateInfo {
 }
 
 export async function listTemplates(): Promise<Template[]> {
-    if (!hasWailsRuntime()) return structuredClone(templates)
+    if (hasWailsRuntime()) templates = (await bridge(FetchTemplates)).map(toTemplate)
+    return structuredClone(templates)
+}
 
-    const infos = await bridge(FetchTemplates)
-    return infos.map(toTemplate)
+/** The last fetched templates, for the run loop, which cannot await. */
+export function cachedTemplates(): Template[] {
+    return templates
 }
 
 export async function upsertTemplate(draft: TemplateDraft): Promise<Template> {

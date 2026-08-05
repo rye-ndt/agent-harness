@@ -31,10 +31,19 @@ type AgentManagerConfig struct {
 	ConnectivityCacheTTL      time.Duration `mapstructure:"connectivity_cache_ttl" validate:"gt=0,ltefield=FreezeTimeout"`
 }
 
+const (
+	MCPAuthFlowDCR    = "dcr"
+	MCPAuthFlowDevice = "device"
+)
+
 type MCPServerConfig struct {
-	Name        string `mapstructure:"name" validate:"required"`
-	AuthKeyName string `mapstructure:"auth_key_name" validate:"required"`
-	URL         string `mapstructure:"url" validate:"required,http_url"`
+	Name          string        `mapstructure:"name" validate:"required"`
+	AuthKeyName   string        `mapstructure:"auth_key_name"`
+	URL           string        `mapstructure:"url" validate:"required,http_url"`
+	AuthFlow      string        `mapstructure:"auth_flow" validate:"required,oneof=dcr device token"`
+	ClientID      string        `mapstructure:"client_id" validate:"required_if=AuthFlow device"`
+	DeviceAuthURL string        `mapstructure:"device_auth_url" validate:"required_if=AuthFlow device,omitempty,http_url"`
+	TokenTTL      time.Duration `mapstructure:"token_ttl" validate:"omitempty,gt=0"`
 }
 
 type MCPServersConfig struct {

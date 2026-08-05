@@ -2,6 +2,7 @@ import {useState} from 'react'
 
 import {useSessions} from '@/features/sessions/use-sessions'
 import * as graph from '@/features/sessions/graph'
+import type {ParamValue} from '@/features/templates/types'
 import type {
     Point,
     SessionDraft,
@@ -63,6 +64,14 @@ export function useSessionStore() {
         store.finalizeSession({sessionId})
     }
 
+    const startSession = (sessionId: string) => {
+        store.startSession({sessionId})
+    }
+
+    const cancelSession = (sessionId: string) => {
+        store.cancelSession({sessionId})
+    }
+
     const deleteSession = (sessionId: string) => {
         store.deleteSession({sessionId})
         if (selectedSessionId === sessionId) selectSession(null)
@@ -84,6 +93,14 @@ export function useSessionStore() {
 
     const updateTask = (sessionId: string, taskId: string, patch: Partial<Task>) => {
         store.updateTask({sessionId, taskId, patch})
+    }
+
+    const fillTaskInputs = (
+        sessionId: string,
+        taskId: string,
+        values: Record<string, ParamValue>,
+    ) => {
+        store.fillTaskInputs({sessionId, taskId, values})
     }
 
     const moveTask = (sessionId: string, taskId: string, position: Point) => {
@@ -119,9 +136,15 @@ export function useSessionStore() {
         renameSession,
         setLocations,
         finalizeSession,
+        startSession,
+        startingSession: store.startingSession,
+        cancelSession,
+        cancellingSession: store.cancellingSession,
         deleteSession,
         addTask,
         updateTask,
+        fillTaskInputs,
+        fillingTaskInputs: store.fillingTaskInputs,
         moveTask,
         removeTask,
         connectTasks,

@@ -1,6 +1,7 @@
 import {useMemo, useState} from 'react'
 import {Lock, Trash2} from 'lucide-react'
 
+import {ConfirmDialog} from '@/shared/components/confirm-dialog'
 import {DialogShell} from '@/shared/components/dialog-shell'
 import {InheritedAgent} from '@/features/sessions/components/nodes/inherited-agent'
 import {MissingInputs} from '@/features/sessions/components/nodes/missing-inputs'
@@ -28,6 +29,7 @@ export function EditNodeDialog({
     const [title, setTitle] = useState(task.title)
     const [prompt, setPrompt] = useState(task.prompt)
     const [edits, setEdits] = useState<Record<string, FieldValue>>({})
+    const [confirmingDelete, setConfirmingDelete] = useState(false)
 
     const stored = useMemo(
         () => (template ? toFieldValues(template, task.values) : {}),
@@ -44,6 +46,9 @@ export function EditNodeDialog({
     const close = (open: boolean) => {
         if (!open) onClose()
     }
+
+    const askDelete = () => setConfirmingDelete(true)
+    const cancelDelete = () => setConfirmingDelete(false)
 
     const save = () => {
         if (!ready) return
@@ -67,7 +72,7 @@ export function EditNodeDialog({
                         variant="ghost"
                         size="sm"
                         className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={onDelete}
+                        onClick={askDelete}
                     >
                         <Trash2 />
                         Delete node
@@ -107,6 +112,17 @@ export function EditNodeDialog({
                 onPromptChange={setPrompt}
                 onValueChange={editValue}
             />
+
+            {confirmingDelete && (
+                <ConfirmDialog
+                    title={`Delete “${task.title || 'this node'}”?`}
+                    description="Its prompt, inputs and any report it produced go with it. This cannot be undone."
+                    confirmLabel="Delete node"
+                    destructive
+                    onConfirm={onDelete}
+                    onClose={cancelDelete}
+                />
+            )}
         </DialogShell>
     )
 }

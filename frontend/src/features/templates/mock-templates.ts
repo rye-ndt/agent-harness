@@ -50,6 +50,34 @@ export const MOCK_TEMPLATES: Template[] = [
         ],
     },
     {
+        id: '0192f3a1-0004-7000-8000-000000000004',
+        name: 'Ticket reader',
+        role: 'Reads a tracker ticket and turns it into a scoped task.',
+        taskLevel: 'lightweight_task',
+        retryable: true,
+        params: [
+            {
+                key: 'ticket_id',
+                label: 'Ticket to read',
+                type: 'text',
+                required: true,
+            },
+            {
+                key: 'include_comments',
+                label: 'Read the comment thread too',
+                type: 'boolean',
+                required: false,
+                default: 'true',
+            },
+        ],
+        systemPrompts: [
+            {
+                key: 'base',
+                value: 'Fetch the ticket at https://atlassian/tickets/{{ticket_id}} and restate it as a task with a definition of done. Quote the acceptance criteria verbatim.',
+            },
+        ],
+    },
+    {
         id: '0192f3a1-0003-7000-8000-000000000003',
         name: 'Doc pass',
         role: 'Brings the docs back in line with the code.',

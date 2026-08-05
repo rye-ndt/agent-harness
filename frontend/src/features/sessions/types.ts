@@ -71,6 +71,8 @@ export type Session = {
     name: string
     createdAt: string
     finalized: boolean
+    started: boolean
+    cancelled: boolean
     workingDir: string
     contextDir: string
     tasks: Task[]

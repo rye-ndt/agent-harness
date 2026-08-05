@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -133,6 +134,7 @@ func (s *v1) List() ([]*core_itf.MCPAuthInfo, error) {
 
 		item := &core_itf.MCPAuthInfo{
 			ServerName:    m.Name,
+			Kind:          m.AuthFlow,
 			URL:           m.URL,
 			Authenticated: false,
 			InitializedAt: time.Time{},
@@ -150,6 +152,44 @@ func (s *v1) List() ([]*core_itf.MCPAuthInfo, error) {
 	return resp, nil
 }
 
+func (s *v1) SetCredential(server, secret string) error {
+	if server != constances.FigmaLocalServer {
+		return custom_error.TypedCritical(enums.ErrMcpNotFound, "mcp %s does not accept a pasted credential", server)
+	}
+
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return custom_error.TypedCritical(enums.ErrMcpTokenRequired, "a figma token is required")
+	}
+
+	encrypted, err := mcp_helpers.Encrypt(s.aead, secret)
+	if err != nil {
+		return err
+	}
+
+	now := helpers.NewUTC()
+	expiredAt := now.Add(s.cfg.DefaultTokenTTL)
+
+	if err := s.db.UpsertCredentials(&input_itf.MCPEntity{
+		Name:              constances.FigmaLocalServer,
+		EncryptedOAuthKey: encrypted,
+		ExpiredAt:         expiredAt,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}); err != nil {
+		return custom_error.TypedCritical(
+			enums.ErrMcpStoreCredentials,
+			"cannot store credentials for %s: %v",
+			constances.FigmaLocalServer,
+			err,
+		)
+	}
+
+	s.cache(constances.FigmaLocalServer, &cred{token: secret, expiredAt: expiredAt})
+
+	return nil
+}
+
 func (s *v1) Authorize(server string) error {
 	mcp, found := s.cfg.SupportedServers[server]
 	if !found {
@@ -161,6 +201,43 @@ func (s *v1) Authorize(server string) error {
 		return err
 	}
 
+	if mcp.AuthFlow == input_itf.MCPAuthFlowDevice {
+		return s.authorizeDevice(mcp, target)
+	}
+
+	return s.authorizeCode(mcp, target)
+}
+
+func (s *v1) authorizeDevice(mcp *input_itf.MCPServerConfig, target *mcp_helpers.AuthTarget) error {
+	device, err := mcp_helpers.StartDeviceAuth(s.httpCli, mcp, target)
+	if err != nil {
+		return err
+	}
+
+	srv, promptURL, err := mcp_helpers.ServeDeviceCode(constances.GlobalLocalHost, device)
+	if err != nil {
+		return custom_error.TypedCritical(
+			enums.ErrMcpAuthorizeFailed,
+			"cannot start device code page: %v",
+			err,
+		)
+	}
+
+	defer mcp_helpers.ShutdownLoopback(&s.cfg, srv)
+
+	if err := openBrowser(promptURL); err != nil {
+		return custom_error.TypedCritical(enums.ErrMcpAuthorizeFailed, "cannot open browser: %v", err)
+	}
+
+	token, err := mcp_helpers.PollDeviceToken(s.httpCli, mcp, target, device, s.cfg.AuthTimeout)
+	if err != nil {
+		return err
+	}
+
+	return s.storeToken(mcp, target, &mcp_helpers.ClientRegistration{ClientID: mcp.ClientID}, token)
+}
+
+func (s *v1) authorizeCode(mcp *input_itf.MCPServerConfig, target *mcp_helpers.AuthTarget) error {
 	srv, redirectURI, callbacks, err := mcp_helpers.ListenLoopback(&s.cfg, constances.GlobalLocalHost)
 	if err != nil {
 		return custom_error.TypedCritical(
@@ -200,7 +277,7 @@ func (s *v1) Authorize(server string) error {
 		return custom_error.TypedCritical(
 			enums.ErrMcpAuthorizeTimeout,
 			"authorization for %s timed out after %s",
-			server,
+			mcp.Name,
 			s.cfg.AuthTimeout,
 		)
 	}
@@ -210,11 +287,11 @@ func (s *v1) Authorize(server string) error {
 	}
 
 	if subtle.ConstantTimeCompare([]byte(result.State), []byte(state)) != 1 {
-		return custom_error.TypedCritical(enums.ErrMcpAuthorizeFailed, "state mismatch on %s callback", server)
+		return custom_error.TypedCritical(enums.ErrMcpAuthorizeFailed, "state mismatch on %s callback", mcp.Name)
 	}
 
 	if result.Code == "" {
-		return custom_error.TypedCritical(enums.ErrMcpAuthorizeFailed, "no authorization code in %s callback", server)
+		return custom_error.TypedCritical(enums.ErrMcpAuthorizeFailed, "no authorization code in %s callback", mcp.Name)
 	}
 
 	token, err := mcp_helpers.ExchangeCode(s.httpCli, target, reg, redirectURI, result.Code, verifier)
@@ -222,15 +299,17 @@ func (s *v1) Authorize(server string) error {
 		return err
 	}
 
-	return s.storeToken(mcp.Name, target, reg, token)
+	return s.storeToken(mcp, target, reg, token)
 }
 
 func (s *v1) storeToken(
-	name string,
+	mcp *input_itf.MCPServerConfig,
 	target *mcp_helpers.AuthTarget,
 	reg *mcp_helpers.ClientRegistration,
 	token *mcp_helpers.TokenResponse,
 ) error {
+	name := mcp.Name
+
 	encryptedAccess, err := mcp_helpers.Encrypt(s.aead, token.AccessToken)
 	if err != nil {
 		return err
@@ -244,8 +323,13 @@ func (s *v1) storeToken(
 	now := helpers.NewUTC()
 
 	ttl := time.Duration(token.ExpiresIn) * time.Second
+
 	if token.ExpiresIn <= 0 {
 		ttl = s.cfg.DefaultTokenTTL
+
+		if mcp.TokenTTL > 0 {
+			ttl = mcp.TokenTTL
+		}
 	}
 
 	expiredAt := now.Add(ttl)

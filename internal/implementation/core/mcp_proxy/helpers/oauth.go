@@ -6,15 +6,25 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"hexago/internal/helpers/custom_error"
 	"hexago/internal/helpers/enums"
 	input_itf "hexago/internal/interface/input"
+)
+
+const (
+	deviceGrantType    = "urn:ietf:params:oauth:grant-type:device_code"
+	deviceErrPending   = "authorization_pending"
+	deviceErrSlowDown  = "slow_down"
+	devicePollFallback = 5 * time.Second
+	devicePollBackoff  = 5 * time.Second
 )
 
 type ProtectedResourceMetadata struct {
@@ -47,11 +57,21 @@ type ClientRegistrationRequest struct {
 }
 
 type TokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int64  `json:"expires_in"`
-	Scope        string `json:"scope"`
+	AccessToken      string `json:"access_token"`
+	RefreshToken     string `json:"refresh_token"`
+	TokenType        string `json:"token_type"`
+	ExpiresIn        int64  `json:"expires_in"`
+	Scope            string `json:"scope"`
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
+}
+
+type DeviceAuthorization struct {
+	DeviceCode      string `json:"device_code"`
+	UserCode        string `json:"user_code"`
+	VerificationURI string `json:"verification_uri"`
+	ExpiresIn       int64  `json:"expires_in"`
+	Interval        int64  `json:"interval"`
 }
 
 type AuthTarget struct {
@@ -326,6 +346,130 @@ func ExchangeCode(
 	return token, nil
 }
 
+func StartDeviceAuth(
+	httpCli input_itf.HttpCli,
+	server *input_itf.MCPServerConfig,
+	target *AuthTarget,
+) (*DeviceAuthorization, error) {
+	form := map[string]string{"client_id": server.ClientID}
+
+	if target.Scope != "" {
+		form["scope"] = target.Scope
+	}
+
+	device := &DeviceAuthorization{}
+
+	if err := httpCli.PostForm(server.DeviceAuthURL, form, device); err != nil {
+		return nil, custom_error.TypedCritical(
+			enums.ErrMcpAuthorizeFailed,
+			"cannot start device authorization at %s: %v",
+			server.DeviceAuthURL,
+			err,
+		)
+	}
+
+	if device.DeviceCode == "" || device.UserCode == "" || device.VerificationURI == "" {
+		return nil, custom_error.TypedCritical(
+			enums.ErrMcpAuthorizeFailed,
+			"device authorization at %s returned an incomplete response",
+			server.DeviceAuthURL,
+		)
+	}
+
+	return device, nil
+}
+
+func PollDeviceToken(
+	httpCli input_itf.HttpCli,
+	server *input_itf.MCPServerConfig,
+	target *AuthTarget,
+	device *DeviceAuthorization,
+	timeout time.Duration,
+) (*TokenResponse, error) {
+	interval := time.Duration(device.Interval) * time.Second
+	if interval <= 0 {
+		interval = devicePollFallback
+	}
+
+	deadline := time.Now().Add(timeout)
+
+	if device.ExpiresIn > 0 {
+		if expiry := time.Now().Add(time.Duration(device.ExpiresIn) * time.Second); expiry.Before(deadline) {
+			deadline = expiry
+		}
+	}
+
+	form := map[string]string{
+		"grant_type":  deviceGrantType,
+		"device_code": device.DeviceCode,
+		"client_id":   server.ClientID,
+	}
+
+	for time.Now().Before(deadline) {
+		time.Sleep(interval)
+
+		token := &TokenResponse{}
+
+		if err := httpCli.PostForm(target.Meta.TokenEndpoint, form, token); err != nil {
+			return nil, custom_error.TypedCritical(
+				enums.ErrMcpTokenExchange,
+				"device token exchange at %s failed: %v",
+				target.Meta.TokenEndpoint,
+				err,
+			)
+		}
+
+		if token.AccessToken != "" {
+			return token, nil
+		}
+
+		switch token.Error {
+		case deviceErrPending:
+		case deviceErrSlowDown:
+			interval += devicePollBackoff
+		default:
+			return nil, custom_error.TypedCritical(
+				enums.ErrMcpTokenExchange,
+				"device authorization rejected: %s %s",
+				token.Error,
+				token.ErrorDescription,
+			)
+		}
+	}
+
+	return nil, custom_error.TypedCritical(
+		enums.ErrMcpAuthorizeTimeout,
+		"device authorization for %s timed out after %s",
+		server.Name,
+		timeout,
+	)
+}
+
+func ServeDeviceCode(host string, device *DeviceAuthorization) (*http.Server, string, error) {
+	ln, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
+	if err != nil {
+		return nil, "", err
+	}
+
+	page := fmt.Sprintf(
+		devicePage,
+		html.EscapeString(device.UserCode),
+		html.EscapeString(device.VerificationURI),
+		html.EscapeString(device.VerificationURI),
+	)
+
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write([]byte(page))
+		}),
+	}
+
+	go srv.Serve(ln)
+
+	return srv, "http://" + ln.Addr().String(), nil
+}
+
 func RandomURLSafe(size int) (string, error) {
 	b := make([]byte, size)
 	if _, err := rand.Read(b); err != nil {
@@ -344,6 +488,15 @@ func PKCEChallenge(verifier string) string {
 const successPage = `<!doctype html><meta charset="utf-8"><title>Authorized</title>
 <body style="font-family:system-ui;background:#1B2636;color:#e8eef7;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
 <div style="text-align:center"><h2>Authorization complete</h2><p>You can close this tab and return to the app.</p></div>`
+
+const devicePage = `<!doctype html><meta charset="utf-8"><title>Enter the device code</title>
+<body style="font-family:system-ui;background:#1B2636;color:#e8eef7;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center">
+<h2>Enter this code to authorize</h2>
+<p style="font-size:2.5rem;font-weight:600;letter-spacing:.2em;font-family:ui-monospace,monospace;margin:1rem 0">%s</p>
+<p><a href="%s" target="_blank" rel="noreferrer" style="color:#8ab4f8">%s</a></p>
+<p style="opacity:.7">Return to the app once GitHub confirms the code.</p>
+</div>`
 
 const failurePage = `<!doctype html><meta charset="utf-8"><title>Authorization failed</title>
 <body style="font-family:system-ui;background:#1B2636;color:#e8eef7;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">

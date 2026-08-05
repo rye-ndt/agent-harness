@@ -1,5 +1,5 @@
 import type {MouseEvent} from 'react'
-import {Lock, MoreHorizontal} from 'lucide-react'
+import {CircleStop, Lock, MoreHorizontal} from 'lucide-react'
 
 import {SessionSpine} from '@/features/sessions/components/session-spine'
 import {
@@ -17,6 +17,8 @@ import type {Session} from '@/features/sessions/types'
 
 const FINALIZED_HINT = 'Finalized — duplicate to make changes.'
 
+const CANCELLED_HINT = 'Run cancelled — duplicate to start over.'
+
 export function SessionRow({
     session,
     active,
@@ -32,7 +34,9 @@ export function SessionRow({
 }) {
     const {done, total} = sessionProgress(session)
     const relative = formatRelative(session.createdAt)
-    const finished = sessionStatus(session) === SessionStatus.Done
+    const status = sessionStatus(session)
+    const finished = status === SessionStatus.Done
+    const cancelled = status === SessionStatus.Cancelled
 
     const select = () => onSelect(session.id)
     const clone = () => onClone(session.id)
@@ -59,19 +63,34 @@ export function SessionRow({
                     >
                         {session.name}
                     </span>
-                    {session.finalized && (
+                    {cancelled ? (
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <span
                                     role="img"
-                                    aria-label="Finalized"
-                                    className="flex shrink-0 text-muted-foreground"
+                                    aria-label="Cancelled"
+                                    className="flex shrink-0 text-state-idle"
                                 >
-                                    <Lock className="size-3" />
+                                    <CircleStop className="size-3" />
                                 </span>
                             </TooltipTrigger>
-                            <TooltipContent side="bottom">{FINALIZED_HINT}</TooltipContent>
+                            <TooltipContent side="bottom">{CANCELLED_HINT}</TooltipContent>
                         </Tooltip>
+                    ) : (
+                        session.finalized && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span
+                                        role="img"
+                                        aria-label="Finalized"
+                                        className="flex shrink-0 text-muted-foreground"
+                                    >
+                                        <Lock className="size-3" />
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom">{FINALIZED_HINT}</TooltipContent>
+                            </Tooltip>
+                        )
                     )}
                 </span>
 

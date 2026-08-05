@@ -36,6 +36,7 @@ type sessionMetadata struct {
 	taskIDToTask    map[uuid.UUID]*input_itf.TaskEntity
 	agentIDToHandle map[uuid.UUID]*AgentHandle
 	taskIDToReport  map[uuid.UUID]*core_itf.TaskReport
+	cancelled       bool
 }
 
 type v1 struct {
@@ -351,6 +352,11 @@ func (s *v1) Assign(taskID, agentID uuid.UUID) error {
 			return
 		}
 
+		if session.cancelled {
+			err = custom_error.Critical("session %v is cancelled", session.info.ID)
+			return
+		}
+
 		if !t.Status.Takeable() {
 			err = custom_error.Critical("task %v is %s and cannot be assigned", taskID, t.Status)
 			return
@@ -417,6 +423,10 @@ func (s *v1) ReadyTasks(sessionID uuid.UUID) ([]*core_itf.TaskSpec, error) {
 		session, found := s.sessions[sessionID]
 		if !found {
 			err = custom_error.Critical("session %v not found", sessionID)
+			return
+		}
+
+		if session.cancelled {
 			return
 		}
 
@@ -824,6 +834,116 @@ func (s *v1) RetryTask(taskID uuid.UUID) error {
 		Status:     taskSnapshot.Status,
 		RetryCount: taskSnapshot.RetryCount,
 	})
+}
+
+type cancelledTask struct {
+	taskID   uuid.UUID
+	agentID  uuid.UUID
+	kind     enums.SessionEvent
+	task     *input_itf.TaskEntity
+	prevTask input_itf.TaskEntity
+	snapshot input_itf.TaskEntity
+}
+
+func (s *v1) Cancel(sessionID uuid.UUID) ([]uuid.UUID, error) {
+	var err error
+	var session *sessionMetadata
+	var infoSnapshot input_itf.SessionEntity
+
+	agentIDs := []uuid.UUID{}
+	handles := map[uuid.UUID]*AgentHandle{}
+	cancelled := []*cancelledTask{}
+
+	s.raceSafe(func() {
+		found := false
+
+		session, found = s.sessions[sessionID]
+		if !found {
+			err = custom_error.Critical("session %v not found to cancel", sessionID)
+			return
+		}
+
+		for taskID, t := range session.taskIDToTask {
+			if t.Status != enums.TaskNotTaken && t.Status != enums.TaskProcessing {
+				continue
+			}
+
+			change := &cancelledTask{
+				taskID:   taskID,
+				kind:     enums.SessionTaskStatusChanged,
+				task:     t,
+				prevTask: *t,
+			}
+
+			if handle, taken := session.findHandle(taskID); taken {
+				change.agentID = handle.AgentID
+				change.kind = enums.SessionTaskDropped
+			}
+
+			t.Status = enums.TaskCancelled
+			t.UpdatedAt = helpers.NewUTC()
+			change.snapshot = *t
+
+			cancelled = append(cancelled, change)
+		}
+
+		for agentID, handle := range session.agentIDToHandle {
+			agentIDs = append(agentIDs, agentID)
+			handles[agentID] = handle
+		}
+
+		session.agentIDToHandle = map[uuid.UUID]*AgentHandle{}
+		session.cancelled = true
+		infoSnapshot = *session.info
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(agentIDs, func(i, j int) bool { return agentIDs[i].String() < agentIDs[j].String() })
+
+	var publishErr error
+
+	for i, change := range cancelled {
+		if err := s.wal.Append(&input_itf.TaskWALRecord{
+			Kind:    change.kind,
+			TaskID:  change.taskID,
+			AgentID: change.agentID,
+			Status:  change.snapshot.Status,
+			Task:    &change.snapshot,
+			Session: &infoSnapshot,
+		}); err != nil {
+			s.raceSafe(func() {
+				for _, pending := range cancelled[i:] {
+					*pending.task = pending.prevTask
+
+					if handle, found := handles[pending.agentID]; found {
+						session.agentIDToHandle[pending.agentID] = handle
+					}
+				}
+			})
+
+			return nil, custom_error.Critical("cannot append task cancel to wal: %v", err)
+		}
+
+		if err := s.publish(&core_itf.SessionProgress{
+			SessionID:  sessionID,
+			TaskID:     change.taskID,
+			AgentID:    change.agentID,
+			Event:      change.kind,
+			Status:     change.snapshot.Status,
+			RetryCount: change.snapshot.RetryCount,
+		}); err != nil && publishErr == nil {
+			publishErr = err
+		}
+	}
+
+	if err := s.drainIfDone(session); err != nil && publishErr == nil {
+		publishErr = err
+	}
+
+	return agentIDs, publishErr
 }
 
 func (s *v1) drainIfDone(session *sessionMetadata) error {

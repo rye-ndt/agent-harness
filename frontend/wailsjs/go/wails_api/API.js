@@ -30,6 +30,10 @@ export function AuthorizeMCPServer(arg1) {
   return window['go']['wails_api']['API']['AuthorizeMCPServer'](arg1);
 }
 
+export function CancelSession(arg1) {
+  return window['go']['wails_api']['API']['CancelSession'](arg1);
+}
+
 export function ChooseDirectory(arg1) {
   return window['go']['wails_api']['API']['ChooseDirectory'](arg1);
 }
@@ -92,6 +96,10 @@ export function SessionStatus(arg1) {
 
 export function SetAgentDefault(arg1, arg2, arg3) {
   return window['go']['wails_api']['API']['SetAgentDefault'](arg1, arg2, arg3);
+}
+
+export function SetMCPCredential(arg1, arg2) {
+  return window['go']['wails_api']['API']['SetMCPCredential'](arg1, arg2);
 }
 
 export function Shutdown(arg1) {

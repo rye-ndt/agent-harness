@@ -112,6 +112,7 @@ type MCPServerInfo struct {
 	URL          string `json:"url"`
 	Authorized   bool   `json:"authorized"`
 	AuthorizedAt string `json:"authorized_at"`
+	Kind         string `json:"kind"`
 }
 
 type AgentDefaultOptionsInfo struct {
@@ -146,6 +147,7 @@ type FEAPI interface {
 	CompleteOnboarding() error
 	RunSession(spec *RunSessionSpec) (*RunSessionResult, error)
 	SessionStatus(sessionID string) (*SessionStatusInfo, error)
+	CancelSession(sessionID string) error
 	RetrySessionTask(taskID string) error
 	SessionDrafts() ([]*SessionDraftInfo, error)
 	SaveSessionDraft(id string, doc string) error

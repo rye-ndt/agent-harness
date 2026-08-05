@@ -7,6 +7,7 @@ const TEMPLATE_IDS = {
     reviewer: '0192f3a1-0001-7000-8000-000000000001',
     tests: '0192f3a1-0002-7000-8000-000000000002',
     docs: '0192f3a1-0003-7000-8000-000000000003',
+    ticket: '0192f3a1-0004-7000-8000-000000000004',
 }
 
 function handover(doc: Partial<HandoverDoc> & Pick<HandoverDoc, 'task' | 'outcome'>): HandoverDoc {
@@ -210,6 +211,8 @@ export const MOCK_SESSIONS: Session[] = [
         name: 'Coordinator port',
         createdAt: '2026-07-30T09:12:00Z',
         finalized: false,
+        started: false,
+        cancelled: false,
         workingDir: '/Users/rye/dev/agent-harness',
         contextDir: '/Users/rye/dev/agent-harness/.harness/context',
         tasks: [
@@ -248,6 +251,16 @@ export const MOCK_SESSIONS: Session[] = [
                 values: {doc_path: 'docs/handover-format.md'},
             },
             {
+                id: 'task-15',
+                title: 'Read the tracker ticket',
+                prompt: 'Fetch the ticket at https://atlassian/tickets/{{ticket_id}} and restate it as a task with a definition of done.',
+                state: 'idle',
+                position: {x: 340, y: 480},
+                dependsOn: ['task-1'],
+                templateId: TEMPLATE_IDS.ticket,
+                values: {ticket_id: '', include_comments: true},
+            },
+            {
                 id: 'task-4',
                 title: 'Wire it into wire.go',
                 prompt: 'Compose the coordinator in wire.go. It is the only composition root.',
@@ -274,6 +287,8 @@ export const MOCK_SESSIONS: Session[] = [
         name: 'Retry policy',
         createdAt: '2026-08-01T07:20:00Z',
         finalized: true,
+        started: true,
+        cancelled: false,
         workingDir: '/Users/rye/dev/agent-harness',
         contextDir: '/Users/rye/dev/agent-harness/.harness/context',
         tasks: [
@@ -344,6 +359,8 @@ export const MOCK_SESSIONS: Session[] = [
         name: 'MCP proxy hardening',
         createdAt: '2026-07-28T14:40:00Z',
         finalized: true,
+        started: true,
+        cancelled: false,
         workingDir: '/Users/rye/dev/agent-harness',
         contextDir: '/Users/rye/dev/agent-harness/.harness/context',
         tasks: [
@@ -479,6 +496,8 @@ export const MOCK_SESSIONS: Session[] = [
         name: 'WAL replay spike',
         createdAt: '2026-07-31T08:05:00Z',
         finalized: true,
+        started: true,
+        cancelled: false,
         workingDir: '/Users/rye/dev/agent-harness',
         contextDir: '/Users/rye/dev/agent-harness/.harness/context',
         tasks: [
@@ -579,6 +598,82 @@ export const MOCK_SESSIONS: Session[] = [
                 dependsOn: ['task-10'],
                 templateId: TEMPLATE_IDS.docs,
                 values: {doc_path: 'docs/wal.md'},
+            },
+        ],
+    },
+    {
+        id: '0198e3a1-0000-7000-8000-000000000005',
+        name: 'Heartbeat recovery',
+        createdAt: '2026-08-02T10:30:00Z',
+        finalized: true,
+        started: true,
+        cancelled: true,
+        workingDir: '/Users/rye/dev/agent-harness',
+        contextDir: '/Users/rye/dev/agent-harness/.harness/context',
+        tasks: [
+            {
+                id: 'task-16',
+                title: 'Trace the heartbeat path',
+                prompt: 'Follow a heartbeat from the agent to the session manager and say what a missed one does today.',
+                state: 'done',
+                position: {x: 0, y: 60},
+                dependsOn: [],
+                templateId: TEMPLATE_IDS.reviewer,
+                values: {},
+                run: {
+                    startedAt: '2026-08-02T10:31:04Z',
+                    finishedAt: '2026-08-02T10:38:22Z',
+                    context: {used: 46700, total: 200000},
+                },
+                report: {
+                    status: 'done',
+                    fileChanges: [],
+                    handoverDocs: [
+                        handover({
+                            task: 'Trace the heartbeat path',
+                            outcome:
+                                'Read-only pass. A missed heartbeat kills the agent process and leaves the node in running forever.',
+                            currentBehaviors: {
+                                sweep: 'The heartbeat ticker cancels the agent context but never writes a terminal state.',
+                                restart:
+                                    'On restart the node is still marked running, so nothing picks it back up.',
+                            },
+                            mustAvoid: {
+                                kill_on_first_miss:
+                                    'One missed tick is normal under load. Only a run of them means the agent is gone.',
+                            },
+                            knownGaps: {
+                                terminal_state:
+                                    'Nothing marks the node failed when its agent disappears. The next node adds that.',
+                            },
+                        }),
+                    ],
+                },
+            },
+            {
+                id: 'task-17',
+                title: 'Mark the node failed on a lost agent',
+                prompt: 'When the heartbeat sweep kills an agent, write the terminal state so the coordinator can move on.',
+                state: 'cancelled',
+                position: {x: 340, y: 60},
+                dependsOn: ['task-16'],
+                templateId: TEMPLATE_IDS.tests,
+                values: {
+                    package_path: 'internal/implementation/session_manager',
+                    max_cases: 6,
+                    focus: 'A node whose agent stops answering ends up failed, not running.',
+                },
+                run: {startedAt: '2026-08-02T10:39:10Z', finishedAt: '2026-08-02T10:44:51Z'},
+            },
+            {
+                id: 'task-18',
+                title: 'Write up the heartbeat contract',
+                prompt: 'Document how many missed ticks kill an agent and what the node looks like afterwards.',
+                state: 'cancelled',
+                position: {x: 680, y: 60},
+                dependsOn: ['task-17'],
+                templateId: TEMPLATE_IDS.docs,
+                values: {doc_path: 'docs/heartbeats.md'},
             },
         ],
     },
