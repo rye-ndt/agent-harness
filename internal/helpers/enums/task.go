@@ -5,11 +5,12 @@ import "slices"
 type TaskStatus string
 
 const (
-	TaskNotTaken   TaskStatus = "not_taken"
-	TaskProcessing TaskStatus = "processing"
-	TaskCompleted  TaskStatus = "completed"
-	TaskCancelled  TaskStatus = "cancelled"
-	TaskFailed     TaskStatus = "failed"
+	TaskNotTaken       TaskStatus = "not_taken"
+	TaskProcessing     TaskStatus = "processing"
+	TaskAwaitingAccept TaskStatus = "awaiting_accept"
+	TaskCompleted      TaskStatus = "completed"
+	TaskCancelled      TaskStatus = "cancelled"
+	TaskFailed         TaskStatus = "failed"
 )
 
 var takeable = []TaskStatus{

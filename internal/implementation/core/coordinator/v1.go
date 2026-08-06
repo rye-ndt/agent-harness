@@ -273,6 +273,16 @@ func buildPrompt(spec *core_itf.TaskSpec, status *core_itf.SessionStatus) string
 		}
 	}
 
+	if spec.ManualAcceptRequired {
+		b.WriteString("\nA human operator reviews your report before anything downstream runs, " +
+			"so nothing continues until they confirm it. Write the `outcome` field as a complete, " +
+			"self-contained briefing for that operator: what you did and why, the plan you followed, " +
+			"the decisions you took and the alternatives you rejected, the risks you see, and anything " +
+			"that could surprise them. Assume they have not read the code or watched you work. " +
+			"Also fill `approved_decisions`, `rejected_decisions`, `must_avoid`, `nuances` and " +
+			"`known_gaps` wherever they apply.\n")
+	}
+
 	b.WriteString("\nWhen you are finished, call the `report_task` tool on the `" +
 		constances.GatewayLocalServer +
 		"` MCP server exactly once, with status completed or failed and a complete, honest handover doc. " +

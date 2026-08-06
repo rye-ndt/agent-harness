@@ -13,4 +13,6 @@ type UserConfig interface {
 	SetAgentDefault(level enums.TaskLevel, agentDefault *AgentDefault) error
 	Onboarded() bool
 	CompleteOnboarding() error
+	Autopilot() bool
+	SetAutopilot(on bool) error
 }

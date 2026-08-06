@@ -1,18 +1,25 @@
 /**
  * Finalizing builds a RunSessionSpec, starts the real run through the
- * generated bindings, and polls SessionStatus until the run settles.
+ * generated bindings, and polls SessionStatus until the run settles. A node
+ * that asks for manual acceptance halts in awaiting_accept until the answer
+ * goes back over the same bindings.
  */
 
 import {bridge, hasWailsRuntime} from '@/shared/api/bridge'
 import {listTemplates} from '@/features/templates/api'
-import {TaskLevel, TaskState} from '@/shared/lib/enums'
-import {hasActiveTask, isSettled, label} from '@/features/sessions/graph'
+import {FileChangeType, TaskLevel, TaskState} from '@/shared/lib/enums'
+import {hasActiveTask, isFinished, label} from '@/features/sessions/graph'
 import {resolvedPrompt} from '@/features/sessions/task-inputs'
-import type {HandoverDoc, Session, Task} from '@/features/sessions/types'
+import type {FileChange, HandoverDoc, Session, Task} from '@/features/sessions/types'
 import {replaceSession, sessions} from '@/features/sessions/api/store'
 import {TICK_MS, timers} from '@/features/sessions/api/timers'
 import {output_itf} from '@wailsjs/go/models'
-import {CancelSession, RunSession, SessionStatus} from '@wailsjs/go/wails_api/API'
+import {
+    AnswerTaskAcceptance,
+    CancelSession,
+    RunSession,
+    SessionStatus,
+} from '@wailsjs/go/wails_api/API'
 
 const MAX_FAILED_POLLS = 5
 
@@ -42,6 +49,7 @@ async function buildRunSpec(session: Session): Promise<output_itf.RunSessionSpec
                 system_prompts: template?.systemPrompts.map((prompt) => prompt.value) ?? [],
                 depends_on: [...task.dependsOn],
                 auto_retry: false,
+                manual_accept_required: template?.manualAcceptRequired ?? false,
             }
         }),
     })
@@ -65,6 +73,23 @@ export async function startRemoteRun(session: Session): Promise<boolean> {
     runs.set(session.id, {remoteSessionId: result.session_id, clientTaskIds, failedPolls: 0})
     pollRemoteRun(session.id)
     return true
+}
+
+export async function answerRemoteAcceptance(
+    sessionId: string,
+    taskId: string,
+    accepted: boolean,
+): Promise<void> {
+    const run = runs.get(sessionId)
+    if (!run) throw new Error('This run is no longer being tracked. Reopen the session first.')
+
+    const match = [...run.clientTaskIds].find(([, clientId]) => clientId === taskId)
+    if (!match) throw new Error('That node is not part of the running session.')
+
+    const [remoteTaskId] = match
+
+    await bridge(() => AnswerTaskAcceptance(remoteTaskId, accepted))
+    pollRemoteRun(sessionId)
 }
 
 export async function cancelRemoteRun(sessionId: string): Promise<void> {
@@ -123,15 +148,14 @@ function loseRun(session: Session): Session {
     return {
         ...session,
         tasks: session.tasks.map((task) =>
-            isSettled(task.state) && task.state !== TaskState.Running
-                ? task
-                : {...task, state: TaskState.Failed},
+            isFinished(task.state) ? task : {...task, state: TaskState.Failed},
         ),
     }
 }
 
 const REMOTE_STATES: Record<string, TaskState> = {
     processing: TaskState.Running,
+    awaiting_accept: TaskState.AwaitingAccept,
     completed: TaskState.Done,
     failed: TaskState.Failed,
     cancelled: TaskState.Failed,
@@ -172,9 +196,27 @@ function applyRemoteTask(task: Task, info: output_itf.SessionTaskInfo, now: stri
                 ? task.report
                 : {
                       status: state,
-                      fileChanges: [],
+                      fileChanges: (info.file_changes ?? []).map(toFileChange),
                       handoverDocs: (info.handover_docs ?? []).map(toHandoverDoc),
                   },
+    }
+}
+
+const REMOTE_CHANGE_TYPES: Record<string, FileChangeType> = {
+    added: FileChangeType.Created,
+    modified: FileChangeType.Modified,
+    deleted: FileChangeType.Deleted,
+    renamed: FileChangeType.Renamed,
+}
+
+function toFileChange(info: output_itf.FileChangeInfo): FileChange {
+    return {
+        path: info.path ?? '',
+        oldPath: info.old_path ?? '',
+        changeType: REMOTE_CHANGE_TYPES[info.change_type] ?? FileChangeType.Modified,
+        additions: info.additions ?? 0,
+        deletions: info.deletions ?? 0,
+        unifiedDiff: info.unified_diff ?? '',
     }
 }
 

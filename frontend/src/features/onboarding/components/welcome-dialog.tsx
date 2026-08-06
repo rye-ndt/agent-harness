@@ -11,7 +11,7 @@ export function WelcomeDialog({
     ratio,
     settled,
     canContinue,
-    error,
+    failed,
     onRetry,
     onStart,
 }: {
@@ -19,13 +19,13 @@ export function WelcomeDialog({
     ratio: number
     settled: boolean
     canContinue: boolean
-    error: string
+    failed: boolean
     onRetry: () => void
     onStart: () => void
 }) {
     const percent = Math.round(ratio * 100)
 
-    const label = error
+    const label = failed
         ? 'Some dependencies failed'
         : settled
           ? 'Dependencies ready'
@@ -63,24 +63,19 @@ export function WelcomeDialog({
                         aria-label={label}
                         value={percent}
                         className="h-2 rounded-full bg-progress-track"
-                        indicatorClassName={error ? 'bg-state-failed' : 'bg-progress'}
+                        indicatorClassName={failed ? 'bg-state-failed' : 'bg-progress'}
                     />
                 </div>
 
-                {error && (
-                    <div className="flex flex-col gap-1">
-                        <p className="text-sm text-destructive">{error}</p>
-                        {canContinue && (
-                            <p className="text-sm text-muted-foreground">
-                                You can start with the harnesses that are ready.
-                            </p>
-                        )}
-                    </div>
+                {failed && canContinue && (
+                    <p className="text-sm text-muted-foreground">
+                        You can start with the harnesses that are ready.
+                    </p>
                 )}
 
-                {(settled || error) && (
+                {(settled || failed) && (
                     <DialogFooter>
-                        {error && (
+                        {failed && (
                             <Button
                                 autoFocus={!canContinue}
                                 variant="outline"

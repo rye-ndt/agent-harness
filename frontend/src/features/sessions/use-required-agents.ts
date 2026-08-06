@@ -36,7 +36,6 @@ export function useRequiredAgents() {
         required,
         ready,
         loading,
-        error: roster.error,
         busy: roster.busy,
         busyLabel: roster.busyLabel,
         authUrlOf: roster.authUrlOf,

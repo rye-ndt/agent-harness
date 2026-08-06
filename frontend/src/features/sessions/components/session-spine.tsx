@@ -13,6 +13,7 @@ const SPINE_DOT_CLASSES: Record<TaskState, string> = {
     [TaskState.Queued]: 'bg-state-idle/40',
     [TaskState.Running]: 'bg-state-running',
     [TaskState.AwaitingApproval]: 'bg-state-approval',
+    [TaskState.AwaitingAccept]: 'bg-state-approval',
     [TaskState.NeedsInput]: 'bg-state-approval',
     [TaskState.Done]: 'bg-state-done',
     [TaskState.Failed]: 'bg-state-failed',

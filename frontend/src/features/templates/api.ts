@@ -41,6 +41,7 @@ function toTemplate(info: output_itf.TemplateInfo): Template {
         role: info.role,
         taskLevel: taskLevelOf(info.task_level),
         retryable: info.retryable,
+        manualAcceptRequired: info.manual_accept_required,
         params: Object.entries(info.params ?? {})
             .sort(byKey)
             .map(([key, param]) => ({
@@ -64,6 +65,7 @@ function toInfo(draft: TemplateDraft): output_itf.TemplateInfo {
         role: draft.role,
         task_level: draft.taskLevel,
         retryable: draft.retryable,
+        manual_accept_required: draft.manualAcceptRequired,
         params: Object.fromEntries(
             draft.params.map((param) => [
                 param.key,

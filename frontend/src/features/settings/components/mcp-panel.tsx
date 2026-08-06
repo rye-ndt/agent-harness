@@ -7,7 +7,7 @@ import {formatRelative} from '@/shared/lib/format'
 import type {MCPServer} from '@/features/settings/types'
 
 export function MCPPanel() {
-    const {servers, loading, error, pendingId, authorize, setToken, savingId, savingToken} =
+    const {servers, loading, pendingId, authorize, setToken, savingId, savingToken} =
         useMCPServers()
 
     const busy = pendingId !== null || savingToken
@@ -48,10 +48,6 @@ export function MCPPanel() {
                     </p>
                 )}
             </div>
-
-            {error && (
-                <p className="border-t border-border px-4 py-3 text-sm text-destructive">{error}</p>
-            )}
         </section>
     )
 }

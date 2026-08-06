@@ -20,6 +20,7 @@ export type Template = {
     role: string
     taskLevel: TaskLevel
     retryable: boolean
+    manualAcceptRequired: boolean
     params: TemplateParam[]
     systemPrompts: SystemPrompt[]
 }

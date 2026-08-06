@@ -19,6 +19,7 @@ export function emptyTemplate(): TemplateDraft {
         role: '',
         taskLevel: TaskLevel.Daily,
         retryable: true,
+        manualAcceptRequired: false,
         params: [emptyParam()],
         systemPrompts: [{key: 'base', value: ''}],
     }

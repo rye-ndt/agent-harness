@@ -6,7 +6,11 @@
  */
 
 import {bridge, hasWailsRuntime} from '@/shared/api/bridge'
-import {MOCK_MCP_SERVERS} from '@/features/settings/mock-mcp'
+import {
+    mockAuthorizeFailure,
+    mockTokenFailure,
+    MOCK_MCP_SERVERS,
+} from '@/features/settings/mock-mcp'
 import type {MCPServer} from '@/features/settings/types'
 import {AuthorizeMCPServer, MCPServers, SetMCPCredential} from '@wailsjs/go/wails_api/API'
 
@@ -44,6 +48,9 @@ export async function authorizeMCPServer(serverId: string): Promise<void> {
 
     await roundtrip()
 
+    const failure = mockAuthorizeFailure(serverId)
+    if (failure) throw failure
+
     servers = servers.map((server) =>
         server.id === serverId
             ? {...server, authorized: true, authorizedAt: new Date().toISOString()}
@@ -62,6 +69,9 @@ export async function setMCPCredential(serverId: string, token: string): Promise
     if (target.kind !== 'token') throw new Error('That MCP server does not take a pasted token.')
 
     await roundtrip()
+
+    const failure = mockTokenFailure(target.name, token)
+    if (failure) throw failure
 
     servers = servers.map((server) =>
         server.id === serverId

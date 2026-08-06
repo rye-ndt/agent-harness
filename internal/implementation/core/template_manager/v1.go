@@ -44,15 +44,16 @@ func (m *v1) Upsert(template *core_itf.Template) (uuid.UUID, error) {
 	now := helpers.NewUTC()
 
 	entity := &input_itf.TemplateEntity{
-		ID:            id,
-		Name:          strings.TrimSpace(template.Name),
-		Role:          strings.TrimSpace(template.Role),
-		TaskLevel:     template.TaskLevel,
-		Retryable:     template.Retryable,
-		Params:        paramEntities(template.Params),
-		SystemPrompts: prompts(template.SystemPrompts),
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ID:                   id,
+		Name:                 strings.TrimSpace(template.Name),
+		Role:                 strings.TrimSpace(template.Role),
+		TaskLevel:            template.TaskLevel,
+		Retryable:            template.Retryable,
+		ManualAcceptRequired: template.ManualAcceptRequired,
+		Params:               paramEntities(template.Params),
+		SystemPrompts:        prompts(template.SystemPrompts),
+		CreatedAt:            now,
+		UpdatedAt:            now,
 	}
 
 	if err := helpers.ValidateStruct(entity); err != nil {
@@ -164,12 +165,13 @@ func template(entity *input_itf.TemplateEntity) *core_itf.Template {
 	}
 
 	return &core_itf.Template{
-		ID:            entity.ID,
-		Name:          entity.Name,
-		Role:          entity.Role,
-		TaskLevel:     entity.TaskLevel,
-		Retryable:     entity.Retryable,
-		Params:        params,
-		SystemPrompts: prompts(entity.SystemPrompts),
+		ID:                   entity.ID,
+		Name:                 entity.Name,
+		Role:                 entity.Role,
+		TaskLevel:            entity.TaskLevel,
+		Retryable:            entity.Retryable,
+		ManualAcceptRequired: entity.ManualAcceptRequired,
+		Params:               params,
+		SystemPrompts:        prompts(entity.SystemPrompts),
 	}
 }

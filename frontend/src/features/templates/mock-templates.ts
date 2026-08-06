@@ -7,6 +7,7 @@ export const MOCK_TEMPLATES: Template[] = [
         role: 'Reads a diff and reports the defects it can prove.',
         taskLevel: 'heavy_task',
         retryable: true,
+        manualAcceptRequired: true,
         params: [],
         systemPrompts: [
             {
@@ -21,6 +22,7 @@ export const MOCK_TEMPLATES: Template[] = [
         role: 'Writes the tests a change is missing and runs them.',
         taskLevel: 'daily_task',
         retryable: true,
+        manualAcceptRequired: false,
         params: [
             {
                 key: 'package_path',
@@ -55,6 +57,7 @@ export const MOCK_TEMPLATES: Template[] = [
         role: 'Reads a tracker ticket and turns it into a scoped task.',
         taskLevel: 'lightweight_task',
         retryable: true,
+        manualAcceptRequired: false,
         params: [
             {
                 key: 'ticket_id',
@@ -83,6 +86,7 @@ export const MOCK_TEMPLATES: Template[] = [
         role: 'Brings the docs back in line with the code.',
         taskLevel: 'lightweight_task',
         retryable: false,
+        manualAcceptRequired: false,
         params: [
             {
                 key: 'doc_path',

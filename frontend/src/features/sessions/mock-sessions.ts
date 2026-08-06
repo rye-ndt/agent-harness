@@ -283,6 +283,84 @@ export const MOCK_SESSIONS: Session[] = [
         ],
     },
     {
+        id: '0198e3a1-0000-7000-8000-000000000006',
+        name: 'Approval gate',
+        createdAt: '2026-08-04T11:15:00Z',
+        finalized: true,
+        started: true,
+        cancelled: false,
+        workingDir: '/Users/rye/dev/agent-harness',
+        contextDir: '/Users/rye/dev/agent-harness/.harness/context',
+        tasks: [
+            {
+                id: 'task-19',
+                title: 'Review the proxy deadline change',
+                prompt: 'Read the deadline change on the proxy and report the defects you can point to a line for.',
+                state: 'awaiting_accept',
+                position: {x: 0, y: 60},
+                dependsOn: [],
+                templateId: TEMPLATE_IDS.reviewer,
+                values: {},
+                run: {
+                    startedAt: secondsAgo(430),
+                    finishedAt: secondsAgo(295),
+                    context: {used: 61200, total: 200000},
+                },
+                report: {
+                    status: 'awaiting_accept',
+                    fileChanges: [CHANGES.proxyDeadline, CHANGES.proxyConfig],
+                    handoverDocs: [
+                        handover({
+                            task: 'Review the proxy deadline change',
+                            outcome:
+                                'The deadline lands where it should and the typed error is right. One thing I could not settle on my own: the default is zero, which reads as no deadline at all, and the docs node downstream will repeat whatever I say here. Read it before I hand it on.',
+                            approvedDecisions: {
+                                typed_error:
+                                    'A timeout surfaces as enums.ErrorTypeUpstream, so the coordinator can tell it apart from a bad request.',
+                                config_source:
+                                    'The deadline comes from config rather than a constant, so an operator can raise it per install.',
+                            },
+                            rejectedDecisions: {
+                                retry_in_proxy:
+                                    'I dropped the retry the prompt hinted at. Retries belong to the session manager, not the proxy.',
+                            },
+                            currentBehaviors: {
+                                default:
+                                    'A missing mcp_proxy block leaves ForwardDeadline at zero, which means no deadline at all.',
+                            },
+                            changedBehaviors: {
+                                forward:
+                                    'Forward() wraps the request in a context with p.deadline and returns a typed error on expiry.',
+                            },
+                            mustAvoid: {
+                                shared_context:
+                                    'Do not reuse p.ctx for a call. Cancelling it would kill the proxy, not the request.',
+                            },
+                            nuances: {
+                                streaming:
+                                    'Streaming calls take the same deadline, so a long stream now dies at 20s. That may be wrong.',
+                            },
+                            knownGaps: {
+                                zero_default:
+                                    'Nobody decided whether zero should mean no deadline or a 30s default. The next node will document whichever you accept.',
+                            },
+                        }),
+                    ],
+                },
+            },
+            {
+                id: 'task-20',
+                title: 'Write up the deadline',
+                prompt: 'Bring the proxy section of the README in line with the review you were handed.',
+                state: 'blocked',
+                position: {x: 340, y: 60},
+                dependsOn: ['task-19'],
+                templateId: TEMPLATE_IDS.docs,
+                values: {doc_path: 'README.md'},
+            },
+        ],
+    },
+    {
         id: '0198e3a1-0000-7000-8000-000000000004',
         name: 'Retry policy',
         createdAt: '2026-08-01T07:20:00Z',

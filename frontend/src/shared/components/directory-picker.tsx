@@ -12,7 +12,6 @@ import {
     listDirectories,
     registerDirectoryChooser,
 } from '@/shared/api/dialogs'
-import {errorMessage} from '@/shared/lib/errors'
 import {joinPath, parentPath} from '@/shared/lib/path'
 
 type Request = {
@@ -53,31 +52,34 @@ function DirectoryPicker({title, onSettle}: {title: string; onSettle: (path: str
 
     const [visitedPath, setVisitedPath] = useState<string | null>(null)
     const [newName, setNewName] = useState<string | null>(null)
-    const [error, setError] = useState('')
 
-    const home = useQuery({queryKey: ['home-directory'], queryFn: homeDirectory})
+    const home = useQuery({
+        queryKey: ['home-directory'],
+        queryFn: homeDirectory,
+        meta: {action: 'Could not find your home folder'},
+    })
     const path = visitedPath ?? home.data ?? null
 
     const directories = useQuery({
         queryKey: ['directories', path],
         queryFn: () => listDirectories(path ?? ''),
         enabled: path !== null,
+        meta: {action: 'Could not read that folder'},
     })
 
     const enter = (next: string) => {
         setVisitedPath(next)
         setNewName(null)
-        setError('')
     }
 
     const creation = useMutation({
+        meta: {action: 'Could not create the folder'},
         mutationFn: ({parent, name}: {parent: string; name: string}) =>
             createDirectory(parent, name),
         onSuccess: (created) => {
             queryClient.invalidateQueries({queryKey: ['directories']})
             enter(created)
         },
-        onError: (cause) => setError(errorMessage(cause)),
     })
 
     if (path === null) return null
@@ -155,7 +157,7 @@ function DirectoryPicker({title, onSettle}: {title: string; onSettle: (path: str
                         <span className="text-base">New folder</span>
                     </button>
                 ) : (
-                    <div className="flex flex-col gap-2 px-4 py-3">
+                    <div className="px-4 py-3">
                         <div className="flex gap-2">
                             <Input
                                 autoFocus
@@ -174,7 +176,6 @@ function DirectoryPicker({title, onSettle}: {title: string; onSettle: (path: str
                                 Create
                             </Button>
                         </div>
-                        {error && <p className="text-sm text-destructive">{error}</p>}
                     </div>
                 )}
             </div>

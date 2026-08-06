@@ -107,9 +107,11 @@ var migrations = []string{
 		doc TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	)`,
+	`ALTER TABLE agent_templates ADD COLUMN manual_accept_required INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE tasks ADD COLUMN manual_accept_required INTEGER NOT NULL DEFAULT 0`,
 }
 
-const templateColumns = `id, name, role, task_level, retryable, params, system_prompts, created_at, updated_at`
+const templateColumns = `id, name, role, task_level, retryable, manual_accept_required, params, system_prompts, created_at, updated_at`
 
 type litesql struct {
 	db *sql.DB
@@ -284,12 +286,13 @@ func (s *templateStore) Upsert(t *input_itf.TemplateEntity) error {
 	}
 
 	_, err = s.db.Exec(`INSERT INTO agent_templates (`+templateColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			role = excluded.role,
 			task_level = excluded.task_level,
 			retryable = excluded.retryable,
+			manual_accept_required = excluded.manual_accept_required,
 			params = excluded.params,
 			system_prompts = excluded.system_prompts,
 			updated_at = excluded.updated_at`,
@@ -298,6 +301,7 @@ func (s *templateStore) Upsert(t *input_itf.TemplateEntity) error {
 		t.Role,
 		t.TaskLevel.String(),
 		t.Retryable,
+		t.ManualAcceptRequired,
 		string(params),
 		string(prompts),
 		formatTime(t.CreatedAt),
@@ -351,7 +355,7 @@ func scanTemplate(scan func(dest ...any) error) (*input_itf.TemplateEntity, erro
 
 	var id, taskLevel, params, prompts, createdAt, updatedAt string
 
-	if err := scan(&id, &t.Name, &t.Role, &taskLevel, &t.Retryable,
+	if err := scan(&id, &t.Name, &t.Role, &taskLevel, &t.Retryable, &t.ManualAcceptRequired,
 		&params, &prompts, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
@@ -465,13 +469,13 @@ func (s *taskStore) Find(taskID uuid.UUID) (*input_itf.TaskEntity, error) {
 	var createdAt, updatedAt string
 
 	err := s.db.QueryRow(`SELECT id, session_id, name, agent_role, preferred_model,
-		thinking_level, system_prompts, auto_retry,
+		thinking_level, system_prompts, auto_retry, manual_accept_required,
 		file_write_allowance, allowed_file_paths, template_file_paths, extra_guidance,
 		retry_count, status, prev_task_id, next_task_id, children_task_ids,
 		depends_on_task_ids, last_report_id, created_at, updated_at
 		FROM tasks WHERE id = ?`, taskID.String()).
 		Scan(&id, &sessionID, &t.Name, &t.AgentRole, &model,
-			&thinkingLevel, &systemPrompts, &t.AutoRetry,
+			&thinkingLevel, &systemPrompts, &t.AutoRetry, &t.ManualAcceptRequired,
 			&allowance, &allowedPaths, &templatePaths, &t.ExtraGuidance,
 			&t.RetryCount, &status, &prevID, &nextID, &childrenIDs,
 			&dependsOnIDs, &lastReportID, &createdAt, &updatedAt)
@@ -632,11 +636,11 @@ func saveTask(e execer, t *input_itf.TaskEntity) error {
 
 	_, err = e.Exec(`INSERT OR REPLACE INTO tasks
 		(id, session_id, name, agent_role, preferred_model, thinking_level, system_prompts,
-		auto_retry, file_write_allowance,
+		auto_retry, manual_accept_required, file_write_allowance,
 		allowed_file_paths, template_file_paths, extra_guidance, retry_count, status,
 		prev_task_id, next_task_id, children_task_ids, depends_on_task_ids,
 		last_report_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID.String(),
 		t.SessionID.String(),
 		t.Name,
@@ -645,6 +649,7 @@ func saveTask(e execer, t *input_itf.TaskEntity) error {
 		string(t.ThinkingLevel),
 		string(systemPrompts),
 		t.AutoRetry,
+		t.ManualAcceptRequired,
 		string(t.FileWriteAllowance),
 		string(allowedPaths),
 		string(templatePaths),

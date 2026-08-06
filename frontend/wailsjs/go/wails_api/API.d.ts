@@ -14,9 +14,13 @@ export function AgentStatuses():Promise<Array<output_itf.AgentInfo>>;
 
 export function AnswerApproval(arg1:string,arg2:boolean,arg3:Array<string>,arg4:string):Promise<void>;
 
+export function AnswerTaskAcceptance(arg1:string,arg2:boolean):Promise<void>;
+
 export function AuthAgent(arg1:string):Promise<string>;
 
 export function AuthorizeMCPServer(arg1:string):Promise<void>;
+
+export function Autopilot():Promise<boolean>;
 
 export function CancelSession(arg1:string):Promise<void>;
 
@@ -51,6 +55,8 @@ export function SessionDrafts():Promise<Array<output_itf.SessionDraftInfo>>;
 export function SessionStatus(arg1:string):Promise<output_itf.SessionStatusInfo>;
 
 export function SetAgentDefault(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SetAutopilot(arg1:boolean):Promise<void>;
 
 export function SetMCPCredential(arg1:string,arg2:string):Promise<void>;
 

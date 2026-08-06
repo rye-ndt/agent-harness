@@ -15,13 +15,14 @@ type TemplateParams struct {
 }
 
 type Template struct {
-	ID            uuid.UUID
-	Name          string
-	Role          string
-	TaskLevel     enums.TaskLevel
-	Retryable     bool
-	Params        map[string]*TemplateParams
-	SystemPrompts map[string]string
+	ID                   uuid.UUID
+	Name                 string
+	Role                 string
+	TaskLevel            enums.TaskLevel
+	Retryable            bool
+	ManualAcceptRequired bool
+	Params               map[string]*TemplateParams
+	SystemPrompts        map[string]string
 }
 
 type AgentTemplateManager interface {

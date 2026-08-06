@@ -1,15 +1,18 @@
 /**
  * Outside the webview (the plain vite dev server) there is no runtime, so the
  * graph starts from the mock sessions and finalizing falls back to a simulated
- * run that walks the graph in order.
+ * run that walks the graph in order. A node whose template asks for manual
+ * acceptance halts the walk until `resolveAcceptance` answers it.
  */
 
 import {TaskState} from '@/shared/lib/enums'
 import {mockOutcome} from '@/features/sessions/mock-sessions'
-import {hasRunningTask, isRunnable, label} from '@/features/sessions/graph'
+import {hasRunningTask, isRunnable, label, withTaskPatch} from '@/features/sessions/graph'
 import {pendingParams, templateOf} from '@/features/sessions/task-inputs'
+import {cachedAutopilot} from '@/features/settings/api/preferences'
 import {cachedTemplates} from '@/features/templates/api'
 import type {Session, Task} from '@/features/sessions/types'
+import type {Template} from '@/features/templates/types'
 import {replaceSession, sessions} from '@/features/sessions/api/store'
 import {TICK_MS, timers} from '@/features/sessions/api/timers'
 
@@ -28,7 +31,12 @@ function start(task: Task, now: number): Task {
     }
 }
 
-function progress(task: Task, now: number): Task {
+function gated(task: Task, templates: Template[]) {
+    if (cachedAutopilot()) return false
+    return templateOf(task, templates)?.manualAcceptRequired === true
+}
+
+function progress(task: Task, now: number, templates: Template[]): Task {
     const outcome = mockOutcome(task)
     const startedAt = task.run?.startedAt ? Date.parse(task.run.startedAt) : now
     const share = Math.min(1, Math.max(0, (now - startedAt) / outcome.durationMs))
@@ -39,11 +47,16 @@ function progress(task: Task, now: number): Task {
 
     if (share < 1) return {...task, run: {...task.run, context}}
 
+    const state =
+        outcome.state === TaskState.Done && gated(task, templates)
+            ? TaskState.AwaitingAccept
+            : outcome.state
+
     return {
         ...task,
-        state: outcome.state,
+        state,
         run: {...task.run, finishedAt: new Date(now).toISOString(), context},
-        report: outcome.report,
+        report: {...outcome.report, status: state},
     }
 }
 
@@ -54,7 +67,7 @@ function advance(session: Session): Session {
     const progressed = label({
         ...session,
         tasks: session.tasks.map((task) =>
-            task.state === TaskState.Running ? progress(task, now) : task,
+            task.state === TaskState.Running ? progress(task, now, templates) : task,
         ),
     })
 
@@ -76,6 +89,23 @@ export function tick(sessionId: string) {
 
     const next = replaceSession(advance(session))
     if (hasRunningTask(next)) schedule(sessionId)
+}
+
+export function resolveAcceptance(sessionId: string, taskId: string, accepted: boolean) {
+    const session = sessions.find((session) => session.id === sessionId)
+    const task = session?.tasks.find((task) => task.id === taskId)
+    if (!session || !task) return
+
+    const state = accepted ? TaskState.Done : TaskState.Failed
+
+    replaceSession(
+        withTaskPatch(session, taskId, {
+            state,
+            report: task.report ? {...task.report, status: state} : undefined,
+        }),
+    )
+
+    tick(sessionId)
 }
 
 function schedule(sessionId: string) {

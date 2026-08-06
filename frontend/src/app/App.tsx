@@ -14,8 +14,10 @@ import {SettingsDialog} from '@/features/settings/components/settings-dialog'
 import {useDependencies} from '@/features/onboarding/use-dependencies'
 import {useSessionStore} from '@/features/sessions/use-session-store'
 import {TaskInputsDialog} from '@/features/sessions/components/nodes/task-inputs-dialog'
+import {AcceptGateDialog} from '@/features/sessions/components/accept-gate-dialog'
 import {findTask} from '@/features/sessions/graph'
 import {heldTasks} from '@/features/sessions/task-inputs'
+import {TaskState} from '@/shared/lib/enums'
 import type {Point, SessionLocations, Task, TaskDraft} from '@/features/sessions/types'
 import type {ParamValue} from '@/features/templates/types'
 
@@ -31,6 +33,7 @@ function App() {
     const [newNodeAt, setNewNodeAt] = useState<Point | null>(null)
     const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
     const [dismissedInputsId, setDismissedInputsId] = useState<string | null>(null)
+    const [dismissedGateId, setDismissedGateId] = useState<string | null>(null)
     const [railOpen, setRailOpen] = useState(true)
 
     const session = store.activeSession
@@ -42,6 +45,13 @@ function App() {
     const holding = held.find(
         (task) => task.id !== dismissedInputsId && task.id !== store.selectedTaskId,
     )
+
+    const gated = session
+        ? session.tasks.filter((task) => task.state === TaskState.AwaitingAccept)
+        : []
+    const gating =
+        gated.find((task) => task.id === store.selectedTaskId) ??
+        gated.find((task) => task.id !== dismissedGateId)
 
     const openSettings = () => setSettingsOpen(true)
     const toggleRail = () => setRailOpen((open) => !open)
@@ -76,8 +86,9 @@ function App() {
         if (session) store.startSession(session.id)
     }
 
-    const cancelSession = () => {
-        if (session) store.cancelSession(session.id)
+    const cancelSession = (onSettled: () => void) => {
+        if (session) store.cancelSession(session.id, onSettled)
+        else onSettled()
     }
 
     const cloneActiveSession = () => {
@@ -114,6 +125,17 @@ function App() {
 
     const dismissInputs = () => setDismissedInputsId(holding?.id ?? null)
 
+    const answerGate = (accepted: boolean) => {
+        if (gating) store.answerTaskAcceptance(gating.id, accepted)
+    }
+
+    const dismissGate = () => {
+        if (!gating) return
+
+        setDismissedGateId(gating.id)
+        if (store.selectedTaskId === gating.id) store.selectTask(null)
+    }
+
     const cancelDelete = () => setPendingDeleteId(null)
 
     const confirmDelete = () => {
@@ -142,7 +164,6 @@ function App() {
             <main className="surface-card flex min-w-0 flex-1 flex-col overflow-hidden ring-1 ring-border-strong">
                 <SessionHeader
                     session={session}
-                    error={store.error}
                     onRename={renameSession}
                     onEditLocations={openLocations}
                     onFinalize={finalizeSession}
@@ -184,7 +205,7 @@ function App() {
                 />
             )}
 
-            {session && selectedTask && (
+            {session && selectedTask && selectedTask.id !== gating?.id && (
                 <TaskDialog
                     key={selectedTask.id}
                     session={session}
@@ -205,6 +226,17 @@ function App() {
                     busy={store.fillingTaskInputs}
                     onStart={fillHoldingInputs}
                     onClose={dismissInputs}
+                />
+            )}
+
+            {session && gating && (
+                <AcceptGateDialog
+                    key={gating.id}
+                    task={gating}
+                    waiting={gated.length}
+                    busy={store.answeringTaskAcceptance}
+                    onAnswer={answerGate}
+                    onClose={dismissGate}
                 />
             )}
 
@@ -233,7 +265,7 @@ function App() {
                     ratio={dependencies.ratio}
                     settled={dependencies.settled}
                     canContinue={dependencies.canContinue}
-                    error={dependencies.error}
+                    failed={dependencies.failed}
                     onRetry={dependencies.retry}
                     onStart={dependencies.dismiss}
                 />

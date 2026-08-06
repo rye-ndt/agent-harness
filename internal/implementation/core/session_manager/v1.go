@@ -261,22 +261,23 @@ func (s *v1) AddTask(sessionID uuid.UUID, task *core_itf.AddTask) (uuid.UUID, er
 	}
 
 	t := &input_itf.TaskEntity{
-		ID:                 uid,
-		SessionID:          sessionID,
-		Name:               task.Name,
-		AgentRole:          task.AgentSpecs.Role,
-		PreferredModel:     task.AgentSpecs.Name,
-		ThinkingLevel:      task.AgentSpecs.ThinkingLevel,
-		AutoRetry:          task.AutoRetry,
-		FileWriteAllowance: task.FileWriteAllowance,
-		AllowedFilePaths:   task.AllowedFilePaths,
-		TemplateFilePaths:  task.TemplateFilePaths,
-		ExtraGuidance:      task.ExtraGuidance,
-		DependsOnTaskIDs:   task.DependsOn,
-		RetryCount:         0,
-		Status:             enums.TaskNotTaken,
-		CreatedAt:          helpers.NewUTC(),
-		UpdatedAt:          helpers.NewUTC(),
+		ID:                   uid,
+		SessionID:            sessionID,
+		Name:                 task.Name,
+		AgentRole:            task.AgentSpecs.Role,
+		PreferredModel:       task.AgentSpecs.Name,
+		ThinkingLevel:        task.AgentSpecs.ThinkingLevel,
+		AutoRetry:            task.AutoRetry,
+		ManualAcceptRequired: task.ManualAcceptRequired,
+		FileWriteAllowance:   task.FileWriteAllowance,
+		AllowedFilePaths:     task.AllowedFilePaths,
+		TemplateFilePaths:    task.TemplateFilePaths,
+		ExtraGuidance:        task.ExtraGuidance,
+		DependsOnTaskIDs:     task.DependsOn,
+		RetryCount:           0,
+		Status:               enums.TaskNotTaken,
+		CreatedAt:            helpers.NewUTC(),
+		UpdatedAt:            helpers.NewUTC(),
 	}
 
 	var addErr error
@@ -440,16 +441,17 @@ func (s *v1) ReadyTasks(sessionID uuid.UUID) ([]*core_itf.TaskSpec, error) {
 			}
 
 			specs = append(specs, &core_itf.TaskSpec{
-				TaskID:             taskID,
-				SessionID:          sessionID,
-				Name:               t.Name,
-				Status:             t.Status,
-				RetryCount:         t.RetryCount,
-				AutoRetry:          t.AutoRetry,
-				FileWriteAllowance: t.FileWriteAllowance,
-				AllowedFilePaths:   t.AllowedFilePaths,
-				ExtraGuidance:      t.ExtraGuidance,
-				DependsOn:          t.DependsOnTaskIDs,
+				TaskID:               taskID,
+				SessionID:            sessionID,
+				Name:                 t.Name,
+				Status:               t.Status,
+				RetryCount:           t.RetryCount,
+				AutoRetry:            t.AutoRetry,
+				ManualAcceptRequired: t.ManualAcceptRequired,
+				FileWriteAllowance:   t.FileWriteAllowance,
+				AllowedFilePaths:     t.AllowedFilePaths,
+				ExtraGuidance:        t.ExtraGuidance,
+				DependsOn:            t.DependsOnTaskIDs,
 				AgentSpecs: &core_itf.AgentRequest{
 					Name:          t.PreferredModel,
 					Role:          t.AgentRole,
@@ -485,6 +487,7 @@ func (s *v1) Report(agentID uuid.UUID, status enums.TaskStatus, docs []*core_itf
 	var t *input_itf.TaskEntity
 	var handle *AgentHandle
 	var taskID uuid.UUID
+	var gated bool
 
 	s.raceSafe(func() {
 		var found bool
@@ -500,11 +503,19 @@ func (s *v1) Report(agentID uuid.UUID, status enums.TaskStatus, docs []*core_itf
 		session, t, found = s.findTask(taskID)
 		if !found || t.Status != enums.TaskProcessing {
 			err = custom_error.Critical("task %v not found to report", taskID)
+			return
 		}
+
+		gated = t.ManualAcceptRequired
 	})
 
 	if err != nil {
 		return err
+	}
+
+	taskStatus := status
+	if status == enums.TaskCompleted && gated {
+		taskStatus = enums.TaskAwaitingAccept
 	}
 
 	report := &core_itf.TaskReport{
@@ -578,7 +589,7 @@ func (s *v1) Report(agentID uuid.UUID, status enums.TaskStatus, docs []*core_itf
 	s.raceSafe(func() {
 		prevTask = *t
 
-		t.Status = report.Status
+		t.Status = taskStatus
 		t.UpdatedAt = helpers.NewUTC()
 		t.LastReportID = reportID
 
@@ -600,7 +611,7 @@ func (s *v1) Report(agentID uuid.UUID, status enums.TaskStatus, docs []*core_itf
 		Kind:        enums.SessionTaskReported,
 		TaskID:      taskID,
 		AgentID:     agentID,
-		Status:      report.Status,
+		Status:      taskSnapshot.Status,
 		Task:        &taskSnapshot,
 		Report:      taskReportRecord,
 		FileChanges: fileChangeRecords,
@@ -836,6 +847,75 @@ func (s *v1) RetryTask(taskID uuid.UUID) error {
 	})
 }
 
+func (s *v1) AnswerAcceptance(taskID uuid.UUID, accepted bool) error {
+	var err error
+	var session *sessionMetadata
+	var t *input_itf.TaskEntity
+	var prevTask, taskSnapshot input_itf.TaskEntity
+	var prevInfo, infoSnapshot input_itf.SessionEntity
+
+	s.raceSafe(func() {
+		found := false
+
+		session, t, found = s.findTask(taskID)
+		if !found {
+			err = custom_error.Critical("task %v not found to accept", taskID)
+			return
+		}
+
+		if t.Status != enums.TaskAwaitingAccept {
+			err = custom_error.Critical("task %v is %s and is not awaiting acceptance", taskID, t.Status)
+			return
+		}
+
+		prevTask = *t
+		if accepted {
+			t.Status = enums.TaskCompleted
+		} else {
+			t.Status = enums.TaskFailed
+		}
+		t.UpdatedAt = helpers.NewUTC()
+		taskSnapshot = *t
+
+		prevInfo = *session.info
+		session.info.UpdatedAt = helpers.NewUTC()
+		infoSnapshot = *session.info
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if err := s.wal.Append(&input_itf.TaskWALRecord{
+		Kind:    enums.SessionTaskStatusChanged,
+		TaskID:  taskID,
+		Status:  taskSnapshot.Status,
+		Task:    &taskSnapshot,
+		Session: &infoSnapshot,
+	}); err != nil {
+		s.raceSafe(func() {
+			*t = prevTask
+			*session.info = prevInfo
+		})
+
+		return custom_error.Critical("cannot append task acceptance to wal: %v", err)
+	}
+
+	publishErr := s.publish(&core_itf.SessionProgress{
+		SessionID:  infoSnapshot.ID,
+		TaskID:     taskID,
+		Event:      enums.SessionTaskStatusChanged,
+		Status:     taskSnapshot.Status,
+		RetryCount: taskSnapshot.RetryCount,
+	})
+
+	if err := s.drainIfDone(session); err != nil && publishErr == nil {
+		publishErr = err
+	}
+
+	return publishErr
+}
+
 type cancelledTask struct {
 	taskID   uuid.UUID
 	agentID  uuid.UUID
@@ -864,7 +944,9 @@ func (s *v1) Cancel(sessionID uuid.UUID) ([]uuid.UUID, error) {
 		}
 
 		for taskID, t := range session.taskIDToTask {
-			if t.Status != enums.TaskNotTaken && t.Status != enums.TaskProcessing {
+			if t.Status != enums.TaskNotTaken &&
+				t.Status != enums.TaskProcessing &&
+				t.Status != enums.TaskAwaitingAccept {
 				continue
 			}
 

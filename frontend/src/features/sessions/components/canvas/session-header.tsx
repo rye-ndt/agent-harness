@@ -37,7 +37,6 @@ const CANCEL_BODY =
 
 export function SessionHeader({
     session,
-    error,
     onRename,
     onEditLocations,
     onFinalize,
@@ -51,12 +50,11 @@ export function SessionHeader({
     onToggleRail,
 }: {
     session: Session | null
-    error: string
     onRename: (name: string) => void
     onEditLocations: () => void
     onFinalize: () => void
     onRun: () => void
-    onCancel: () => void
+    onCancel: (onSettled: () => void) => void
     cancelling: boolean
     onClone: () => void
     onNewNode: () => void
@@ -82,8 +80,7 @@ export function SessionHeader({
     }
 
     const cancelRun = () => {
-        setConfirmingCancel(false)
-        onCancel()
+        onCancel(() => setConfirmingCancel(false))
     }
 
     return (
@@ -180,15 +177,6 @@ export function SessionHeader({
                 </div>
             </div>
 
-            {error && (
-                <p
-                    role="alert"
-                    className="border-b border-border bg-state-failed-tint px-4 py-3 text-sm text-destructive"
-                >
-                    {error}
-                </p>
-            )}
-
             {confirmingFinalize && session && (
                 <ConfirmDialog
                     title={`Finalize “${session.name}”?`}
@@ -203,7 +191,7 @@ export function SessionHeader({
                 <ConfirmDialog
                     title="Cancel the run?"
                     description={CANCEL_BODY}
-                    confirmLabel="Cancel run"
+                    confirmLabel={cancelling ? 'Cancelling…' : 'Cancel run'}
                     dismissLabel="Keep running"
                     destructive
                     busy={cancelling}

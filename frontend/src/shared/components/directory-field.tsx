@@ -1,9 +1,8 @@
-import {useState} from 'react'
 import {Folder} from 'lucide-react'
 
 import {chooseDirectory} from '@/shared/api/dialogs'
 import {Button} from '@/shared/ui/button'
-import {errorMessage} from '@/shared/lib/errors'
+import {reportError} from '@/shared/lib/error-bus'
 
 export function DirectoryField({
     label,
@@ -18,16 +17,12 @@ export function DirectoryField({
     value: string
     onChange: (path: string) => void
 }) {
-    const [error, setError] = useState('')
-
     const choose = async () => {
-        setError('')
-
         try {
             const path = await chooseDirectory(title)
             if (path) onChange(path)
         } catch (cause) {
-            setError(errorMessage(cause))
+            reportError(cause, 'Could not open the folder picker')
         }
     }
 
@@ -52,11 +47,7 @@ export function DirectoryField({
                 </Button>
             </div>
 
-            {error ? (
-                <p className="text-sm text-destructive">{error}</p>
-            ) : (
-                <p className="text-sm text-muted-foreground">{hint}</p>
-            )}
+            <p className="text-sm text-muted-foreground">{hint}</p>
         </div>
     )
 }

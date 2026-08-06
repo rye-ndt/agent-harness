@@ -17,6 +17,7 @@ import (
 type file struct {
 	AgentDefaults map[enums.TaskLevel]*output_itf.AgentDefault `json:"agent_defaults"`
 	Onboarded     bool                                         `json:"onboarded"`
+	Autopilot     bool                                         `json:"autopilot"`
 }
 
 type v1 struct {
@@ -170,6 +171,32 @@ func (c *v1) CompleteOnboarding() error {
 
 	if err := c.write(); err != nil {
 		c.cfg.Onboarded = false
+		return err
+	}
+
+	return nil
+}
+
+func (c *v1) Autopilot() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.cfg.Autopilot
+}
+
+func (c *v1) SetAutopilot(on bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.cfg.Autopilot == on {
+		return nil
+	}
+
+	previous := c.cfg.Autopilot
+	c.cfg.Autopilot = on
+
+	if err := c.write(); err != nil {
+		c.cfg.Autopilot = previous
 		return err
 	}
 

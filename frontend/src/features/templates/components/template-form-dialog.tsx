@@ -5,9 +5,7 @@ import {DialogShell} from '@/shared/components/dialog-shell'
 import {TemplateForm} from '@/features/templates/components/template-form'
 import {Button} from '@/shared/ui/button'
 import {useTemplates} from '@/features/templates/use-templates'
-import {errorMessage} from '@/shared/lib/errors'
 import {emptyTemplate, templateIssues} from '@/features/templates/template'
-import {cn} from '@/shared/lib/utils'
 import type {Template, TemplateDraft} from '@/features/templates/types'
 
 export function TemplateFormDialog({
@@ -21,7 +19,6 @@ export function TemplateFormDialog({
     const [draft, setDraft] = useState<TemplateDraft>(() =>
         template ? structuredClone(template) : emptyTemplate(),
     )
-    const [error, setError] = useState('')
     const [confirming, setConfirming] = useState(false)
 
     const issues = templateIssues(draft)
@@ -30,21 +27,15 @@ export function TemplateFormDialog({
         if (!open) onClose()
     }
 
-    const commit = async () => {
+    const commit = () => {
         setConfirming(false)
-
-        try {
-            await saveTemplate(draft)
-            onClose()
-        } catch (error: unknown) {
-            setError(errorMessage(error))
-        }
+        saveTemplate(draft, {onSuccess: onClose})
     }
 
     const save = () => {
         if (issues.length > 0) return
         if (template) setConfirming(true)
-        else void commit()
+        else commit()
     }
 
     const cancelConfirm = () => setConfirming(false)
@@ -58,13 +49,8 @@ export function TemplateFormDialog({
             title={template ? 'Edit template' : 'New template'}
             footer={
                 <>
-                    <p
-                        className={cn(
-                            'min-w-0 flex-1 text-sm',
-                            error ? 'text-destructive' : 'text-muted-foreground',
-                        )}
-                    >
-                        {error || issues[0] || ''}
+                    <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+                        {issues[0] ?? ''}
                     </p>
                     <Button variant="ghost" size="sm" onClick={onClose}>
                         Cancel

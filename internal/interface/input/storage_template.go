@@ -16,15 +16,16 @@ type TemplateParamEntity struct {
 }
 
 type TemplateEntity struct {
-	ID            uuid.UUID
-	Name          string `validate:"required"`
-	Role          string
-	TaskLevel     enums.TaskLevel `validate:"required,task_level"`
-	Retryable     bool
-	Params        map[string]*TemplateParamEntity `validate:"dive,keys,required,endkeys,required"`
-	SystemPrompts map[string]string               `validate:"required,gt=0,dive,keys,required,endkeys,required"`
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID                   uuid.UUID
+	Name                 string `validate:"required"`
+	Role                 string
+	TaskLevel            enums.TaskLevel `validate:"required,task_level"`
+	Retryable            bool
+	ManualAcceptRequired bool
+	Params               map[string]*TemplateParamEntity `validate:"dive,keys,required,endkeys,required"`
+	SystemPrompts        map[string]string               `validate:"required,gt=0,dive,keys,required,endkeys,required"`
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type TemplateStorage interface {

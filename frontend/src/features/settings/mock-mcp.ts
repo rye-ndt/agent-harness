@@ -1,5 +1,32 @@
 import type {MCPServer} from '@/features/settings/types'
 
+const FIGMA_TOKEN_PREFIX = 'figd_'
+
+const alreadyFailed = new Set<string>()
+
+function goError(errorType: string, message: string) {
+    return new Error(`[Err] Type: ${errorType} - Message: ${message} - Critical: critical`)
+}
+
+export function mockAuthorizeFailure(serverId: string) {
+    const forced = new URLSearchParams(window.location.search).get('mcpFail')
+    if (forced !== serverId && forced !== 'all') return null
+    if (alreadyFailed.has(serverId)) return null
+
+    alreadyFailed.add(serverId)
+
+    return goError(
+        'err_mcp_authorize_timeout',
+        `timed out waiting for the ${serverId} callback after 2m0s`,
+    )
+}
+
+export function mockTokenFailure(serverId: string, token: string) {
+    if (token.startsWith(FIGMA_TOKEN_PREFIX)) return null
+
+    return goError('err_mcp_token_exchange', `${serverId} rejected the token: 403 Invalid token`)
+}
+
 export const MOCK_MCP_SERVERS: MCPServer[] = [
     {
         id: 'atlassian',

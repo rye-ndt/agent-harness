@@ -39,6 +39,7 @@ export function TemplateForm({
         patch({role: event.target.value})
     const changeLevel = (value: string) => patch({taskLevel: value as TaskLevel})
     const changeRetryable = (retryable: boolean) => patch({retryable})
+    const changeManualAccept = (manualAcceptRequired: boolean) => patch({manualAcceptRequired})
 
     const addParam = () => patch({params: [...draft.params, emptyParam()]})
     const changeParam = (index: number, fields: Partial<TemplateParam>) =>
@@ -105,6 +106,24 @@ export function TemplateForm({
                         />
                     </label>
                 </div>
+
+                <label
+                    htmlFor="template-manual-accept"
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+                >
+                    <span className="flex min-w-0 flex-col gap-1">
+                        <span className="text-base font-medium">Require manual acceptance</span>
+                        <span className="text-sm text-muted-foreground">
+                            The run stops here when this node finishes and waits for you to read the
+                            handover and confirm. Autopilot ignores it and runs straight through.
+                        </span>
+                    </span>
+                    <Switch
+                        id="template-manual-accept"
+                        checked={draft.manualAcceptRequired}
+                        onCheckedChange={changeManualAccept}
+                    />
+                </label>
             </div>
 
             <Section

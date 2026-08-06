@@ -1,23 +1,32 @@
 /**
- * The only place the generated Wails bindings for agent defaults are touched.
- * Inside the webview the defaults and the models they can pick from come from
- * the Go user config. Under the plain vite dev server there is no Go side, so
- * the defaults live in this module's memory on top of src/lib/mock-preferences.ts.
+ * The only place the generated Wails bindings for agent defaults and the
+ * autopilot switch are touched. Inside the webview the defaults and the models
+ * they can pick from come from the Go user config. Under the plain vite dev
+ * server there is no Go side, so both live in this module's memory on top of
+ * src/lib/mock-preferences.ts.
  */
 
 import {bridge, hasWailsRuntime} from '@/shared/api/bridge'
 import {TASK_LEVELS, THINKING_LEVELS, type TaskLevel, type ThinkingLevel} from '@/shared/lib/enums'
-import {MOCK_AGENT_DEFAULT_OPTIONS, MOCK_AGENT_DEFAULTS} from '@/features/settings/mock-preferences'
+import {
+    MOCK_AGENT_DEFAULT_OPTIONS,
+    MOCK_AGENT_DEFAULTS,
+    MOCK_AUTOPILOT,
+} from '@/features/settings/mock-preferences'
 import type {AgentDefault, AgentDefaultOptions} from '@/features/settings/types'
 import {
     AgentDefaultOptions as FetchAgentDefaultOptions,
     AgentDefaults as FetchAgentDefaults,
+    Autopilot as FetchAutopilot,
     SetAgentDefault as SaveAgentDefault,
+    SetAutopilot as SaveAutopilot,
 } from '@wailsjs/go/wails_api/API'
 
 const ROUNDTRIP_MS = 400
 
 let defaults: AgentDefault[] = structuredClone(MOCK_AGENT_DEFAULTS)
+
+let autopilotOn = MOCK_AUTOPILOT
 
 async function roundtrip() {
     await new Promise((resolve) => setTimeout(resolve, ROUNDTRIP_MS))
@@ -86,6 +95,26 @@ export async function setAgentDefault(
             ? {...current, model, modelLabel: label, thinkingLevel}
             : current,
     )
+}
+
+export async function autopilot(): Promise<boolean> {
+    if (hasWailsRuntime()) autopilotOn = await bridge(FetchAutopilot)
+    return autopilotOn
+}
+
+export async function setAutopilot(on: boolean): Promise<void> {
+    if (hasWailsRuntime()) {
+        await bridge(() => SaveAutopilot(on))
+        autopilotOn = on
+        return
+    }
+
+    await roundtrip()
+    autopilotOn = on
+}
+
+export function cachedAutopilot(): boolean {
+    return autopilotOn
 }
 
 function isTaskLevel(value: string): value is TaskLevel {

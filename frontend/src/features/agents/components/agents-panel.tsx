@@ -27,7 +27,6 @@ function LoginBadge({loggedIn}: {loggedIn: boolean}) {
 export function AgentsPanel() {
     const {
         agents,
-        error,
         busy,
         busyLabel,
         authUrlOf,
@@ -38,7 +37,7 @@ export function AgentsPanel() {
         openAuthUrl,
     } = useAgents()
 
-    const isEmpty = agents.length === 0 && !error
+    const isEmpty = agents.length === 0
 
     return (
         <section className="flex flex-col">
@@ -72,10 +71,6 @@ export function AgentsPanel() {
                     </p>
                 )}
             </div>
-
-            {error && (
-                <p className="border-t border-border px-4 py-3 text-sm text-destructive">{error}</p>
-            )}
         </section>
     )
 }

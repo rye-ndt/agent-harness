@@ -4,14 +4,12 @@ import {useQuery, useQueryClient} from '@tanstack/react-query'
 import {installAgent, listAgents, onInstallProgress} from '@/features/agents/api'
 import {completeOnboarding, hasOnboarded} from '@/features/onboarding/api'
 import {InstallStage} from '@/shared/lib/enums'
-import {errorMessage} from '@/shared/lib/errors'
+import {reportError} from '@/shared/lib/error-bus'
 import {overallRatio} from '@/features/onboarding/install'
 import type {Agent, Dependency, InstallProgress} from '@/features/agents/types'
 
 const AGENTS_KEY = ['agents']
 const ONBOARDED_KEY = ['onboarded']
-
-type Failure = {agentId: string; message: string}
 
 export function useDependencies() {
     const queryClient = useQueryClient()
@@ -21,7 +19,7 @@ export function useDependencies() {
 
     const [progress, setProgress] = useState<Record<string, InstallProgress>>({})
     const [installed, setInstalled] = useState<string[]>([])
-    const [failures, setFailures] = useState<Failure[]>([])
+    const [failedIds, setFailedIds] = useState<string[]>([])
     const [running, setRunning] = useState(false)
     const [needed, setNeeded] = useState(false)
     const [dismissed, setDismissed] = useState(false)
@@ -40,8 +38,9 @@ export function useDependencies() {
 
     const install = useCallback(
         async (targets: Agent[]) => {
+            setNeeded(true)
             setRunning(true)
-            setFailures([])
+            setFailedIds([])
             setProgress((current) => {
                 const next = {...current}
                 for (const target of targets) delete next[target.id]
@@ -52,16 +51,9 @@ export function useDependencies() {
                 try {
                     await installAgent(target.id)
                     setInstalled((current) => [...current, target.id])
-                } catch (error) {
-                    setFailures((current) => [
-                        ...current,
-                        {
-                            agentId: target.id,
-                            message:
-                                errorMessage(error) ||
-                                `${target.name} did not install. Check your connection and try again.`,
-                        },
-                    ])
+                } catch (cause) {
+                    reportError(cause, `Could not install ${target.name}`)
+                    setFailedIds((current) => [...current, target.id])
                 }
             }
 
@@ -93,8 +85,7 @@ export function useDependencies() {
             return
         }
 
-        setNeeded(true)
-        void install(missing)
+        setTimeout(() => void install(missing))
     }, [agents, isPending, onboarding.isPending, onboarding.data, install, finish])
 
     const dependencies: Dependency[] = agents.map((agent) => {
@@ -107,7 +98,7 @@ export function useDependencies() {
             version: agent.version,
             stage: ready ? InstallStage.Done : (update?.stage ?? InstallStage.Queued),
             progress: update,
-            failed: failures.some((failure) => failure.agentId === agent.id),
+            failed: failedIds.includes(agent.id),
         }
     })
 
@@ -116,11 +107,11 @@ export function useDependencies() {
     return {
         ready: !isPending && !onboarding.isPending,
         required: needed && !dismissed,
-        settled: !running && failures.length === 0 && !agents.some(isMissing),
+        settled: !running && failedIds.length === 0 && !agents.some(isMissing),
         canContinue: !running && anyReady,
         dependencies,
         ratio: overallRatio(dependencies),
-        error: failures[0]?.message ?? '',
+        failed: failedIds.length > 0,
         retry: () => void install(agents.filter(isMissing)),
         dismiss: () => {
             setDismissed(true)

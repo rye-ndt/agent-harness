@@ -1,6 +1,8 @@
 import {TaskLevel, ThinkingLevel} from '@/shared/lib/enums'
 import type {AgentDefault, AgentDefaultOptions} from '@/features/settings/types'
 
+export const MOCK_AUTOPILOT = false
+
 export const MOCK_MODEL_OPTIONS = [
     {model: 'fable', label: 'Claude Fable', harness: 'claude_code'},
     {model: 'opus', label: 'Claude Opus', harness: 'claude_code'},

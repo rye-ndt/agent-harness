@@ -8,28 +8,30 @@ import (
 )
 
 type AddTask struct {
-	Name               string
-	AutoRetry          bool
-	FileWriteAllowance enums.FileAllowance
-	AllowedFilePaths   []string
-	TemplateFilePaths  []string
-	ExtraGuidance      string
-	DependsOn          []uuid.UUID
-	AgentSpecs         *AgentRequest
+	Name                 string
+	AutoRetry            bool
+	ManualAcceptRequired bool
+	FileWriteAllowance   enums.FileAllowance
+	AllowedFilePaths     []string
+	TemplateFilePaths    []string
+	ExtraGuidance        string
+	DependsOn            []uuid.UUID
+	AgentSpecs           *AgentRequest
 }
 
 type TaskSpec struct {
-	TaskID             uuid.UUID
-	SessionID          uuid.UUID
-	Name               string
-	Status             enums.TaskStatus
-	RetryCount         int
-	AutoRetry          bool
-	FileWriteAllowance enums.FileAllowance
-	AllowedFilePaths   []string
-	ExtraGuidance      string
-	DependsOn          []uuid.UUID
-	AgentSpecs         *AgentRequest
+	TaskID               uuid.UUID
+	SessionID            uuid.UUID
+	Name                 string
+	Status               enums.TaskStatus
+	RetryCount           int
+	AutoRetry            bool
+	ManualAcceptRequired bool
+	FileWriteAllowance   enums.FileAllowance
+	AllowedFilePaths     []string
+	ExtraGuidance        string
+	DependsOn            []uuid.UUID
+	AgentSpecs           *AgentRequest
 }
 
 type FileChange struct {
@@ -101,6 +103,7 @@ type SessionManager interface {
 	Assign(taskID, agentID uuid.UUID) error
 	Execute(session uuid.UUID) (<-chan *SessionProgress, error)
 	RetryTask(taskID uuid.UUID) error
+	AnswerAcceptance(taskID uuid.UUID, accepted bool) error
 	Cancel(session uuid.UUID) ([]uuid.UUID, error)
 	Status(id uuid.UUID) (*SessionStatus, error)
 	HeartBeat(agentID uuid.UUID) error

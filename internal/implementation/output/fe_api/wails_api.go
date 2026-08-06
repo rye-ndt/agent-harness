@@ -386,13 +386,14 @@ func (a *API) UpsertTemplate(template *output_itf.TemplateInfo) (string, error) 
 	}
 
 	saved, err := a.templates.Upsert(&core_itf.Template{
-		ID:            id,
-		Name:          template.Name,
-		Role:          template.Role,
-		TaskLevel:     enums.TaskLevel(template.TaskLevel),
-		Retryable:     template.Retryable,
-		Params:        params,
-		SystemPrompts: template.SystemPrompts,
+		ID:                   id,
+		Name:                 template.Name,
+		Role:                 template.Role,
+		TaskLevel:            enums.TaskLevel(template.TaskLevel),
+		Retryable:            template.Retryable,
+		ManualAcceptRequired: template.ManualAcceptRequired,
+		Params:               params,
+		SystemPrompts:        template.SystemPrompts,
 	})
 	if err != nil {
 		return "", err
@@ -437,13 +438,14 @@ func templateInfo(template *core_itf.Template) *output_itf.TemplateInfo {
 	}
 
 	return &output_itf.TemplateInfo{
-		ID:            template.ID.String(),
-		Name:          template.Name,
-		Role:          template.Role,
-		TaskLevel:     template.TaskLevel.String(),
-		Retryable:     template.Retryable,
-		Params:        params,
-		SystemPrompts: template.SystemPrompts,
+		ID:                   template.ID.String(),
+		Name:                 template.Name,
+		Role:                 template.Role,
+		TaskLevel:            template.TaskLevel.String(),
+		Retryable:            template.Retryable,
+		ManualAcceptRequired: template.ManualAcceptRequired,
+		Params:               params,
+		SystemPrompts:        template.SystemPrompts,
 	}
 }
 
@@ -478,6 +480,8 @@ func (a *API) RunSession(spec *output_itf.RunSessionSpec) (*output_itf.RunSessio
 		return nil, err
 	}
 
+	autopilot := a.userConfig.Autopilot()
+
 	clientToTask := map[string]uuid.UUID{}
 	remaining := append([]*output_itf.RunTaskSpec{}, spec.Tasks...)
 
@@ -491,7 +495,7 @@ func (a *API) RunSession(spec *output_itf.RunSessionSpec) (*output_itf.RunSessio
 				continue
 			}
 
-			taskID, err := a.addSessionTask(sessionID, task, deps)
+			taskID, err := a.addSessionTask(sessionID, task, deps, autopilot)
 			if err != nil {
 				return nil, err
 			}
@@ -565,6 +569,14 @@ func (a *API) CompleteOnboarding() error {
 	return a.userConfig.CompleteOnboarding()
 }
 
+func (a *API) Autopilot() bool {
+	return a.userConfig.Autopilot()
+}
+
+func (a *API) SetAutopilot(on bool) error {
+	return a.userConfig.SetAutopilot(on)
+}
+
 func (a *API) AgentDefaultOptions() (*output_itf.AgentDefaultOptionsInfo, error) {
 	levels := enums.TaskLevels()
 	taskLevels := make([]string, 0, len(levels))
@@ -598,18 +610,19 @@ func (a *API) AgentDefaultOptions() (*output_itf.AgentDefaultOptionsInfo, error)
 	}, nil
 }
 
-func (a *API) addSessionTask(sessionID uuid.UUID, task *output_itf.RunTaskSpec, deps []uuid.UUID) (uuid.UUID, error) {
+func (a *API) addSessionTask(sessionID uuid.UUID, task *output_itf.RunTaskSpec, deps []uuid.UUID, autopilot bool) (uuid.UUID, error) {
 	agentDefault, err := a.userConfig.AgentDefault(enums.TaskLevel(task.TaskLevel))
 	if err != nil {
 		return uuid.Nil, err
 	}
 
 	return a.sessions.AddTask(sessionID, &core_itf.AddTask{
-		Name:               task.Name,
-		AutoRetry:          task.AutoRetry,
-		FileWriteAllowance: enums.FileAllowAll,
-		ExtraGuidance:      task.Prompt,
-		DependsOn:          deps,
+		Name:                 task.Name,
+		AutoRetry:            task.AutoRetry,
+		ManualAcceptRequired: task.ManualAcceptRequired && !autopilot,
+		FileWriteAllowance:   enums.FileAllowAll,
+		ExtraGuidance:        task.Prompt,
+		DependsOn:            deps,
 		AgentSpecs: &core_itf.AgentRequest{
 			Name:          agentDefault.Model,
 			Role:          task.Role,
@@ -664,6 +677,15 @@ func (a *API) RetrySessionTask(taskID string) error {
 	}
 
 	return a.sessions.RetryTask(parsed)
+}
+
+func (a *API) AnswerTaskAcceptance(taskID string, accepted bool) error {
+	parsed, err := uuid.Parse(taskID)
+	if err != nil {
+		return custom_error.Critical("invalid task id %s: %v", taskID, err)
+	}
+
+	return a.sessions.AnswerAcceptance(parsed, accepted)
 }
 
 func (a *API) SessionDrafts() ([]*output_itf.SessionDraftInfo, error) {
@@ -784,6 +806,7 @@ func sessionStatusInfo(status *core_itf.SessionStatus) *output_itf.SessionStatus
 func sessionTaskInfo(taskID uuid.UUID, report *core_itf.TaskReport) *output_itf.SessionTaskInfo {
 	info := &output_itf.SessionTaskInfo{
 		TaskID:       taskID.String(),
+		FileChanges:  []*output_itf.FileChangeInfo{},
 		HandoverDocs: []*output_itf.HandoverDocInfo{},
 	}
 
@@ -793,11 +816,30 @@ func sessionTaskInfo(taskID uuid.UUID, report *core_itf.TaskReport) *output_itf.
 
 	info.Status = string(report.Status)
 
+	for _, change := range report.FileChanges {
+		info.FileChanges = append(info.FileChanges, fileChangeInfo(change))
+	}
+
 	for _, doc := range report.HandoverDocs {
 		info.HandoverDocs = append(info.HandoverDocs, handoverDocInfo(doc))
 	}
 
 	return info
+}
+
+func fileChangeInfo(change *core_itf.FileChange) *output_itf.FileChangeInfo {
+	if change == nil {
+		return nil
+	}
+
+	return &output_itf.FileChangeInfo{
+		Path:        change.Path,
+		OldPath:     change.OldPath,
+		ChangeType:  change.ChangeType.String(),
+		Additions:   change.Additions,
+		Deletions:   change.Deletions,
+		UnifiedDiff: change.UnifiedDiff,
+	}
 }
 
 func handoverDocInfo(doc *core_itf.HandoverDoc) *output_itf.HandoverDocInfo {

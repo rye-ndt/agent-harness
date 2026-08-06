@@ -235,6 +235,28 @@ export namespace output_itf {
 		    return a;
 		}
 	}
+	export class FileChangeInfo {
+	    path: string;
+	    old_path: string;
+	    change_type: string;
+	    additions: number;
+	    deletions: number;
+	    unified_diff: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileChangeInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.old_path = source["old_path"];
+	        this.change_type = source["change_type"];
+	        this.additions = source["additions"];
+	        this.deletions = source["deletions"];
+	        this.unified_diff = source["unified_diff"];
+	    }
+	}
 	export class HandoverDocInfo {
 	    task: string;
 	    outcome: string;
@@ -309,6 +331,7 @@ export namespace output_itf {
 	    system_prompts: string[];
 	    depends_on: string[];
 	    auto_retry: boolean;
+	    manual_accept_required: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new RunTaskSpec(source);
@@ -324,6 +347,7 @@ export namespace output_itf {
 	        this.system_prompts = source["system_prompts"];
 	        this.depends_on = source["depends_on"];
 	        this.auto_retry = source["auto_retry"];
+	        this.manual_accept_required = source["manual_accept_required"];
 	    }
 	}
 	export class RunSessionSpec {
@@ -380,6 +404,7 @@ export namespace output_itf {
 	export class SessionTaskInfo {
 	    task_id: string;
 	    status: string;
+	    file_changes: FileChangeInfo[];
 	    handover_docs: HandoverDocInfo[];
 	
 	    static createFrom(source: any = {}) {
@@ -390,6 +415,7 @@ export namespace output_itf {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.task_id = source["task_id"];
 	        this.status = source["status"];
+	        this.file_changes = this.convertValues(source["file_changes"], FileChangeInfo);
 	        this.handover_docs = this.convertValues(source["handover_docs"], HandoverDocInfo);
 	    }
 	
@@ -472,6 +498,7 @@ export namespace output_itf {
 	    role: string;
 	    task_level: string;
 	    retryable: boolean;
+	    manual_accept_required: boolean;
 	    params: Record<string, TemplateParamInfo>;
 	    system_prompts: Record<string, string>;
 	
@@ -486,6 +513,7 @@ export namespace output_itf {
 	        this.role = source["role"];
 	        this.task_level = source["task_level"];
 	        this.retryable = source["retryable"];
+	        this.manual_accept_required = source["manual_accept_required"];
 	        this.params = this.convertValues(source["params"], TemplateParamInfo, true);
 	        this.system_prompts = source["system_prompts"];
 	    }

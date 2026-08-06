@@ -85,27 +85,19 @@ export function NewSessionDialog({
             }
         >
             {onAgentStep ? (
-                <>
-                    <RequiredAgents
-                        required={agents.required}
-                        loading={agents.loading}
-                        actions={{
-                            busy: agents.busy,
-                            busyLabel: agents.busyLabel,
-                            authUrlOf: agents.authUrlOf,
-                            onInstall: agents.install,
-                            onLogIn: agents.logIn,
-                            onSubmitCode: agents.submitAuthCode,
-                            onOpenAuthUrl: agents.openAuthUrl,
-                        }}
-                    />
-
-                    {agents.error && (
-                        <p className="border-t border-border bg-state-failed-tint px-4 py-3 text-sm text-destructive">
-                            {agents.error}
-                        </p>
-                    )}
-                </>
+                <RequiredAgents
+                    required={agents.required}
+                    loading={agents.loading}
+                    actions={{
+                        busy: agents.busy,
+                        busyLabel: agents.busyLabel,
+                        authUrlOf: agents.authUrlOf,
+                        onInstall: agents.install,
+                        onLogIn: agents.logIn,
+                        onSubmitCode: agents.submitAuthCode,
+                        onOpenAuthUrl: agents.openAuthUrl,
+                    }}
+                />
             ) : (
                 <SessionLocationsFields
                     workingDir={workingDir}

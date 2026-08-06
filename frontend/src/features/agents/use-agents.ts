@@ -2,7 +2,7 @@ import {useEffect, useState} from 'react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 
 import * as api from '@/features/agents/api'
-import {errorMessage} from '@/shared/lib/errors'
+import {formatAgentName} from '@/shared/lib/format'
 import type {InstallProgress} from '@/features/agents/types'
 
 const AGENTS_KEY = ['agents']
@@ -12,6 +12,7 @@ const AUTH_POLL_MS = 2000
 type AgentAction = {
     agentId: string
     label: string
+    action: string
     run: () => Promise<void>
 }
 
@@ -36,6 +37,7 @@ export function useAgents() {
     const agentsQuery = useQuery({
         queryKey: AGENTS_KEY,
         queryFn: api.listAgents,
+        meta: {action: 'Could not load the agents'},
         refetchInterval: (query) => {
             const awaitingLogin = query.state.data?.some(
                 (agent) => Boolean(authUrls[agent.id]) && !agent.loggedIn,
@@ -69,15 +71,26 @@ export function useAgents() {
     }
 
     const install = (agentId: string) =>
-        action.mutate({agentId, label: 'Installing', run: () => api.installAgent(agentId)})
+        action.mutate({
+            agentId,
+            label: 'Installing',
+            action: `Could not install ${formatAgentName(agentId)}`,
+            run: () => api.installAgent(agentId),
+        })
 
     const uninstall = (agentId: string) =>
-        action.mutate({agentId, label: 'Uninstalling', run: () => api.uninstallAgent(agentId)})
+        action.mutate({
+            agentId,
+            label: 'Uninstalling',
+            action: `Could not uninstall ${formatAgentName(agentId)}`,
+            run: () => api.uninstallAgent(agentId),
+        })
 
     const logIn = (agentId: string) =>
         action.mutate({
             agentId,
             label: 'Logging in',
+            action: `Could not start the login for ${formatAgentName(agentId)}`,
             run: async () => {
                 const url = await api.startAgentLogin(agentId)
                 if (url) setAuthUrls((current) => ({...current, [agentId]: url}))
@@ -88,6 +101,7 @@ export function useAgents() {
         action.mutate({
             agentId,
             label: 'Verifying',
+            action: `Could not verify that code for ${formatAgentName(agentId)}`,
             run: async () => {
                 await api.submitAgentAuthCode(agentId, code)
                 setAuthUrls((current) => withoutKey(current, agentId))
@@ -99,7 +113,6 @@ export function useAgents() {
     return {
         agents,
         loading: agentsQuery.isPending,
-        error: errorMessage(agentsQuery.error ?? action.error),
         busy: pending !== null,
         busyLabel,
         authUrlOf: (agentId: string) => authUrls[agentId] ?? null,

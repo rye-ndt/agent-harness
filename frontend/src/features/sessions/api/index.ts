@@ -36,8 +36,13 @@ import {
     sessions,
     setSessions,
 } from '@/features/sessions/api/store'
-import {stopRun, tick} from '@/features/sessions/api/simulated-run'
-import {cancelRemoteRun, runs, startRemoteRun} from '@/features/sessions/api/remote-run'
+import {resolveAcceptance, stopRun, tick} from '@/features/sessions/api/simulated-run'
+import {
+    answerRemoteAcceptance,
+    cancelRemoteRun,
+    runs,
+    startRemoteRun,
+} from '@/features/sessions/api/remote-run'
 import {DeleteSessionDraft} from '@wailsjs/go/wails_api/API'
 
 export async function listSessions(): Promise<Session[]> {
@@ -151,6 +156,28 @@ export async function fillTaskInputs(
     await startRun(withTaskPatch(session, taskId, {values: filled.values, state: TaskState.Queued}))
 
     return structuredClone(findTask(findSession(sessionId), taskId))
+}
+
+/** Answers the gate a finished node is holding: confirm releases downstream, reject fails the node. */
+export async function answerTaskAcceptance(
+    sessionId: string,
+    taskId: string,
+    accepted: boolean,
+): Promise<Session> {
+    await hydrate()
+
+    const session = findSession(sessionId)
+    const task = findTask(session, taskId)
+
+    if (task.state !== TaskState.AwaitingAccept)
+        throw new Error(
+            'This node is not waiting to be accepted. It may already have been answered.',
+        )
+
+    if (hasWailsRuntime()) await answerRemoteAcceptance(sessionId, taskId, accepted)
+    else resolveAcceptance(sessionId, taskId, accepted)
+
+    return structuredClone(findSession(sessionId))
 }
 
 /** Cancel is terminal — the node that was running loses its work and the session can only be duplicated. */

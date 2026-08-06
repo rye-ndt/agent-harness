@@ -68,8 +68,8 @@ export function useSessionStore() {
         store.startSession({sessionId})
     }
 
-    const cancelSession = (sessionId: string) => {
-        store.cancelSession({sessionId})
+    const cancelSession = (sessionId: string, onSettled?: () => void) => {
+        store.cancelSession({sessionId}, {onSettled})
     }
 
     const deleteSession = (sessionId: string) => {
@@ -103,6 +103,12 @@ export function useSessionStore() {
         store.fillTaskInputs({sessionId, taskId, values})
     }
 
+    const answerTaskAcceptance = (taskId: string, accepted: boolean) => {
+        if (!activeSessionId) return
+
+        store.answerTaskAcceptance({sessionId: activeSessionId, taskId, accepted})
+    }
+
     const moveTask = (sessionId: string, taskId: string, position: Point) => {
         store.updateTask({sessionId, taskId, patch: {position}})
     }
@@ -125,7 +131,6 @@ export function useSessionStore() {
 
     return {
         sessions,
-        error: store.error,
         activeSession,
         activeSessionId,
         selectedTaskId,
@@ -145,6 +150,8 @@ export function useSessionStore() {
         updateTask,
         fillTaskInputs,
         fillingTaskInputs: store.fillingTaskInputs,
+        answerTaskAcceptance,
+        answeringTaskAcceptance: store.answeringTaskAcceptance,
         moveTask,
         removeTask,
         connectTasks,

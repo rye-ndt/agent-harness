@@ -32,24 +32,26 @@ type TemplateParamInfo struct {
 }
 
 type TemplateInfo struct {
-	ID            string                        `json:"id"`
-	Name          string                        `json:"name"`
-	Role          string                        `json:"role"`
-	TaskLevel     string                        `json:"task_level"`
-	Retryable     bool                          `json:"retryable"`
-	Params        map[string]*TemplateParamInfo `json:"params"`
-	SystemPrompts map[string]string             `json:"system_prompts"`
+	ID                   string                        `json:"id"`
+	Name                 string                        `json:"name"`
+	Role                 string                        `json:"role"`
+	TaskLevel            string                        `json:"task_level"`
+	Retryable            bool                          `json:"retryable"`
+	ManualAcceptRequired bool                          `json:"manual_accept_required"`
+	Params               map[string]*TemplateParamInfo `json:"params"`
+	SystemPrompts        map[string]string             `json:"system_prompts"`
 }
 
 type RunTaskSpec struct {
-	ClientID      string   `json:"client_id"`
-	Name          string   `json:"name"`
-	Prompt        string   `json:"prompt"`
-	Role          string   `json:"role"`
-	TaskLevel     string   `json:"task_level"`
-	SystemPrompts []string `json:"system_prompts"`
-	DependsOn     []string `json:"depends_on"`
-	AutoRetry     bool     `json:"auto_retry"`
+	ClientID             string   `json:"client_id"`
+	Name                 string   `json:"name"`
+	Prompt               string   `json:"prompt"`
+	Role                 string   `json:"role"`
+	TaskLevel            string   `json:"task_level"`
+	SystemPrompts        []string `json:"system_prompts"`
+	DependsOn            []string `json:"depends_on"`
+	AutoRetry            bool     `json:"auto_retry"`
+	ManualAcceptRequired bool     `json:"manual_accept_required"`
 }
 
 type RunSessionSpec struct {
@@ -76,9 +78,19 @@ type HandoverDocInfo struct {
 	KnownGaps         map[string]string `json:"known_gaps"`
 }
 
+type FileChangeInfo struct {
+	Path        string `json:"path"`
+	OldPath     string `json:"old_path"`
+	ChangeType  string `json:"change_type"`
+	Additions   int    `json:"additions"`
+	Deletions   int    `json:"deletions"`
+	UnifiedDiff string `json:"unified_diff"`
+}
+
 type SessionTaskInfo struct {
 	TaskID       string             `json:"task_id"`
 	Status       string             `json:"status"`
+	FileChanges  []*FileChangeInfo  `json:"file_changes"`
 	HandoverDocs []*HandoverDocInfo `json:"handover_docs"`
 }
 
@@ -145,10 +157,13 @@ type FEAPI interface {
 	AgentDefaultOptions() (*AgentDefaultOptionsInfo, error)
 	Onboarded() bool
 	CompleteOnboarding() error
+	Autopilot() bool
+	SetAutopilot(on bool) error
 	RunSession(spec *RunSessionSpec) (*RunSessionResult, error)
 	SessionStatus(sessionID string) (*SessionStatusInfo, error)
 	CancelSession(sessionID string) error
 	RetrySessionTask(taskID string) error
+	AnswerTaskAcceptance(taskID string, accepted bool) error
 	SessionDrafts() ([]*SessionDraftInfo, error)
 	SaveSessionDraft(id string, doc string) error
 	DeleteSessionDraft(id string) error

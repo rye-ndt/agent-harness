@@ -28,7 +28,7 @@ export function ConfirmDialog({
     onClose: () => void
 }) {
     const close = (open: boolean) => {
-        if (!open) onClose()
+        if (!open && !busy) onClose()
     }
 
     return (
@@ -40,7 +40,7 @@ export function ConfirmDialog({
                 </DialogHeader>
 
                 <DialogFooter className="mt-5">
-                    <Button variant="outline" size="sm" onClick={onClose}>
+                    <Button variant="outline" size="sm" disabled={busy} onClick={onClose}>
                         {dismissLabel}
                     </Button>
                     <Button

@@ -22,12 +22,20 @@ export function AnswerApproval(arg1, arg2, arg3, arg4) {
   return window['go']['wails_api']['API']['AnswerApproval'](arg1, arg2, arg3, arg4);
 }
 
+export function AnswerTaskAcceptance(arg1, arg2) {
+  return window['go']['wails_api']['API']['AnswerTaskAcceptance'](arg1, arg2);
+}
+
 export function AuthAgent(arg1) {
   return window['go']['wails_api']['API']['AuthAgent'](arg1);
 }
 
 export function AuthorizeMCPServer(arg1) {
   return window['go']['wails_api']['API']['AuthorizeMCPServer'](arg1);
+}
+
+export function Autopilot() {
+  return window['go']['wails_api']['API']['Autopilot']();
 }
 
 export function CancelSession(arg1) {
@@ -96,6 +104,10 @@ export function SessionStatus(arg1) {
 
 export function SetAgentDefault(arg1, arg2, arg3) {
   return window['go']['wails_api']['API']['SetAgentDefault'](arg1, arg2, arg3);
+}
+
+export function SetAutopilot(arg1) {
+  return window['go']['wails_api']['API']['SetAutopilot'](arg1);
 }
 
 export function SetMCPCredential(arg1, arg2) {

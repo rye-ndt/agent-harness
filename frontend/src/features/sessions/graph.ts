@@ -3,10 +3,13 @@ import type {Point, Session, SessionDraft, Task, TaskDraft} from '@/features/ses
 
 const SETTLED_STATES = new Set<TaskState>([
     TaskState.Running,
+    TaskState.AwaitingAccept,
     TaskState.Done,
     TaskState.Failed,
     TaskState.Cancelled,
 ])
+
+const FINISHED_STATES = new Set<TaskState>([TaskState.Done, TaskState.Failed, TaskState.Cancelled])
 
 const KEPT_ON_CANCEL = new Set<TaskState>([TaskState.Done, TaskState.Failed])
 
@@ -16,6 +19,10 @@ const NODE_STAGGER = 40
 
 export function isSettled(state: TaskState) {
     return SETTLED_STATES.has(state)
+}
+
+export function isFinished(state: TaskState) {
+    return FINISHED_STATES.has(state)
 }
 
 export function createTask(draft: TaskDraft, position: Point): Task {
@@ -179,7 +186,10 @@ export function hasRunningTask(session: Session) {
 
 export function hasActiveTask(session: Session) {
     return session.tasks.some(
-        (task) => task.state === TaskState.Running || task.state === TaskState.Queued,
+        (task) =>
+            task.state === TaskState.Running ||
+            task.state === TaskState.Queued ||
+            task.state === TaskState.AwaitingAccept,
     )
 }
 
