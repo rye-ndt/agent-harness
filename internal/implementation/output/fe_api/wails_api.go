@@ -757,6 +757,7 @@ func (a *API) MCPServers() ([]*output_itf.MCPServerInfo, error) {
 			URL:          server.URL,
 			Authorized:   server.Authenticated,
 			AuthorizedAt: authorizedAt,
+			Account:      server.Account,
 			Kind:         server.Kind,
 		})
 	}
@@ -772,6 +773,10 @@ func (a *API) AuthorizeMCPServer(name string) error {
 
 func (a *API) SetMCPCredential(name, secret string) error {
 	return a.mcpProxy.SetCredential(name, secret)
+}
+
+func (a *API) RevokeMCPServer(name string) error {
+	return a.mcpProxy.Revoke(name)
 }
 
 func sessionUUID(id string) (uuid.UUID, error) {

@@ -3,7 +3,8 @@
  * the Wails webview they are hydrated from the stored drafts and running one
  * starts the real run over the bindings; outside the webview (the plain vite
  * dev server) it falls back to a simulated run. Finalizing only locks the
- * graph — the run waits for an explicit start.
+ * graph — the run waits for an explicit start, and inputs stay editable until
+ * it happens.
  */
 
 import {bridge, hasWailsRuntime} from '@/shared/api/bridge'
@@ -14,7 +15,6 @@ import {
     cancelRun,
     createsCycle,
     duplicateSession,
-    isSettled,
     label,
     withDependency,
     withTask,
@@ -22,7 +22,7 @@ import {
     withoutDependency,
     withoutTask,
 } from '@/features/sessions/graph'
-import {isHeld, pendingParams, templateOf} from '@/features/sessions/task-inputs'
+import {MISSING_INPUTS_MESSAGE, missingInputs} from '@/features/sessions/task-inputs'
 import {cachedTemplates, listTemplates} from '@/features/templates/api'
 import type {ParamValue} from '@/features/templates/types'
 import type {Point, Session, SessionDraft, Task, TaskDraft} from '@/features/sessions/types'
@@ -103,27 +103,13 @@ export async function updateSession(
     }
 
     await listTemplates()
+
+    if (missingInputs(session, cachedTemplates()).length > 0)
+        throw new Error(MISSING_INPUTS_MESSAGE)
+
     await startRun(label({...session, ...patch}))
 
     return structuredClone(findSession(sessionId))
-}
-
-/**
- * A real run submits the whole graph in one call, so every node is checked for
- * its inputs up front. The simulated run walks the graph itself and holds each
- * node as its turn comes.
- */
-function holdPendingInputs(session: Session): Session {
-    const templates = cachedTemplates()
-
-    return {
-        ...session,
-        tasks: session.tasks.map((task) =>
-            !isSettled(task.state) && pendingParams(task, templateOf(task, templates)).length > 0
-                ? {...task, state: TaskState.NeedsInput}
-                : task,
-        ),
-    }
 }
 
 async function startRun(session: Session) {
@@ -133,27 +119,22 @@ async function startRun(session: Session) {
         return
     }
 
-    const next = replaceSession(holdPendingInputs(session))
-    if (!next.tasks.some(isHeld)) await startRemoteRun(next)
+    await startRemoteRun(replaceSession(session))
 }
 
-/** Fills the inputs a held node was waiting on and lets the run carry on. */
-export async function fillTaskInputs(
+/** Inputs are editable on the node until the run starts, finalized or not. */
+export async function setTaskInputs(
     sessionId: string,
     taskId: string,
     values: Record<string, ParamValue>,
 ): Promise<Task> {
     await hydrate()
-    await listTemplates()
 
     const session = findSession(sessionId)
+    if (session.started) throw new Error('This session is running. Its inputs are locked.')
+
     const task = findTask(session, taskId)
-    const filled = {...task, values: {...task.values, ...values}}
-
-    if (pendingParams(filled, templateOf(filled, cachedTemplates())).length > 0)
-        throw new Error('This node still needs an input before it can run.')
-
-    await startRun(withTaskPatch(session, taskId, {values: filled.values, state: TaskState.Queued}))
+    replaceSession(withTaskPatch(session, taskId, {values: {...task.values, ...values}}))
 
     return structuredClone(findTask(findSession(sessionId), taskId))
 }

@@ -6,6 +6,8 @@ export type MCPServer = {
     url: string
     authorized: boolean
     authorizedAt?: string
+    /** Who the server says the stored credential belongs to — set once authorized. */
+    account?: string
     kind: 'dcr' | 'device' | 'token'
 }
 

@@ -1,18 +1,24 @@
 /**
  * The only place the generated Wails bindings for MCP are touched. The roster
- * is declared in config.yaml, so the Go side lists servers and authorizes one —
- * there is no add, edit or delete. Under the plain vite dev server the same
- * contract is answered from src/lib/mock-mcp.ts.
+ * is declared in config.yaml, so the Go side lists servers, authorizes one and
+ * revokes one — there is no add, edit or delete. Under the plain vite dev
+ * server the same contract is answered from src/lib/mock-mcp.ts.
  */
 
 import {bridge, hasWailsRuntime} from '@/shared/api/bridge'
 import {
+    mockAccount,
     mockAuthorizeFailure,
     mockTokenFailure,
     MOCK_MCP_SERVERS,
 } from '@/features/settings/mock-mcp'
 import type {MCPServer} from '@/features/settings/types'
-import {AuthorizeMCPServer, MCPServers, SetMCPCredential} from '@wailsjs/go/wails_api/API'
+import {
+    AuthorizeMCPServer,
+    MCPServers,
+    RevokeMCPServer,
+    SetMCPCredential,
+} from '@wailsjs/go/wails_api/API'
 
 const ROUNDTRIP_MS = 700
 
@@ -33,6 +39,7 @@ export async function listMCPServers(): Promise<MCPServer[]> {
         url: info.url,
         authorized: info.authorized,
         authorizedAt: info.authorized_at || undefined,
+        account: info.account || undefined,
         kind: info.kind as MCPServer['kind'],
     }))
 }
@@ -53,7 +60,12 @@ export async function authorizeMCPServer(serverId: string): Promise<void> {
 
     servers = servers.map((server) =>
         server.id === serverId
-            ? {...server, authorized: true, authorizedAt: new Date().toISOString()}
+            ? {
+                  ...server,
+                  authorized: true,
+                  authorizedAt: new Date().toISOString(),
+                  account: mockAccount(serverId),
+              }
             : server,
     )
 }
@@ -75,7 +87,30 @@ export async function setMCPCredential(serverId: string, token: string): Promise
 
     servers = servers.map((server) =>
         server.id === serverId
-            ? {...server, authorized: true, authorizedAt: new Date().toISOString()}
+            ? {
+                  ...server,
+                  authorized: true,
+                  authorizedAt: new Date().toISOString(),
+                  account: mockAccount(serverId),
+              }
+            : server,
+    )
+}
+
+export async function revokeMCPServer(serverId: string): Promise<void> {
+    if (hasWailsRuntime()) {
+        await bridge(() => RevokeMCPServer(serverId))
+        return
+    }
+
+    const target = servers.find((server) => server.id === serverId)
+    if (!target) throw new Error('That MCP server is no longer configured.')
+
+    await roundtrip()
+
+    servers = servers.map((server) =>
+        server.id === serverId
+            ? {...server, authorized: false, authorizedAt: undefined, account: undefined}
             : server,
     )
 }

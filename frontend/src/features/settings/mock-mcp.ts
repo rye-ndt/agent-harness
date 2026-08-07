@@ -27,6 +27,18 @@ export function mockTokenFailure(serverId: string, token: string) {
     return goError('err_mcp_token_exchange', `${serverId} rejected the token: 403 Invalid token`)
 }
 
+const MOCK_ACCOUNTS: Record<string, string> = {
+    atlassian: 'rye@nexo.dev',
+    github: 'akai-rothschild',
+    linear: 'rye@nexo.dev',
+    sentry: 'rye@nexo.dev',
+    figma: 'Rye Nakamura',
+}
+
+export function mockAccount(serverId: string) {
+    return MOCK_ACCOUNTS[serverId]
+}
+
 export const MOCK_MCP_SERVERS: MCPServer[] = [
     {
         id: 'atlassian',
@@ -34,6 +46,7 @@ export const MOCK_MCP_SERVERS: MCPServer[] = [
         url: 'https://mcp.atlassian.com/v1/sse',
         authorized: true,
         authorizedAt: '2026-07-24T09:12:00.000Z',
+        account: MOCK_ACCOUNTS.atlassian,
         kind: 'dcr',
     },
     {
@@ -42,6 +55,7 @@ export const MOCK_MCP_SERVERS: MCPServer[] = [
         url: 'https://api.githubcopilot.com/mcp',
         authorized: true,
         authorizedAt: '2026-07-28T15:40:00.000Z',
+        account: MOCK_ACCOUNTS.github,
         kind: 'device',
     },
     {

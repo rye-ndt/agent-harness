@@ -1,6 +1,11 @@
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 
-import {authorizeMCPServer, listMCPServers, setMCPCredential} from '@/features/settings/api/mcp'
+import {
+    authorizeMCPServer,
+    listMCPServers,
+    revokeMCPServer,
+    setMCPCredential,
+} from '@/features/settings/api/mcp'
 
 const MCP_SERVERS_KEY = ['mcp-servers']
 
@@ -26,6 +31,12 @@ export function useMCPServers() {
         onSuccess: () => queryClient.invalidateQueries({queryKey: MCP_SERVERS_KEY}),
     })
 
+    const revoke = useMutation({
+        meta: {action: 'Could not revoke the authorization'},
+        mutationFn: revokeMCPServer,
+        onSuccess: () => queryClient.invalidateQueries({queryKey: MCP_SERVERS_KEY}),
+    })
+
     return {
         servers: data ?? [],
         loading: isPending,
@@ -34,5 +45,7 @@ export function useMCPServers() {
         setToken: setToken.mutate,
         savingId: setToken.isPending ? (setToken.variables?.serverId ?? null) : null,
         savingToken: setToken.isPending,
+        revoke: revoke.mutate,
+        revokingId: revoke.isPending ? revoke.variables : null,
     }
 }

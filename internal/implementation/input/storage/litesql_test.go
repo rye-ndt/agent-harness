@@ -3,6 +3,7 @@ package storage
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"hexago/internal/helpers/enums"
 	input_itf "hexago/internal/interface/input"
@@ -152,5 +153,62 @@ func TestTaskRoundTripsManualAcceptRequired(t *testing.T) {
 
 	if found.Status != enums.TaskAwaitingAccept {
 		t.Fatalf("task status = %s, want %s", found.Status, enums.TaskAwaitingAccept)
+	}
+}
+
+func TestMCPCredentialsRoundTripAccountAndDelete(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.db")
+
+	store, err := New(path)
+	if err != nil {
+		t.Fatalf("open storage: %v", err)
+	}
+
+	mcps := store.MCPStore()
+
+	entity := &input_itf.MCPEntity{
+		Name:              "atlassian",
+		EncryptedOAuthKey: "cipher",
+		Account:           "rye@nexo.dev",
+		ExpiredAt:         time.Now().Add(time.Hour),
+	}
+
+	if err := mcps.UpsertCredentials(entity); err != nil {
+		t.Fatalf("upsert credentials: %v", err)
+	}
+
+	found, err := mcps.GetCredentials(entity.Name)
+	if err != nil {
+		t.Fatalf("get credentials: %v", err)
+	}
+
+	if found.Account != entity.Account {
+		t.Fatalf("account = %q, want %q", found.Account, entity.Account)
+	}
+
+	authenticated, err := mcps.ListAuthenticated()
+	if err != nil {
+		t.Fatalf("list authenticated: %v", err)
+	}
+
+	if len(authenticated) != 1 || authenticated[0].Account != entity.Account {
+		t.Fatalf("list authenticated = %+v, want one row carrying the account", authenticated)
+	}
+
+	if err := mcps.DeleteCredentials(entity.Name); err != nil {
+		t.Fatalf("delete credentials: %v", err)
+	}
+
+	gone, err := mcps.GetCredentials(entity.Name)
+	if err != nil {
+		t.Fatalf("get credentials after delete: %v", err)
+	}
+
+	if gone != nil {
+		t.Fatalf("credentials survived the delete: %+v", gone)
+	}
+
+	if err := mcps.DeleteCredentials(entity.Name); err != nil {
+		t.Fatalf("second delete should be a no-op, got: %v", err)
 	}
 }

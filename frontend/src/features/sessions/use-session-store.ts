@@ -95,12 +95,12 @@ export function useSessionStore() {
         store.updateTask({sessionId, taskId, patch})
     }
 
-    const fillTaskInputs = (
+    const saveTaskInputs = (
         sessionId: string,
         taskId: string,
         values: Record<string, ParamValue>,
     ) => {
-        store.fillTaskInputs({sessionId, taskId, values})
+        store.saveTaskInputs({sessionId, taskId, values})
     }
 
     const answerTaskAcceptance = (taskId: string, accepted: boolean) => {
@@ -148,8 +148,8 @@ export function useSessionStore() {
         deleteSession,
         addTask,
         updateTask,
-        fillTaskInputs,
-        fillingTaskInputs: store.fillingTaskInputs,
+        saveTaskInputs,
+        savingTaskInputs: store.savingTaskInputs,
         answerTaskAcceptance,
         answeringTaskAcceptance: store.answeringTaskAcceptance,
         moveTask,

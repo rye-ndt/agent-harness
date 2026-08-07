@@ -1,4 +1,4 @@
-import {useState} from 'react'
+import {useMemo, useState} from 'react'
 
 import {GraphCanvas} from '@/features/sessions/components/canvas/graph-canvas'
 import {SessionHeader} from '@/features/sessions/components/canvas/session-header'
@@ -13,10 +13,11 @@ import {SessionsRail} from '@/features/sessions/components/sessions-rail'
 import {SettingsDialog} from '@/features/settings/components/settings-dialog'
 import {useDependencies} from '@/features/onboarding/use-dependencies'
 import {useSessionStore} from '@/features/sessions/use-session-store'
-import {TaskInputsDialog} from '@/features/sessions/components/nodes/task-inputs-dialog'
+import {useTemplates} from '@/features/templates/use-templates'
+import {MissingInputsDialog} from '@/features/sessions/components/nodes/missing-inputs-dialog'
 import {AcceptGateDialog} from '@/features/sessions/components/accept-gate-dialog'
 import {findTask} from '@/features/sessions/graph'
-import {heldTasks} from '@/features/sessions/task-inputs'
+import {missingInputs} from '@/features/sessions/task-inputs'
 import {TaskState} from '@/shared/lib/enums'
 import type {Point, SessionLocations, Task, TaskDraft} from '@/features/sessions/types'
 import type {ParamValue} from '@/features/templates/types'
@@ -26,13 +27,14 @@ const ORIGIN: Point = {x: 0, y: 0}
 function App() {
     const store = useSessionStore()
     const dependencies = useDependencies()
+    const {templates} = useTemplates()
 
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [newSessionOpen, setNewSessionOpen] = useState(false)
     const [locationsOpen, setLocationsOpen] = useState(false)
     const [newNodeAt, setNewNodeAt] = useState<Point | null>(null)
     const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
-    const [dismissedInputsId, setDismissedInputsId] = useState<string | null>(null)
+    const [blockedRunOpen, setBlockedRunOpen] = useState(false)
     const [dismissedGateId, setDismissedGateId] = useState<string | null>(null)
     const [railOpen, setRailOpen] = useState(true)
 
@@ -41,10 +43,12 @@ function App() {
     const selectedTask = session ? findTask(session, store.selectedTaskId) : undefined
     const showWelcome = dependencies.ready && dependencies.required
 
-    const held = session ? heldTasks(session) : []
-    const holding = held.find(
-        (task) => task.id !== dismissedInputsId && task.id !== store.selectedTaskId,
+    const missing = useMemo(
+        () => (session && !session.started ? missingInputs(session, templates) : []),
+        [session, templates],
     )
+
+    const needsInputIds = useMemo(() => new Set(missing.map((entry) => entry.task.id)), [missing])
 
     const gated = session
         ? session.tasks.filter((task) => task.state === TaskState.AwaitingAccept)
@@ -83,7 +87,21 @@ function App() {
     }
 
     const runSession = () => {
-        if (session) store.startSession(session.id)
+        if (!session) return
+
+        if (missing.length > 0) {
+            setBlockedRunOpen(true)
+            return
+        }
+
+        store.startSession(session.id)
+    }
+
+    const closeBlockedRun = () => setBlockedRunOpen(false)
+
+    const fillBlockedNode = (taskId: string) => {
+        setBlockedRunOpen(false)
+        store.selectTask(taskId)
     }
 
     const cancelSession = (onSettled: () => void) => {
@@ -115,15 +133,9 @@ function App() {
         if (session && selectedTask) store.removeTask(session.id, selectedTask.id)
     }
 
-    const fillSelectedInputs = (values: Record<string, ParamValue>) => {
-        if (session && selectedTask) store.fillTaskInputs(session.id, selectedTask.id, values)
+    const saveSelectedInputs = (values: Record<string, ParamValue>) => {
+        if (session && selectedTask) store.saveTaskInputs(session.id, selectedTask.id, values)
     }
-
-    const fillHoldingInputs = (values: Record<string, ParamValue>) => {
-        if (session && holding) store.fillTaskInputs(session.id, holding.id, values)
-    }
-
-    const dismissInputs = () => setDismissedInputsId(holding?.id ?? null)
 
     const answerGate = (accepted: boolean) => {
         if (gating) store.answerTaskAcceptance(gating.id, accepted)
@@ -180,6 +192,7 @@ function App() {
                 {session ? (
                     <GraphCanvas
                         session={session}
+                        needsInputIds={needsInputIds}
                         selectedTaskId={store.selectedTaskId}
                         onSelectTask={store.selectTask}
                         onMoveTask={moveTask}
@@ -210,22 +223,19 @@ function App() {
                     key={selectedTask.id}
                     session={session}
                     task={selectedTask}
-                    fillingInputs={store.fillingTaskInputs}
+                    savingInputs={store.savingTaskInputs}
                     onSave={saveTask}
-                    onFillInputs={fillSelectedInputs}
+                    onSaveInputs={saveSelectedInputs}
                     onDelete={deleteTask}
                     onClose={closeTask}
                 />
             )}
 
-            {session && holding && (
-                <TaskInputsDialog
-                    key={holding.id}
-                    task={holding}
-                    waiting={held.length}
-                    busy={store.fillingTaskInputs}
-                    onStart={fillHoldingInputs}
-                    onClose={dismissInputs}
+            {blockedRunOpen && (
+                <MissingInputsDialog
+                    entries={missing}
+                    onSelectTask={fillBlockedNode}
+                    onClose={closeBlockedRun}
                 />
             )}
 

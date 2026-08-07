@@ -292,6 +292,7 @@ export namespace output_itf {
 	    url: string;
 	    authorized: boolean;
 	    authorized_at: string;
+	    account: string;
 	    kind: string;
 	
 	    static createFrom(source: any = {}) {
@@ -304,6 +305,7 @@ export namespace output_itf {
 	        this.url = source["url"];
 	        this.authorized = source["authorized"];
 	        this.authorized_at = source["authorized_at"];
+	        this.account = source["account"];
 	        this.kind = source["kind"];
 	    }
 	}

@@ -9,21 +9,18 @@ import {useTemplates} from '@/features/templates/use-templates'
 import {toFieldValues, toParamValues} from '@/features/templates/template'
 import {paramRefs} from '@/features/templates/param-refs'
 import {pendingParams} from '@/features/sessions/task-inputs'
-import {pluralize} from '@/shared/lib/format'
 import type {Task} from '@/features/sessions/types'
 import type {FieldValue, ParamValue} from '@/features/templates/types'
 
-export function TaskInputsDialog({
+export function NodeInputsDialog({
     task,
-    waiting,
     busy,
-    onStart,
+    onSave,
     onClose,
 }: {
     task: Task
-    waiting: number
     busy: boolean
-    onStart: (values: Record<string, ParamValue>) => void
+    onSave: (values: Record<string, ParamValue>) => void
     onClose: () => void
 }) {
     const {templates} = useTemplates()
@@ -49,9 +46,11 @@ export function TaskInputsDialog({
         if (!open) onClose()
     }
 
-    const start = () => {
-        if (!template || pending.length > 0 || busy) return
-        onStart(toParamValues(template, values))
+    const save = () => {
+        if (!template || busy) return
+
+        onSave(toParamValues(template, values))
+        onClose()
     }
 
     return (
@@ -59,23 +58,16 @@ export function TaskInputsDialog({
             open
             onOpenChange={close}
             title={task.title || 'Untitled node'}
-            description="Waiting on you. This node runs as soon as its inputs are filled."
-            aside={
-                waiting > 1 ? (
-                    <span className="micro-label shrink-0">
-                        {pluralize(waiting, 'node')} waiting
-                    </span>
-                ) : undefined
-            }
+            description="The graph is locked. Inputs stay open until the run starts."
             footer={
                 <>
                     <span className="flex-1" />
                     <MissingInputs count={pending.length} />
                     <Button variant="outline" size="sm" onClick={onClose}>
-                        Not now
+                        Cancel
                     </Button>
-                    <Button size="sm" disabled={pending.length > 0 || busy} onClick={start}>
-                        {busy ? 'Starting…' : 'Start node'}
+                    <Button size="sm" disabled={busy} onClick={save}>
+                        {busy ? 'Saving…' : 'Save inputs'}
                     </Button>
                 </>
             }

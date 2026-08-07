@@ -4,11 +4,11 @@ import {Lock, Trash2} from 'lucide-react'
 import {ConfirmDialog} from '@/shared/components/confirm-dialog'
 import {DialogShell} from '@/shared/components/dialog-shell'
 import {InheritedAgent} from '@/features/sessions/components/nodes/inherited-agent'
-import {MissingInputs} from '@/features/sessions/components/nodes/missing-inputs'
 import {NodeForm} from '@/features/sessions/components/nodes/node-form'
 import {Button} from '@/shared/ui/button'
 import {useTemplates} from '@/features/templates/use-templates'
 import {missingRequired, toFieldValues, toParamValues} from '@/features/templates/template'
+import {pluralize} from '@/shared/lib/format'
 import type {Task} from '@/features/sessions/types'
 import type {FieldValue} from '@/features/templates/types'
 
@@ -38,7 +38,7 @@ export function EditNodeDialog({
 
     const values = {...stored, ...edits}
     const missing = template ? missingRequired(template, values) : []
-    const ready = title.trim().length > 0 && missing.length === 0
+    const ready = title.trim().length > 0
 
     const editValue = (key: string, value: FieldValue) =>
         setEdits((current) => ({...current, [key]: value}))
@@ -78,7 +78,12 @@ export function EditNodeDialog({
                         Delete node
                     </Button>
                     <span className="flex-1" />
-                    <MissingInputs count={missing.length} />
+                    {missing.length > 0 && (
+                        <span className="text-sm text-muted-foreground">
+                            {pluralize(missing.length, 'input')} still empty — fill{' '}
+                            {missing.length === 1 ? 'it' : 'them'} before you run.
+                        </span>
+                    )}
                     <Button variant="outline" size="sm" onClick={onClose}>
                         Cancel
                     </Button>

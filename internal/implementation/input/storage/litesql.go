@@ -109,6 +109,8 @@ var migrations = []string{
 	)`,
 	`ALTER TABLE agent_templates ADD COLUMN manual_accept_required INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE tasks ADD COLUMN manual_accept_required INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE task_reports ADD COLUMN snapshot_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE mcp_credentials ADD COLUMN account TEXT NOT NULL DEFAULT ''`,
 }
 
 const templateColumns = `id, name, role, task_level, retryable, manual_accept_required, params, system_prompts, created_at, updated_at`
@@ -377,7 +379,7 @@ func scanTemplate(scan func(dest ...any) error) (*input_itf.TemplateEntity, erro
 
 func (s *mcpStore) ListAuthenticated() ([]*input_itf.MCPEntity, error) {
 	rows, err := s.db.Query(`SELECT name, client_id, token_endpoint, encrypted_oauth_key,
-		encrypted_refresh_key, expired_at, created_at, updated_at
+		encrypted_refresh_key, account, expired_at, created_at, updated_at
 		FROM mcp_credentials WHERE encrypted_oauth_key != ''`)
 	if err != nil {
 		return nil, err
@@ -391,7 +393,7 @@ func (s *mcpStore) ListAuthenticated() ([]*input_itf.MCPEntity, error) {
 		var expiredAt, createdAt, updatedAt string
 
 		if err := rows.Scan(&m.Name, &m.ClientID, &m.TokenEndpoint, &m.EncryptedOAuthKey,
-			&m.EncryptedRefreshKey, &expiredAt, &createdAt, &updatedAt); err != nil {
+			&m.EncryptedRefreshKey, &m.Account, &expiredAt, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 
@@ -408,13 +410,14 @@ func (s *mcpStore) ListAuthenticated() ([]*input_itf.MCPEntity, error) {
 func (s *mcpStore) UpsertCredentials(mcp *input_itf.MCPEntity) error {
 	_, err := s.db.Exec(`INSERT INTO mcp_credentials
 		(name, client_id, token_endpoint, encrypted_oauth_key, encrypted_refresh_key,
-		expired_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		account, expired_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET
 			client_id = excluded.client_id,
 			token_endpoint = excluded.token_endpoint,
 			encrypted_oauth_key = excluded.encrypted_oauth_key,
 			encrypted_refresh_key = excluded.encrypted_refresh_key,
+			account = excluded.account,
 			expired_at = excluded.expired_at,
 			updated_at = excluded.updated_at`,
 		mcp.Name,
@@ -422,6 +425,7 @@ func (s *mcpStore) UpsertCredentials(mcp *input_itf.MCPEntity) error {
 		mcp.TokenEndpoint,
 		mcp.EncryptedOAuthKey,
 		mcp.EncryptedRefreshKey,
+		mcp.Account,
 		formatTime(mcp.ExpiredAt),
 		formatTime(mcp.CreatedAt),
 		formatTime(mcp.UpdatedAt),
@@ -434,10 +438,10 @@ func (s *mcpStore) GetCredentials(name string) (*input_itf.MCPEntity, error) {
 	var expiredAt, createdAt, updatedAt string
 
 	err := s.db.QueryRow(`SELECT name, client_id, token_endpoint, encrypted_oauth_key,
-		encrypted_refresh_key, expired_at, created_at, updated_at
+		encrypted_refresh_key, account, expired_at, created_at, updated_at
 		FROM mcp_credentials WHERE name = ?`, name).
 		Scan(&m.Name, &m.ClientID, &m.TokenEndpoint, &m.EncryptedOAuthKey,
-			&m.EncryptedRefreshKey, &expiredAt, &createdAt, &updatedAt)
+			&m.EncryptedRefreshKey, &m.Account, &expiredAt, &createdAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -450,6 +454,11 @@ func (s *mcpStore) GetCredentials(name string) (*input_itf.MCPEntity, error) {
 	m.UpdatedAt = parseTime(updatedAt)
 
 	return m, nil
+}
+
+func (s *mcpStore) DeleteCredentials(name string) error {
+	_, err := s.db.Exec(`DELETE FROM mcp_credentials WHERE name = ?`, name)
+	return err
 }
 
 func (s *taskStore) Create(task *input_itf.TaskEntity) error {

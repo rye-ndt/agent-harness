@@ -82,6 +82,10 @@ export function RetrySessionTask(arg1) {
   return window['go']['wails_api']['API']['RetrySessionTask'](arg1);
 }
 
+export function RevokeMCPServer(arg1) {
+  return window['go']['wails_api']['API']['RevokeMCPServer'](arg1);
+}
+
 export function RunSession(arg1) {
   return window['go']['wails_api']['API']['RunSession'](arg1);
 }

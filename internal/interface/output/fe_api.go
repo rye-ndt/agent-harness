@@ -124,6 +124,7 @@ type MCPServerInfo struct {
 	URL          string `json:"url"`
 	Authorized   bool   `json:"authorized"`
 	AuthorizedAt string `json:"authorized_at"`
+	Account      string `json:"account"`
 	Kind         string `json:"kind"`
 }
 
@@ -169,4 +170,6 @@ type FEAPI interface {
 	DeleteSessionDraft(id string) error
 	MCPServers() ([]*MCPServerInfo, error)
 	AuthorizeMCPServer(name string) error
+	SetMCPCredential(name string, secret string) error
+	RevokeMCPServer(name string) error
 }

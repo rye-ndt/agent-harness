@@ -144,6 +144,10 @@ func (s *v1) List() ([]*core_itf.MCPAuthInfo, error) {
 		if found {
 			item.Authenticated = info.ExpiredAt.After(helpers.NewUTC())
 			item.InitializedAt = info.UpdatedAt
+
+			if item.Authenticated {
+				item.Account = info.Account
+			}
 		}
 
 		resp = append(resp, item)
@@ -170,9 +174,15 @@ func (s *v1) SetCredential(server, secret string) error {
 	now := helpers.NewUTC()
 	expiredAt := now.Add(s.cfg.DefaultTokenTTL)
 
+	account := ""
+	if mcp, found := s.cfg.SupportedServers[server]; found {
+		account = mcp_helpers.FetchAccount(s.httpCli, mcp.Account, secret)
+	}
+
 	if err := s.db.UpsertCredentials(&input_itf.MCPEntity{
 		Name:              constances.FigmaLocalServer,
 		EncryptedOAuthKey: encrypted,
+		Account:           account,
 		ExpiredAt:         expiredAt,
 		CreatedAt:         now,
 		UpdatedAt:         now,
@@ -186,6 +196,26 @@ func (s *v1) SetCredential(server, secret string) error {
 	}
 
 	s.cache(constances.FigmaLocalServer, &cred{token: secret, expiredAt: expiredAt})
+
+	return nil
+}
+
+func (s *v1) Revoke(server string) error {
+	mcp, found := s.cfg.SupportedServers[server]
+	if !found {
+		return custom_error.TypedCritical(enums.ErrMcpNotFound, "mcp %s not found", server)
+	}
+
+	if err := s.db.DeleteCredentials(mcp.Name); err != nil {
+		return custom_error.TypedCritical(
+			enums.ErrMcpStoreCredentials,
+			"cannot delete credentials for %s: %v",
+			mcp.Name,
+			err,
+		)
+	}
+
+	s.uncache(mcp.Name)
 
 	return nil
 }
@@ -340,6 +370,7 @@ func (s *v1) storeToken(
 		TokenEndpoint:       target.Meta.TokenEndpoint,
 		EncryptedOAuthKey:   encryptedAccess,
 		EncryptedRefreshKey: encryptedRefresh,
+		Account:             mcp_helpers.FetchAccount(s.httpCli, mcp.Account, token.AccessToken),
 		ExpiredAt:           expiredAt,
 		CreatedAt:           now,
 		UpdatedAt:           now,
@@ -458,5 +489,11 @@ func (s *v1) cached(name string) *cred {
 func (s *v1) cache(name string, cred *cred) {
 	s.locker.Lock()
 	s.serverToCred[name] = cred
+	s.locker.Unlock()
+}
+
+func (s *v1) uncache(name string) {
+	s.locker.Lock()
+	delete(s.serverToCred, name)
 	s.locker.Unlock()
 }

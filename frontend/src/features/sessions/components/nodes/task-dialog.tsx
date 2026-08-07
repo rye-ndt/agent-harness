@@ -1,39 +1,37 @@
 import {TaskStatusDialog} from '@/features/sessions/components/inspector/task-status-dialog'
 import {EditNodeDialog} from '@/features/sessions/components/nodes/edit-node-dialog'
-import {TaskInputsDialog} from '@/features/sessions/components/nodes/task-inputs-dialog'
-import {heldTasks, isHeld} from '@/features/sessions/task-inputs'
+import {NodeInputsDialog} from '@/features/sessions/components/nodes/node-inputs-dialog'
 import type {Session, Task} from '@/features/sessions/types'
 import type {ParamValue} from '@/features/templates/types'
 
 export function TaskDialog({
     session,
     task,
-    fillingInputs,
+    savingInputs,
     onSave,
-    onFillInputs,
+    onSaveInputs,
     onDelete,
     onClose,
 }: {
     session: Session
     task: Task
-    fillingInputs: boolean
+    savingInputs: boolean
     onSave: (patch: Partial<Task>) => void
-    onFillInputs: (values: Record<string, ParamValue>) => void
+    onSaveInputs: (values: Record<string, ParamValue>) => void
     onDelete: () => void
     onClose: () => void
 }) {
-    if (isHeld(task))
+    if (session.started) return <TaskStatusDialog task={task} onClose={onClose} />
+
+    if (session.finalized)
         return (
-            <TaskInputsDialog
+            <NodeInputsDialog
                 task={task}
-                waiting={heldTasks(session).length}
-                busy={fillingInputs}
-                onStart={onFillInputs}
+                busy={savingInputs}
+                onSave={onSaveInputs}
                 onClose={onClose}
             />
         )
-
-    if (session.finalized) return <TaskStatusDialog task={task} onClose={onClose} />
 
     return <EditNodeDialog task={task} onSave={onSave} onDelete={onDelete} onClose={onClose} />
 }

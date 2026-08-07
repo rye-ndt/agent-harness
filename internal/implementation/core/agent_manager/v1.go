@@ -108,11 +108,13 @@ func (m *agentManagerV1) HeartBeat(agentID uuid.UUID) error {
 			instance.HealthStatus = enums.NotResponding
 		})
 
-		return custom_error.Critical("session of agent %v is frozen, silent for %v", agentID, frozenFor)
-	}
+		if err := m.checkConnectivity(); err != nil {
+			return custom_error.Critical(
+				"session of agent %v is silent for %v and the network is unreachable: %v", agentID, frozenFor, err,
+			)
+		}
 
-	if err := m.checkConnectivity(); err != nil {
-		return custom_error.Critical("session of agent %v is offline: %v", agentID, err)
+		return custom_error.Critical("session of agent %v is frozen, silent for %v", agentID, frozenFor)
 	}
 
 	m.raceSafe(func() {
@@ -138,7 +140,7 @@ func (m *agentManagerV1) checkConnectivity() error {
 		return cached
 	}
 
-	_, err := m.httpCli.GetString(m.cfg.ConnectivityProbeURL)
+	err := m.httpCli.Reachable(m.cfg.ConnectivityProbeURL)
 
 	m.raceSafe(func() {
 		m.online = connectivity{

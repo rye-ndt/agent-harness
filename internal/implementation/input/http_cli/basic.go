@@ -53,6 +53,17 @@ func (f *basic) get(url string) (*http.Response, error) {
 	return res, nil
 }
 
+func (f *basic) Reachable(url string) error {
+	res, err := f.client.Head(url)
+	if err != nil {
+		return custom_error.Critical("HEAD %s: %v", url, err)
+	}
+
+	res.Body.Close()
+
+	return nil
+}
+
 func (f *basic) GetString(url string) (string, error) {
 	res, err := f.get(url)
 	if err != nil {

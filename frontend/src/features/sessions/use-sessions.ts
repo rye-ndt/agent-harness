@@ -145,15 +145,14 @@ export function useSessions() {
             ),
     )
 
-    const fillInputs = useSessionMutation(
-        'Could not start the node',
+    const saveInputs = useSessionMutation(
+        'Could not save the inputs',
         (args: {sessionId: string; taskId: string; values: Record<string, ParamValue>}) =>
-            api.fillTaskInputs(args.sessionId, args.taskId, args.values),
+            api.setTaskInputs(args.sessionId, args.taskId, args.values),
         (sessions, {sessionId, taskId, values}) =>
             editSession(sessions, sessionId, (session) =>
                 graph.withTaskPatch(session, taskId, {
                     values: {...graph.findTask(session, taskId)?.values, ...values},
-                    state: TaskState.Queued,
                 }),
             ),
     )
@@ -211,8 +210,8 @@ export function useSessions() {
         deleteSession: remove.mutate,
         createTask: createTask.mutate,
         updateTask: updateTask.mutate,
-        fillTaskInputs: fillInputs.mutate,
-        fillingTaskInputs: fillInputs.isPending,
+        saveTaskInputs: saveInputs.mutate,
+        savingTaskInputs: saveInputs.isPending,
         answerTaskAcceptance: answerAcceptance.mutate,
         answeringTaskAcceptance: answerAcceptance.isPending,
         deleteTask: deleteTask.mutate,

@@ -29,6 +29,7 @@ type ConnectionOrigin = {nodeId: string; handleType: HandleType}
 type GraphCanvasProps = {
     session: Session
     selectedTaskId: string | null
+    needsInputIds: Set<string>
     onSelectTask: (taskId: string | null) => void
     onMoveTask: (taskId: string, position: Point) => void
     onConnect: (sourceId: string, targetId: string) => void
@@ -64,6 +65,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
 function Canvas({
     session,
     selectedTaskId,
+    needsInputIds,
     onSelectTask,
     onMoveTask,
     onConnect,
@@ -106,6 +108,7 @@ function Canvas({
                     task,
                     session,
                     unlinkable: unlinkable?.has(task.id) ?? false,
+                    needsInput: needsInputIds.has(task.id),
                     taskLevel: levelByTask.get(task.id) ?? null,
                 },
                 selected: task.id === selectedTaskId,
@@ -116,7 +119,7 @@ function Canvas({
                     locked && 'is-locked',
                 ),
             })),
-        [session, locked, selectedTaskId, unlinkable, levelByTask, dragPositions],
+        [session, locked, selectedTaskId, unlinkable, needsInputIds, levelByTask, dragPositions],
     )
 
     const edges = useMemo<GraphEdge[]>(() => {

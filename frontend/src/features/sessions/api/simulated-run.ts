@@ -8,7 +8,7 @@
 import {TaskState} from '@/shared/lib/enums'
 import {mockOutcome} from '@/features/sessions/mock-sessions'
 import {hasRunningTask, isRunnable, label, withTaskPatch} from '@/features/sessions/graph'
-import {pendingParams, templateOf} from '@/features/sessions/task-inputs'
+import {templateOf} from '@/features/sessions/task-inputs'
 import {cachedAutopilot} from '@/features/settings/api/preferences'
 import {cachedTemplates} from '@/features/templates/api'
 import type {Session, Task} from '@/features/sessions/types'
@@ -73,13 +73,9 @@ function advance(session: Session): Session {
 
     return label({
         ...progressed,
-        tasks: progressed.tasks.map((task) => {
-            if (!isRunnable(progressed, task)) return task
-            if (pendingParams(task, templateOf(task, templates)).length > 0)
-                return {...task, state: TaskState.NeedsInput}
-
-            return start(task, now)
-        }),
+        tasks: progressed.tasks.map((task) =>
+            isRunnable(progressed, task) ? start(task, now) : task,
+        ),
     })
 }
 

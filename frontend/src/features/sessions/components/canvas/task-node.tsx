@@ -13,6 +13,7 @@ export type TaskNodeData = {
     task: Task
     session: Session
     unlinkable: boolean
+    needsInput: boolean
     taskLevel: TaskLevel | null
 }
 
@@ -26,13 +27,28 @@ function meterClass(ratio: number) {
     return 'bg-state-failed'
 }
 
+function accentClass(state: TaskState) {
+    if (state === TaskState.Running) return 'bg-live'
+    if (state === TaskState.Cancelled) return 'bg-state-idle'
+    if (state === TaskState.AwaitingApproval) return 'bg-state-approval'
+    return null
+}
+
 function upstreamLine(upstream: Task[]) {
     if (upstream.length === 1) return `Runs after ${upstream[0].title || UNTITLED}`
     return `Runs after all ${upstream.length} upstream tasks`
 }
 
+function NeedsInputsChip() {
+    return (
+        <span className="inline-flex shrink-0 items-center rounded-sm bg-state-approval-tint px-2 py-1 text-xs leading-none font-bold tracking-[0.05em] text-state-approval uppercase">
+            Inputs
+        </span>
+    )
+}
+
 export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
-    const {task, session, unlinkable, taskLevel} = data
+    const {task, session, unlinkable, needsInput, taskLevel} = data
     const elapsed = useElapsed(task.run?.startedAt, task.run?.finishedAt)
 
     const upstream = upstreamOf(session, task)
@@ -43,6 +59,7 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
     const running = task.state === TaskState.Running
     const cancelled = task.state === TaskState.Cancelled
     const connectable = !session.finalized && !unlinkable
+    const accent = accentClass(task.state)
 
     return (
         <div
@@ -57,16 +74,10 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                 unlinkable && 'opacity-30',
             )}
         >
-            {running && (
-                <span className="pointer-events-none absolute inset-y-0 left-0 w-1 rounded-full bg-live" />
-            )}
-
-            {cancelled && (
-                <span className="pointer-events-none absolute inset-y-0 left-0 w-1 rounded-full bg-state-idle" />
-            )}
-
-            {(task.state === TaskState.AwaitingApproval || task.state === TaskState.NeedsInput) && (
-                <span className="pointer-events-none absolute inset-y-0 left-0 w-1 rounded-full bg-state-approval" />
+            {accent && (
+                <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl">
+                    <span className={cn('absolute inset-y-0 left-0 w-1', accent)} />
+                </span>
             )}
 
             <Handle type="target" position={Position.Left} isConnectable={connectable} />
@@ -91,7 +102,10 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
             </div>
 
             <div className="relative mt-2 flex items-center justify-between gap-2 text-sm">
-                {taskLevel && <TaskLevelTag taskLevel={taskLevel} />}
+                <span className="flex min-w-0 items-center gap-2">
+                    {taskLevel && <TaskLevelTag taskLevel={taskLevel} />}
+                    {needsInput && <NeedsInputsChip />}
+                </span>
                 <span className="flex shrink-0 items-center gap-2">
                     {context && (
                         <span className="font-mono text-xs text-muted-foreground">

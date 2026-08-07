@@ -4,7 +4,6 @@ import {ArrowLeft} from 'lucide-react'
 import {DialogShell} from '@/shared/components/dialog-shell'
 import {StepSpine} from '@/shared/components/step-spine'
 import {InheritedAgent} from '@/features/sessions/components/nodes/inherited-agent'
-import {MissingInputs} from '@/features/sessions/components/nodes/missing-inputs'
 import {NodeForm} from '@/features/sessions/components/nodes/node-form'
 import {TemplatesPanel} from '@/features/templates/components/templates-panel'
 import {Button} from '@/shared/ui/button'
@@ -15,6 +14,7 @@ import {
     promptFromTemplate,
     toParamValues,
 } from '@/features/templates/template'
+import {pluralize} from '@/shared/lib/format'
 import type {TaskDraft} from '@/features/sessions/types'
 import type {FieldValue, Template} from '@/features/templates/types'
 
@@ -36,7 +36,7 @@ export function NewNodeDialog({
 
     const chosen = templates.find((template) => template.id === chosenId)
     const missing = chosen ? missingRequired(chosen, values) : []
-    const ready = Boolean(chosen) && title.trim().length > 0 && missing.length === 0
+    const ready = Boolean(chosen) && title.trim().length > 0
 
     const choose = (template: Template) => {
         setChosenId(template.id)
@@ -123,7 +123,12 @@ function FillFooter({
                 Templates
             </Button>
             <span className="flex-1" />
-            <MissingInputs count={missingCount} />
+            {missingCount > 0 && (
+                <span className="text-sm text-muted-foreground">
+                    {pluralize(missingCount, 'input')} still empty — fill{' '}
+                    {missingCount === 1 ? 'it' : 'them'} before you run.
+                </span>
+            )}
             <Button size="sm" disabled={!ready} onClick={onCreate}>
                 Create node
             </Button>

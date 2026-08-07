@@ -211,7 +211,7 @@ export function label(session: Session): Session {
     return {
         ...session,
         tasks: session.tasks.map((task) => {
-            if (isSettled(task.state) || task.state === TaskState.NeedsInput) return task
+            if (isSettled(task.state)) return task
             return {
                 ...task,
                 state: isRunnable(session, task) ? TaskState.Queued : TaskState.Blocked,

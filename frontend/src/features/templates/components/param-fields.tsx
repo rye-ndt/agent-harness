@@ -10,10 +10,12 @@ import type {FieldValue, TemplateParam} from '@/features/templates/types'
 export function ParamFields({
     params,
     values,
+    disabled = false,
     onChange,
 }: {
     params: TemplateParam[]
     values: Record<string, FieldValue>
+    disabled?: boolean
     onChange: (key: string, value: FieldValue) => void
 }) {
     return (
@@ -23,6 +25,7 @@ export function ParamFields({
                     key={param.key}
                     param={param}
                     value={values[param.key]}
+                    disabled={disabled}
                     onChange={onChange}
                 />
             ))}
@@ -33,10 +36,12 @@ export function ParamFields({
 function ParamField({
     param,
     value,
+    disabled,
     onChange,
 }: {
     param: TemplateParam
     value: FieldValue | undefined
+    disabled: boolean
     onChange: (key: string, value: FieldValue) => void
 }) {
     const id = `param-${param.key}`
@@ -56,7 +61,12 @@ function ParamField({
                         {param.key}
                     </span>
                 </label>
-                <Switch id={id} checked={value === true} onCheckedChange={change} />
+                <Switch
+                    id={id}
+                    checked={value === true}
+                    disabled={disabled}
+                    onCheckedChange={change}
+                />
             </div>
         )
 
@@ -73,11 +83,17 @@ function ParamField({
             </div>
 
             {param.type === ParamType.Textarea && (
-                <Textarea id={id} rows={3} value={text} onChange={changeEvent} />
+                <Textarea
+                    id={id}
+                    rows={3}
+                    value={text}
+                    disabled={disabled}
+                    onChange={changeEvent}
+                />
             )}
 
             {param.type === ParamType.Select && (
-                <Select value={text} onValueChange={change}>
+                <Select value={text} disabled={disabled} onValueChange={change}>
                     <SelectTrigger id={id}>
                         <SelectValue placeholder="Pick one" />
                     </SelectTrigger>
@@ -97,6 +113,7 @@ function ParamField({
                     type={param.type}
                     className="font-mono"
                     value={text}
+                    disabled={disabled}
                     onChange={changeEvent}
                 />
             )}

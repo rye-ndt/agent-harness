@@ -36,14 +36,22 @@ const (
 	MCPAuthFlowDevice = "device"
 )
 
+type MCPAccountConfig struct {
+	URL    string   `mapstructure:"url" validate:"required,http_url"`
+	Header string   `mapstructure:"header" validate:"required"`
+	Scheme string   `mapstructure:"scheme"`
+	Fields []string `mapstructure:"fields" validate:"required,min=1"`
+}
+
 type MCPServerConfig struct {
-	Name          string        `mapstructure:"name" validate:"required"`
-	AuthKeyName   string        `mapstructure:"auth_key_name"`
-	URL           string        `mapstructure:"url" validate:"required,http_url"`
-	AuthFlow      string        `mapstructure:"auth_flow" validate:"required,oneof=dcr device token"`
-	ClientID      string        `mapstructure:"client_id" validate:"required_if=AuthFlow device"`
-	DeviceAuthURL string        `mapstructure:"device_auth_url" validate:"required_if=AuthFlow device,omitempty,http_url"`
-	TokenTTL      time.Duration `mapstructure:"token_ttl" validate:"omitempty,gt=0"`
+	Name          string            `mapstructure:"name" validate:"required"`
+	AuthKeyName   string            `mapstructure:"auth_key_name"`
+	URL           string            `mapstructure:"url" validate:"required,http_url"`
+	AuthFlow      string            `mapstructure:"auth_flow" validate:"required,oneof=dcr device token"`
+	ClientID      string            `mapstructure:"client_id" validate:"required_if=AuthFlow device"`
+	DeviceAuthURL string            `mapstructure:"device_auth_url" validate:"required_if=AuthFlow device,omitempty,http_url"`
+	TokenTTL      time.Duration     `mapstructure:"token_ttl" validate:"omitempty,gt=0"`
+	Account       *MCPAccountConfig `mapstructure:"account" validate:"omitempty"`
 }
 
 type MCPServersConfig struct {

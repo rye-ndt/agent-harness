@@ -10,7 +10,6 @@ const BADGE_CLASSES: Record<TaskState, string> = {
     [TaskState.Running]: 'bg-state-running-tint text-state-running',
     [TaskState.AwaitingApproval]: 'bg-state-approval-tint text-state-approval',
     [TaskState.AwaitingAccept]: 'bg-state-approval text-white',
-    [TaskState.NeedsInput]: 'bg-state-approval-tint text-state-approval',
     [TaskState.Done]: 'bg-state-done-tint text-state-done',
     [TaskState.Failed]: 'bg-state-failed-tint text-state-failed',
     [TaskState.Cancelled]: 'bg-state-idle text-white',
@@ -99,7 +98,7 @@ export function StateIcon({state, className}: {state: TaskState; className?: str
         )
     }
 
-    if (state === TaskState.AwaitingApproval || state === TaskState.NeedsInput) {
+    if (state === TaskState.AwaitingApproval) {
         return (
             <span
                 aria-hidden="true"

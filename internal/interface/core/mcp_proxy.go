@@ -11,6 +11,7 @@ type MCPAuthInfo struct {
 	Kind          string
 	URL           string
 	Authenticated bool
+	Account       string
 	InitializedAt time.Time
 }
 
@@ -35,6 +36,7 @@ type MCPGateway struct {
 type MCPProxyServer interface {
 	List() ([]*MCPAuthInfo, error)
 	Authorize(server string) error // rfc 8252
+	Revoke(server string) error
 	SetCredential(server, secret string) error
 	Request(server string, header http.Header, body io.Reader) (*MCPResponse, error)
 	Serve() (*MCPGateway, error)

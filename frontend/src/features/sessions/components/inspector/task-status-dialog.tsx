@@ -3,11 +3,13 @@ import {StateBadge} from '@/shared/components/task-state'
 import {ContextDonut} from '@/features/sessions/components/inspector/context-donut'
 import {FileChanges} from '@/features/sessions/components/inspector/file-changes'
 import {HandoverDocs} from '@/features/sessions/components/inspector/handover-docs'
+import {ParamFields} from '@/features/templates/components/param-fields'
 import {Button} from '@/shared/ui/button'
 import {useAgentDefaults} from '@/features/settings/use-agent-defaults'
 import {useElapsed} from '@/shared/hooks/use-elapsed'
 import {useTemplates} from '@/features/templates/use-templates'
 import {agentDefaultFor} from '@/features/settings/agent-default'
+import {toFieldValues} from '@/features/templates/template'
 import {TaskState, TASK_LEVEL_LABELS, THINKING_LEVEL_LABELS} from '@/shared/lib/enums'
 import {formatMoment, formatPercent} from '@/shared/lib/format'
 import type {Task} from '@/features/sessions/types'
@@ -37,6 +39,22 @@ function pendingLine(task: Task) {
     if (task.state === TaskState.Cancelled)
         return 'You cancelled the run while this node was working. Its work was discarded, so there is no report.'
     return 'The report lands when this node stops.'
+}
+
+function ignoreChange() {}
+
+function ReadOnlyInputs({template, task}: {template: Template; task: Task}) {
+    return (
+        <section className="flex flex-col gap-3 px-4 py-4">
+            <span className="micro-label">Inputs</span>
+            <ParamFields
+                params={template.params}
+                values={toFieldValues(template, task.values)}
+                disabled
+                onChange={ignoreChange}
+            />
+        </section>
+    )
 }
 
 function Stat({label, value}: {label: string; value: string}) {
@@ -81,31 +99,41 @@ export function TaskStatusDialog({task, onClose}: {task: Task; onClose: () => vo
                 </>
             }
         >
-            {run ? (
-                <div className="divide-y divide-border">
-                    <div className="grid grid-cols-2 gap-2 px-4 py-4">
-                        <Stat label="Started" value={formatMoment(run.startedAt)} />
-                        <Stat
-                            label={task.state === TaskState.Cancelled ? 'Stopped' : 'Finished'}
-                            value={formatMoment(run.finishedAt)}
-                        />
-                        <Stat label="Elapsed" value={elapsed ?? '—'} />
-                        {retried && <Stat label="Retries" value={String(run.retryCount)} />}
-                    </div>
-
-                    {context && (
-                        <div className="flex items-center gap-4 px-4 py-4">
-                            <ContextDonut used={context.used} total={context.total} />
-                            <div className="flex min-w-0 flex-col gap-2">
-                                <span className="micro-label">Context</span>
-                                <span className="font-mono text-lg leading-none">
-                                    {formatPercent(context.used, context.total)}%
-                                </span>
-                            </div>
+            <div className="divide-y divide-border">
+                {run ? (
+                    <>
+                        <div className="grid grid-cols-2 gap-2 px-4 py-4">
+                            <Stat label="Started" value={formatMoment(run.startedAt)} />
+                            <Stat
+                                label={task.state === TaskState.Cancelled ? 'Stopped' : 'Finished'}
+                                value={formatMoment(run.finishedAt)}
+                            />
+                            <Stat label="Elapsed" value={elapsed ?? '—'} />
+                            {retried && <Stat label="Retries" value={String(run.retryCount)} />}
                         </div>
-                    )}
 
-                    {task.report ? (
+                        {context && (
+                            <div className="flex items-center gap-4 px-4 py-4">
+                                <ContextDonut used={context.used} total={context.total} />
+                                <div className="flex min-w-0 flex-col gap-2">
+                                    <span className="micro-label">Context</span>
+                                    <span className="font-mono text-lg leading-none">
+                                        {formatPercent(context.used, context.total)}%
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <p className="px-4 py-4 text-base text-muted-foreground">{emptyLine(task)}</p>
+                )}
+
+                {template && template.params.length > 0 && (
+                    <ReadOnlyInputs template={template} task={task} />
+                )}
+
+                {run &&
+                    (task.report ? (
                         <>
                             <div className="px-4 py-4">
                                 <FileChanges changes={task.report.fileChanges} />
@@ -118,11 +146,8 @@ export function TaskStatusDialog({task, onClose}: {task: Task; onClose: () => vo
                         <p className="px-4 py-4 text-base text-muted-foreground">
                             {pendingLine(task)}
                         </p>
-                    )}
-                </div>
-            ) : (
-                <p className="px-4 py-4 text-base text-muted-foreground">{emptyLine(task)}</p>
-            )}
+                    ))}
+            </div>
         </DialogShell>
     )
 }

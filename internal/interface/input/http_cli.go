@@ -24,6 +24,7 @@ type HttpResponse struct {
 }
 
 type HttpCli interface {
+	Reachable(url string) error
 	GetString(url string) (string, error)
 	GetJSON(url string, v any) error
 	PostForm(url string, form map[string]string, v any) error

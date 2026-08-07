@@ -73,13 +73,9 @@ func (s *v1) NewSession(p *core_itf.InitSession) (uuid.UUID, error) {
 		return uuid.Nil, err
 	}
 
-	contextDir, err := absDir("context dir", p.ContextDirPath, false)
+	contextDir, err := makeDir("context dir", p.ContextDirPath, workingDir)
 	if err != nil {
 		return uuid.Nil, err
-	}
-
-	if contextDir == "" {
-		contextDir = workingDir
 	}
 
 	if err := initContext(contextDir); err != nil {
@@ -1135,6 +1131,30 @@ func (m *sessionMetadata) keepReport(report *core_itf.TaskReport) {
 	kept.Status = report.Status
 	kept.FileChanges = append(kept.FileChanges, report.FileChanges...)
 	kept.HandoverDocs = append(kept.HandoverDocs, report.HandoverDocs...)
+}
+
+func makeDir(name, path, fallback string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+
+	if trimmed == "" {
+		return fallback, nil
+	}
+
+	if !filepath.IsAbs(trimmed) {
+		return "", custom_error.Critical("session %s %q must be an absolute path", name, trimmed)
+	}
+
+	cleaned := filepath.Clean(trimmed)
+
+	if err := os.MkdirAll(cleaned, 0o755); err != nil {
+		if os.IsPermission(err) {
+			return "", custom_error.Critical("session %s %q cannot be created: permission denied", name, cleaned)
+		}
+
+		return "", custom_error.Critical("session %s %q cannot be created: %v", name, cleaned, err)
+	}
+
+	return absDir(name, cleaned, true)
 }
 
 func absDir(name, path string, required bool) (string, error) {

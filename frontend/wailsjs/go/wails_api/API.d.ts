@@ -44,6 +44,8 @@ export function RemoveTemplate(arg1:string):Promise<void>;
 
 export function RetrySessionTask(arg1:string):Promise<void>;
 
+export function RevokeMCPServer(arg1:string):Promise<void>;
+
 export function RunSession(arg1:output_itf.RunSessionSpec):Promise<output_itf.RunSessionResult>;
 
 export function SaveSessionDraft(arg1:string,arg2:string):Promise<void>;
