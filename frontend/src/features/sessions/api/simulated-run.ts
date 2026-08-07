@@ -14,6 +14,8 @@ import {cachedTemplates} from '@/features/templates/api'
 import type {Session, Task} from '@/features/sessions/types'
 import type {Template} from '@/features/templates/types'
 import {replaceSession, sessions} from '@/features/sessions/api/store'
+import {mergeActivity} from '@/features/sessions/api/activity'
+import {mockActivity} from '@/features/sessions/api/mock-activity'
 import {TICK_MS, timers} from '@/features/sessions/api/timers'
 
 function start(task: Task, now: number): Task {
@@ -79,11 +81,19 @@ function advance(session: Session): Session {
     })
 }
 
+function narrate(session: Session) {
+    const now = Date.now()
+
+    for (const task of session.tasks)
+        if (task.state === TaskState.Running) mergeActivity(task.id, mockActivity(task, now))
+}
+
 export function tick(sessionId: string) {
     const session = sessions.find((session) => session.id === sessionId)
     if (!session?.started || session.cancelled) return
 
     const next = replaceSession(advance(session))
+    narrate(next)
     if (hasRunningTask(next)) schedule(sessionId)
 }
 

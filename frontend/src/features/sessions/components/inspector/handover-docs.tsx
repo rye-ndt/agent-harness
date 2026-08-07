@@ -1,7 +1,7 @@
 import {ReportSection} from '@/features/sessions/components/inspector/report-section'
 import type {HandoverDoc} from '@/features/sessions/types'
 
-type MapField = Exclude<keyof HandoverDoc, 'task' | 'outcome'>
+type MapField = Exclude<keyof HandoverDoc, 'task' | 'tldr' | 'outcome'>
 
 const MAP_FIELDS: [MapField, string][] = [
     ['blockers', 'Blockers'],
@@ -29,21 +29,33 @@ function docText(doc: HandoverDoc) {
 }
 
 export function HandoverDocs({docs}: {docs: HandoverDoc[]}) {
+    const summaries = docs.map((doc) => doc.tldr).filter(Boolean)
+
     return (
-        <ReportSection
-            label="Handover"
-            count={docs.length}
-            empty="None. Nothing was carried forward."
-            trailing={<span className="text-sm text-muted-foreground">Goes to the next node</span>}
-        >
-            {docs.map((doc, index) => (
-                <p
-                    key={index}
-                    className="rounded-xl border border-border bg-muted/30 p-3 font-mono text-xs leading-[1.8] whitespace-pre-wrap"
-                >
-                    {docText(doc)}
+        <div className="flex flex-col gap-3">
+            {summaries.map((tldr, index) => (
+                <p key={index} className="text-base leading-[1.7]">
+                    {tldr}
                 </p>
             ))}
-        </ReportSection>
+
+            <ReportSection
+                label="Handover"
+                count={docs.length}
+                empty="None. Nothing was carried forward."
+                trailing={
+                    <span className="text-sm text-muted-foreground">Goes to the next node</span>
+                }
+            >
+                {docs.map((doc, index) => (
+                    <p
+                        key={index}
+                        className="rounded-xl border border-border bg-muted/30 p-3 font-mono text-xs leading-[1.8] whitespace-pre-wrap"
+                    >
+                        {docText(doc)}
+                    </p>
+                ))}
+            </ReportSection>
+        </div>
     )
 }

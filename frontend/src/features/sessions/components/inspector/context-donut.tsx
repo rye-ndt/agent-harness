@@ -4,8 +4,10 @@ const RADIUS = 32
 
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 
+/** Drains like the stamina ring on the node: the arc is the context this node has left. */
 export function ContextDonut({used, total}: {used: number; total: number}) {
-    const share = total > 0 ? clampRatio(used / total) : 0
+    const spent = total > 0 ? clampRatio(used / total) : 0
+    const left = CIRCUMFERENCE * (1 - spent)
 
     return (
         <div className="relative size-[88px] shrink-0">
@@ -25,9 +27,9 @@ export function ContextDonut({used, total}: {used: number; total: number}) {
                     fill="none"
                     stroke="var(--progress)"
                     strokeWidth="7"
-                    strokeDasharray={CIRCUMFERENCE}
-                    strokeDashoffset={CIRCUMFERENCE * (1 - share)}
-                    className="transition-[stroke-dashoffset] duration-300 ease-out motion-reduce:transition-none"
+                    strokeLinecap="round"
+                    strokeDasharray={`${left} ${CIRCUMFERENCE}`}
+                    className="transition-[stroke-dasharray] duration-300 ease-out motion-reduce:transition-none"
                 />
             </svg>
 

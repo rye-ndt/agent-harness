@@ -14,21 +14,13 @@ import {
 import {Button} from '@/shared/ui/button'
 import {ConfirmDialog} from '@/shared/components/confirm-dialog'
 import {SessionMenu} from '@/features/sessions/components/canvas/session-menu'
+import {SESSION_BADGE_CLASSES, SESSION_TITLE_CLASSES} from '@/features/sessions/session-status'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/shared/ui/tooltip'
-import {SessionStatus, SESSION_STATUS_LABELS} from '@/shared/lib/enums'
+import {SESSION_STATUS_LABELS} from '@/shared/lib/enums'
 import {isCancellable, sessionProgress, sessionStatus} from '@/features/sessions/graph'
 import {cn} from '@/shared/lib/utils'
+import type {SessionStatus} from '@/shared/lib/enums'
 import type {Session} from '@/features/sessions/types'
-
-const STATUS_CLASSES: Record<SessionStatus, string> = {
-    [SessionStatus.Empty]: 'bg-state-idle-tint text-muted-foreground',
-    [SessionStatus.Draft]: 'bg-state-idle-tint text-muted-foreground',
-    [SessionStatus.Ready]: 'bg-info-tint text-info',
-    [SessionStatus.Running]: 'bg-state-running-tint text-state-running',
-    [SessionStatus.Done]: 'bg-state-done-tint text-state-done',
-    [SessionStatus.Failed]: 'bg-state-failed-tint text-state-failed',
-    [SessionStatus.Cancelled]: 'bg-state-idle text-white',
-}
 
 const FINALIZED_HINT = 'Finalized — duplicate to make changes.'
 
@@ -62,6 +54,7 @@ export function SessionHeader({
     railOpen: boolean
     onToggleRail: () => void
 }) {
+    const status = session ? sessionStatus(session) : null
     const locked = session?.finalized ?? false
     const runnable = locked && !session?.started
     const cancellable = session ? isCancellable(session) : false
@@ -101,19 +94,21 @@ export function SessionHeader({
 
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                     {session &&
+                        status &&
                         (locked ? (
-                            <FinalizedName name={session.name} />
+                            <FinalizedName name={session.name} status={status} />
                         ) : (
                             <SessionNameInput
                                 key={session.id}
                                 name={session.name}
+                                status={status}
                                 onRename={onRename}
                             />
                         ))}
 
                     {session && <SessionDirectories session={session} onEdit={onEditLocations} />}
 
-                    {session && <SessionIdentity session={session} />}
+                    {session && status && <SessionIdentity session={session} status={status} />}
                 </div>
 
                 <div className="hidden shrink-0 items-center gap-2 lg:flex">
@@ -255,10 +250,12 @@ function HeaderAction({
     )
 }
 
-function FinalizedName({name}: {name: string}) {
+function FinalizedName({name, status}: {name: string; status: SessionStatus}) {
     return (
         <span className="flex w-full max-w-96 min-w-0 items-center gap-1 lg:min-w-40">
-            <span className="truncate text-xl font-bold">{name}</span>
+            <span className={cn('truncate text-xl font-bold', SESSION_TITLE_CLASSES[status])}>
+                {name}
+            </span>
             <Tooltip>
                 <TooltipTrigger asChild>
                     <button
@@ -275,7 +272,15 @@ function FinalizedName({name}: {name: string}) {
     )
 }
 
-function SessionNameInput({name, onRename}: {name: string; onRename: (name: string) => void}) {
+function SessionNameInput({
+    name,
+    status,
+    onRename,
+}: {
+    name: string
+    status: SessionStatus
+    onRename: (name: string) => void
+}) {
     const [draft, setDraft] = useState(name)
 
     const change = (event: ChangeEvent<HTMLInputElement>) => setDraft(event.target.value)
@@ -305,7 +310,10 @@ function SessionNameInput({name, onRename}: {name: string; onRename: (name: stri
             onChange={change}
             onBlur={commit}
             onKeyDown={handleKeys}
-            className="-ml-2 w-full max-w-96 min-w-0 truncate rounded-md bg-transparent px-2 py-1 text-xl font-bold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live lg:min-w-40"
+            className={cn(
+                '-ml-2 w-full max-w-96 min-w-0 truncate rounded-md bg-transparent px-2 py-1 text-xl font-bold outline-none transition-colors hover:bg-muted focus:bg-background focus-visible:ring-2 focus-visible:ring-live lg:min-w-40',
+                SESSION_TITLE_CLASSES[status],
+            )}
         />
     )
 }
@@ -350,8 +358,7 @@ function SessionDirectories({session, onEdit}: {session: Session; onEdit: () => 
     )
 }
 
-function SessionIdentity({session}: {session: Session}) {
-    const status = sessionStatus(session)
+function SessionIdentity({session, status}: {session: Session; status: SessionStatus}) {
     const {done, total} = sessionProgress(session)
 
     return (
@@ -359,7 +366,7 @@ function SessionIdentity({session}: {session: Session}) {
             <span
                 className={cn(
                     'inline-flex items-center rounded-sm px-2.5 py-1 text-xs font-bold tracking-[0.05em] uppercase',
-                    STATUS_CLASSES[status],
+                    SESSION_BADGE_CLASSES[status],
                 )}
             >
                 {SESSION_STATUS_LABELS[status]}

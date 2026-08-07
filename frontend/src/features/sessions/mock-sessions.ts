@@ -10,7 +10,9 @@ const TEMPLATE_IDS = {
     ticket: '0192f3a1-0004-7000-8000-000000000004',
 }
 
-function handover(doc: Partial<HandoverDoc> & Pick<HandoverDoc, 'task' | 'outcome'>): HandoverDoc {
+function handover(
+    doc: Partial<HandoverDoc> & Pick<HandoverDoc, 'task' | 'tldr' | 'outcome'>,
+): HandoverDoc {
     return {
         blockers: {},
         approvedDecisions: {},
@@ -368,6 +370,7 @@ export const MOCK_SESSIONS: Session[] = [
                     handoverDocs: [
                         handover({
                             task: 'Review the proxy deadline change',
+                            tldr: 'I read through a change that makes calls to outside tools give up after a set waiting time, and it works, but nobody has decided what should happen when no waiting time is configured.',
                             outcome:
                                 'The deadline lands where it should and the typed error is right. One thing I could not settle on my own: the default is zero, which reads as no deadline at all, and the docs node downstream will repeat whatever I say here. Read it before I hand it on.',
                             approvedDecisions: {
@@ -446,6 +449,7 @@ export const MOCK_SESSIONS: Session[] = [
                     handoverDocs: [
                         handover({
                             task: 'Read the retry paths',
+                            tldr: 'I searched the project for every place where failed work is automatically tried again, and wrote down which of them a single new manager should take over.',
                             outcome:
                                 'Retries live in two places today. The rename moves the owner into session_manager, where the coordinator can reach it.',
                             currentBehaviors: {
@@ -518,6 +522,7 @@ export const MOCK_SESSIONS: Session[] = [
                     handoverDocs: [
                         handover({
                             task: 'Audit the forwarding path',
+                            tldr: 'I read the code that passes requests out to other tools, changing nothing, and found that two of the three routes quietly hide failures instead of reporting them.',
                             outcome:
                                 'Read-only pass. Three forwarding paths, two of them swallow the upstream error and return an empty response.',
                             currentBehaviors: {
@@ -562,6 +567,7 @@ export const MOCK_SESSIONS: Session[] = [
                     handoverDocs: [
                         handover({
                             task: 'Add timeouts',
+                            tldr: 'I gave every request to an outside tool a waiting time set by the operator, so a tool that never answers now fails in about twenty seconds instead of freezing the step forever.',
                             outcome:
                                 'Forwarded calls now take a deadline from config. A hung server returns a typed error in 20s instead of pinning the node.',
                             approvedDecisions: {
@@ -614,6 +620,7 @@ export const MOCK_SESSIONS: Session[] = [
                     handoverDocs: [
                         handover({
                             task: 'Say so in the README',
+                            tldr: 'I rewrote the part of the project handbook that covers talking to outside tools so it now explains the new waiting time and what happens when a tool stops answering.',
                             outcome:
                                 'The proxy section now names the config key and says what happens when a server hangs.',
                             changedBehaviors: {
@@ -659,6 +666,7 @@ export const MOCK_SESSIONS: Session[] = [
                     handoverDocs: [
                         handover({
                             task: 'Replay a truncated log',
+                            tldr: 'I made the crash-recovery journal stop cleanly at a half-written entry at the end of the file instead of rejecting the whole file, so everything saved before the crash survives.',
                             outcome:
                                 'Replay now stops at a torn tail instead of failing the whole log. Every whole record before it survives.',
                             approvedDecisions: {
@@ -701,6 +709,7 @@ export const MOCK_SESSIONS: Session[] = [
                     handoverDocs: [
                         handover({
                             task: 'Recover from a torn record mid-log',
+                            tldr: 'I tried to make crash recovery carry on past a damaged entry in the middle of the journal, but gave up after two attempts because the entries carry no marker to find where the next one starts.',
                             outcome:
                                 'Stopped after two retries. Resynchronising mid-log needs a framing change the record format does not carry.',
                             blockers: {
@@ -765,6 +774,7 @@ export const MOCK_SESSIONS: Session[] = [
                     handoverDocs: [
                         handover({
                             task: 'Trace the heartbeat path',
+                            tldr: 'I followed how a working assistant checks in to say it is still alive, and found that when it stops checking in it gets shut down but its step is left looking like it is still running.',
                             outcome:
                                 'Read-only pass. A missed heartbeat kills the agent process and leaves the node in running forever.',
                             currentBehaviors: {
@@ -842,6 +852,7 @@ export function mockOutcome(task: Task): MockOutcome {
     const doc = failed
         ? handover({
               task: task.title,
+              tldr: 'I stopped before finishing this step, because doing it properly meant editing a file this step was not allowed to touch.',
               outcome:
                   'Stopped before finishing. The agent could not satisfy the scope it was given.',
               blockers: {
@@ -856,6 +867,7 @@ export function mockOutcome(task: Task): MockOutcome {
           })
         : handover({
               task: task.title,
+              tldr: `I made the change this step asked for, editing ${fileChanges.length} file${fileChanges.length === 1 ? '' : 's'} to do it.`,
               outcome: `Finished. ${fileChanges.length} file${fileChanges.length === 1 ? '' : 's'} changed.`,
               approvedDecisions: {
                   scope: 'Stayed inside the paths the prompt named.',

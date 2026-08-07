@@ -118,7 +118,7 @@ export function TaskStatusDialog({task, onClose}: {task: Task; onClose: () => vo
                                 <div className="flex min-w-0 flex-col gap-2">
                                     <span className="micro-label">Context</span>
                                     <span className="font-mono text-lg leading-none">
-                                        {formatPercent(context.used, context.total)}%
+                                        {formatPercent(context.used, context.total)}% used
                                     </span>
                                 </div>
                             </div>

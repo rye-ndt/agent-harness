@@ -10,10 +10,19 @@ import {listTemplates} from '@/features/templates/api'
 import {FileChangeType, TaskLevel, TaskState} from '@/shared/lib/enums'
 import {hasActiveTask, isFinished, label} from '@/features/sessions/graph'
 import {resolvedPrompt} from '@/features/sessions/task-inputs'
-import type {FileChange, HandoverDoc, Session, Task} from '@/features/sessions/types'
+import type {
+    ActivityLine,
+    ContextUsage,
+    FileChange,
+    HandoverDoc,
+    Session,
+    Task,
+} from '@/features/sessions/types'
 import {replaceSession, sessions} from '@/features/sessions/api/store'
+import {mergeActivity} from '@/features/sessions/api/activity'
 import {TICK_MS, timers} from '@/features/sessions/api/timers'
 import {output_itf} from '@wailsjs/go/models'
+import type {input_itf} from '@wailsjs/go/models'
 import {
     AnswerTaskAcceptance,
     CancelSession,
@@ -181,16 +190,19 @@ function applyRemoteStatus(
 }
 
 function applyRemoteTask(task: Task, info: output_itf.SessionTaskInfo, now: string): Task {
+    mergeActivity(task.id, (info.activity ?? []).map(toActivityLine))
+
     const state = REMOTE_STATES[info.status]
     if (!state) return task
 
     const startedAt = task.run?.startedAt ?? now
     const finishedAt = state === TaskState.Running ? undefined : (task.run?.finishedAt ?? now)
+    const context = toContextUsage(info.context_usage) ?? task.run?.context
 
     return {
         ...task,
         state,
-        run: {...task.run, startedAt, finishedAt},
+        run: {...task.run, startedAt, finishedAt, context},
         report:
             state === TaskState.Running
                 ? task.report
@@ -209,6 +221,15 @@ const REMOTE_CHANGE_TYPES: Record<string, FileChangeType> = {
     renamed: FileChangeType.Renamed,
 }
 
+function toContextUsage(info?: input_itf.ContextUsage): ContextUsage | undefined {
+    if (!info || !info.total) return undefined
+    return {used: info.used ?? 0, total: info.total}
+}
+
+function toActivityLine(info: output_itf.TaskActivityInfo): ActivityLine {
+    return {seq: info.seq ?? 0, at: info.at ?? '', text: info.text ?? ''}
+}
+
 function toFileChange(info: output_itf.FileChangeInfo): FileChange {
     return {
         path: info.path ?? '',
@@ -223,6 +244,7 @@ function toFileChange(info: output_itf.FileChangeInfo): FileChange {
 function toHandoverDoc(info: output_itf.HandoverDocInfo): HandoverDoc {
     return {
         task: info.task ?? '',
+        tldr: info.tldr ?? '',
         outcome: info.outcome ?? '',
         blockers: info.blockers ?? {},
         approvedDecisions: info.approved_decisions ?? {},

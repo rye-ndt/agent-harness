@@ -5,7 +5,7 @@ import {Button} from '@/shared/ui/button'
 import {pluralize} from '@/shared/lib/format'
 import type {HandoverDoc, Task} from '@/features/sessions/types'
 
-type DocSection = Exclude<keyof HandoverDoc, 'task' | 'outcome'>
+type DocSection = Exclude<keyof HandoverDoc, 'task' | 'tldr' | 'outcome'>
 
 const SECTIONS: [DocSection, string][] = [
     ['blockers', 'Blockers'],
@@ -46,6 +46,13 @@ function HandoverBrief({doc, index, total}: {doc: HandoverDoc; index: number; to
                 <span className="micro-label">
                     Handover {index + 1} of {total}
                 </span>
+            )}
+
+            {doc.tldr && (
+                <section className="flex flex-col gap-2">
+                    <span className="micro-label">In short</span>
+                    <p className="text-xl leading-[1.5]">{doc.tldr}</p>
+                </section>
             )}
 
             {doc.task && (

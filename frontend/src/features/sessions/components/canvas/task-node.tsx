@@ -4,7 +4,9 @@ import {StateBadge, StateIcon} from '@/shared/components/task-state'
 import {TaskLevelTag} from '@/shared/components/task-level-tag'
 import {useElapsed} from '@/shared/hooks/use-elapsed'
 import {TaskState, type TaskLevel} from '@/shared/lib/enums'
-import {clampRatio, formatTokens} from '@/shared/lib/format'
+import {ContextStamina} from '@/features/sessions/components/canvas/context-stamina'
+import {FailureBubble} from '@/features/sessions/components/canvas/failure-bubble'
+import {TaskActivity} from '@/features/sessions/components/canvas/task-activity'
 import {upstreamOf} from '@/features/sessions/graph'
 import {cn} from '@/shared/lib/utils'
 import type {Session, Task} from '@/features/sessions/types'
@@ -21,10 +23,16 @@ export type TaskNodeType = Node<TaskNodeData, 'task'>
 
 const UNTITLED = 'Untitled task'
 
-function meterClass(ratio: number) {
-    if (ratio < 0.7) return 'bg-progress'
-    if (ratio < 0.9) return 'bg-state-approval'
-    return 'bg-state-failed'
+const TITLE_CLASSES: Record<TaskState, string> = {
+    [TaskState.Idle]: 'text-state-approval',
+    [TaskState.Blocked]: 'text-state-approval',
+    [TaskState.Queued]: 'text-state-approval',
+    [TaskState.AwaitingApproval]: 'text-state-approval',
+    [TaskState.AwaitingAccept]: 'text-state-approval',
+    [TaskState.Running]: 'text-info',
+    [TaskState.Done]: 'text-state-done',
+    [TaskState.Failed]: 'text-state-failed',
+    [TaskState.Cancelled]: 'text-muted-foreground',
 }
 
 function accentClass(state: TaskState) {
@@ -32,6 +40,11 @@ function accentClass(state: TaskState) {
     if (state === TaskState.Cancelled) return 'bg-state-idle'
     if (state === TaskState.AwaitingApproval) return 'bg-state-approval'
     return null
+}
+
+function failureTldr(task: Task) {
+    if (task.state !== TaskState.Failed) return ''
+    return task.report?.handoverDocs.at(-1)?.tldr ?? ''
 }
 
 function upstreamLine(upstream: Task[]) {
@@ -53,13 +66,13 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
 
     const upstream = upstreamOf(session, task)
     const context = task.run?.context
-    const ratio = context && context.total > 0 ? clampRatio(context.used / context.total) : 0
 
     const blocked = task.state === TaskState.Blocked
     const running = task.state === TaskState.Running
     const cancelled = task.state === TaskState.Cancelled
     const connectable = !session.finalized && !unlinkable
     const accent = accentClass(task.state)
+    const tldr = failureTldr(task)
 
     return (
         <div
@@ -74,6 +87,10 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                 unlinkable && 'opacity-30',
             )}
         >
+            {tldr && <FailureBubble tldr={tldr} />}
+
+            {running && <TaskActivity taskId={task.id} />}
+
             {accent && (
                 <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl">
                     <span className={cn('absolute inset-y-0 left-0 w-1', accent)} />
@@ -87,9 +104,8 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                 <span
                     className={cn(
                         'min-w-0 flex-1 truncate text-lg font-medium',
+                        TITLE_CLASSES[task.state],
                         !task.title && 'text-muted-foreground',
-                        task.state === TaskState.Done && 'text-muted-foreground line-through',
-                        cancelled && 'text-muted-foreground',
                     )}
                 >
                     {task.title || UNTITLED}
@@ -107,11 +123,7 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                     {needsInput && <NeedsInputsChip />}
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
-                    {context && (
-                        <span className="font-mono text-xs text-muted-foreground">
-                            {formatTokens(context.used)}/{formatTokens(context.total)}
-                        </span>
-                    )}
+                    {context && <ContextStamina used={context.used} total={context.total} />}
                     <StateBadge state={task.state} />
                 </span>
             </div>
@@ -120,15 +132,6 @@ export function TaskNode({data, selected}: NodeProps<TaskNodeType>) {
                 <p className="relative mt-1 truncate text-sm text-muted-foreground">
                     {upstreamLine(upstream)}
                 </p>
-            )}
-
-            {context && (
-                <span className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden rounded-b-xl bg-progress-track">
-                    <span
-                        className={cn('block h-full rounded-bl-xl', meterClass(ratio))}
-                        style={{width: `${ratio * 100}%`}}
-                    />
-                </span>
             )}
 
             <Handle type="source" position={Position.Right} isConnectable={connectable} />

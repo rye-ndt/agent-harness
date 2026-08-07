@@ -36,6 +36,7 @@ import {
     sessions,
     setSessions,
 } from '@/features/sessions/api/store'
+import {forgetSessionActivity} from '@/features/sessions/api/activity'
 import {resolveAcceptance, stopRun, tick} from '@/features/sessions/api/simulated-run'
 import {
     answerRemoteAcceptance,
@@ -44,6 +45,8 @@ import {
     startRemoteRun,
 } from '@/features/sessions/api/remote-run'
 import {DeleteSessionDraft} from '@wailsjs/go/wails_api/API'
+
+export {taskActivity} from '@/features/sessions/api/activity'
 
 export async function listSessions(): Promise<Session[]> {
     await hydrate()
@@ -171,6 +174,7 @@ export async function cancelSession(sessionId: string): Promise<Session> {
 
     stopRun(sessionId)
     await cancelRemoteRun(sessionId)
+    forgetSessionActivity(session)
 
     return replaceSession(cancelRun(session))
 }
@@ -178,9 +182,12 @@ export async function cancelSession(sessionId: string): Promise<Session> {
 export async function deleteSession(sessionId: string): Promise<void> {
     await hydrate()
 
+    const doomed = sessions.find((session) => session.id === sessionId)
+
     stopRun(sessionId)
     await cancelRemoteRun(sessionId).catch(() => {})
     runs.delete(sessionId)
+    if (doomed) forgetSessionActivity(doomed)
     setSessions(sessions.filter((session) => session.id !== sessionId))
 
     if (hasWailsRuntime()) await bridge(() => DeleteSessionDraft(sessionId))

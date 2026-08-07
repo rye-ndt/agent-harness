@@ -2,6 +2,7 @@ import type {MouseEvent} from 'react'
 import {CircleStop, Lock, MoreHorizontal} from 'lucide-react'
 
 import {SessionSpine} from '@/features/sessions/components/session-spine'
+import {SESSION_TITLE_CLASSES} from '@/features/sessions/session-status'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -35,7 +36,6 @@ export function SessionRow({
     const {done, total} = sessionProgress(session)
     const relative = formatRelative(session.createdAt)
     const status = sessionStatus(session)
-    const finished = status === SessionStatus.Done
     const cancelled = status === SessionStatus.Cancelled
 
     const select = () => onSelect(session.id)
@@ -58,7 +58,7 @@ export function SessionRow({
                     <span
                         className={cn(
                             'truncate text-base font-medium',
-                            finished && 'text-muted-foreground line-through',
+                            SESSION_TITLE_CLASSES[status],
                         )}
                     >
                         {session.name}

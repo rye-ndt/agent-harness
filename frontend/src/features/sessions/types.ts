@@ -22,6 +22,7 @@ export type FileChange = {
 
 export type HandoverDoc = {
     task: string
+    tldr: string
     outcome: string
     blockers: Record<string, string>
     approvedDecisions: Record<string, string>
@@ -31,6 +32,13 @@ export type HandoverDoc = {
     mustAvoid: Record<string, string>
     nuances: Record<string, string>
     knownGaps: Record<string, string>
+}
+
+/** One short sentence a running node emitted about what it is doing. */
+export type ActivityLine = {
+    seq: number
+    at: string
+    text: string
 }
 
 export type TaskReport = {
