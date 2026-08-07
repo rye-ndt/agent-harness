@@ -617,6 +617,7 @@ func streamEvents(
 		case out <- data:
 		case <-done:
 			return
+		default:
 		}
 	}
 }
@@ -678,6 +679,10 @@ func (o *openCode) Usage(id string) (*input_itf.ContextUsage, error) {
 	}
 
 	return a.snapshotUsage(), nil
+}
+
+func (o *openCode) Activity(id string) ([]input_itf.Activity, error) {
+	return []input_itf.Activity{}, nil
 }
 
 func (o *openCode) Listen(id string) (<-chan string, error) {

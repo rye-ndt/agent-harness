@@ -32,6 +32,12 @@ type ContextUsage struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type Activity struct {
+	Seq  int       `json:"seq"`
+	At   time.Time `json:"at"`
+	Text string    `json:"text"`
+}
+
 type AgentAdmin interface {
 	Auth() (string, error)
 	SubmitAuthCode(code string) error
@@ -55,5 +61,6 @@ type AgentHarness interface {
 	Listen(id string) (<-chan string, error)
 	Alive(id string) (time.Time, error)
 	Usage(id string) (*ContextUsage, error)
+	Activity(id string) ([]Activity, error)
 	Kill(id string) error
 }

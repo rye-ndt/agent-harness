@@ -259,6 +259,7 @@ export namespace output_itf {
 	}
 	export class HandoverDocInfo {
 	    task: string;
+	    tldr: string;
 	    outcome: string;
 	    blockers: Record<string, string>;
 	    approved_decisions: Record<string, string>;
@@ -276,6 +277,7 @@ export namespace output_itf {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.task = source["task"];
+	        this.tldr = source["tldr"];
 	        this.outcome = source["outcome"];
 	        this.blockers = source["blockers"];
 	        this.approved_decisions = source["approved_decisions"];
@@ -403,11 +405,29 @@ export namespace output_itf {
 	        this.updated_at = source["updated_at"];
 	    }
 	}
+	export class TaskActivityInfo {
+	    seq: number;
+	    at: string;
+	    text: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskActivityInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.seq = source["seq"];
+	        this.at = source["at"];
+	        this.text = source["text"];
+	    }
+	}
 	export class SessionTaskInfo {
 	    task_id: string;
 	    status: string;
 	    file_changes: FileChangeInfo[];
 	    handover_docs: HandoverDocInfo[];
+	    context_usage?: input_itf.ContextUsage;
+	    activity: TaskActivityInfo[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SessionTaskInfo(source);
@@ -419,6 +439,8 @@ export namespace output_itf {
 	        this.status = source["status"];
 	        this.file_changes = this.convertValues(source["file_changes"], FileChangeInfo);
 	        this.handover_docs = this.convertValues(source["handover_docs"], HandoverDocInfo);
+	        this.context_usage = this.convertValues(source["context_usage"], input_itf.ContextUsage);
+	        this.activity = this.convertValues(source["activity"], TaskActivityInfo);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -473,6 +495,7 @@ export namespace output_itf {
 		    return a;
 		}
 	}
+	
 	
 	export class TemplateParamInfo {
 	    description: string;

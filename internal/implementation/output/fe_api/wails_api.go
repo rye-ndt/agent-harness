@@ -813,6 +813,7 @@ func sessionTaskInfo(taskID uuid.UUID, report *core_itf.TaskReport) *output_itf.
 		TaskID:       taskID.String(),
 		FileChanges:  []*output_itf.FileChangeInfo{},
 		HandoverDocs: []*output_itf.HandoverDocInfo{},
+		Activity:     []*output_itf.TaskActivityInfo{},
 	}
 
 	if report == nil {
@@ -820,6 +821,7 @@ func sessionTaskInfo(taskID uuid.UUID, report *core_itf.TaskReport) *output_itf.
 	}
 
 	info.Status = string(report.Status)
+	info.ContextUsage = report.ContextUsage
 
 	for _, change := range report.FileChanges {
 		info.FileChanges = append(info.FileChanges, fileChangeInfo(change))
@@ -827,6 +829,14 @@ func sessionTaskInfo(taskID uuid.UUID, report *core_itf.TaskReport) *output_itf.
 
 	for _, doc := range report.HandoverDocs {
 		info.HandoverDocs = append(info.HandoverDocs, handoverDocInfo(doc))
+	}
+
+	for _, line := range report.Activity {
+		info.Activity = append(info.Activity, &output_itf.TaskActivityInfo{
+			Seq:  line.Seq,
+			At:   line.At.Format(time.RFC3339),
+			Text: line.Text,
+		})
 	}
 
 	return info
@@ -854,6 +864,7 @@ func handoverDocInfo(doc *core_itf.HandoverDoc) *output_itf.HandoverDocInfo {
 
 	return &output_itf.HandoverDocInfo{
 		Task:              doc.Task,
+		TLDR:              doc.TLDR,
 		Outcome:           doc.Outcome,
 		Blockers:          doc.Blockers,
 		ApprovedDecisions: doc.ApprovedDecisions,

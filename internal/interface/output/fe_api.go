@@ -67,6 +67,7 @@ type RunSessionResult struct {
 
 type HandoverDocInfo struct {
 	Task              string            `json:"task"`
+	TLDR              string            `json:"tldr"`
 	Outcome           string            `json:"outcome"`
 	Blockers          map[string]string `json:"blockers"`
 	ApprovedDecisions map[string]string `json:"approved_decisions"`
@@ -87,11 +88,19 @@ type FileChangeInfo struct {
 	UnifiedDiff string `json:"unified_diff"`
 }
 
+type TaskActivityInfo struct {
+	Seq  int    `json:"seq"`
+	At   string `json:"at"`
+	Text string `json:"text"`
+}
+
 type SessionTaskInfo struct {
-	TaskID       string             `json:"task_id"`
-	Status       string             `json:"status"`
-	FileChanges  []*FileChangeInfo  `json:"file_changes"`
-	HandoverDocs []*HandoverDocInfo `json:"handover_docs"`
+	TaskID       string                  `json:"task_id"`
+	Status       string                  `json:"status"`
+	FileChanges  []*FileChangeInfo       `json:"file_changes"`
+	HandoverDocs []*HandoverDocInfo      `json:"handover_docs"`
+	ContextUsage *input_itf.ContextUsage `json:"context_usage"`
+	Activity     []*TaskActivityInfo     `json:"activity"`
 }
 
 type SessionStatusInfo struct {

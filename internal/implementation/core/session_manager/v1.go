@@ -44,6 +44,7 @@ type v1 struct {
 	cfg      *input_itf.SessionConfig
 	wal      input_itf.TaskWAL
 	mq       output_itf.MessageQ
+	live     core_itf.LiveAgentReader
 	sessions map[uuid.UUID]*sessionMetadata
 	stop     chan struct{}
 }
@@ -65,6 +66,46 @@ func InitV1(cfg *input_itf.SessionConfig, wal input_itf.TaskWAL, mq output_itf.M
 	go s.watchHeartbeats()
 
 	return s, nil
+}
+
+func (s *v1) TrackLiveAgents(reader core_itf.LiveAgentReader) {
+	s.raceSafe(func() { s.live = reader })
+}
+
+// The reading has to happen while the agent is still alive: the coordinator kills it as soon
+// as it sees the report event, and a dead agent has no window left to read.
+func (s *v1) readContextUsage(agentID uuid.UUID) *input_itf.ContextUsage {
+	var reader core_itf.LiveAgentReader
+
+	s.raceSafe(func() { reader = s.live })
+
+	if reader == nil {
+		return nil
+	}
+
+	usage, err := reader.ContextUsage(agentID)
+	if err != nil {
+		return nil
+	}
+
+	return usage
+}
+
+func (s *v1) readActivity(agentID uuid.UUID) []input_itf.Activity {
+	var reader core_itf.LiveAgentReader
+
+	s.raceSafe(func() { reader = s.live })
+
+	if reader == nil {
+		return nil
+	}
+
+	activity, err := reader.Activity(agentID)
+	if err != nil {
+		return nil
+	}
+
+	return activity
 }
 
 func (s *v1) NewSession(p *core_itf.InitSession) (uuid.UUID, error) {
@@ -519,6 +560,7 @@ func (s *v1) Report(agentID uuid.UUID, status enums.TaskStatus, docs []*core_itf
 		Status:       status,
 		FileChanges:  []*core_itf.FileChange{},
 		HandoverDocs: docs,
+		ContextUsage: s.readContextUsage(agentID),
 	}
 
 	reportID, err := uuid.NewV7()
@@ -535,6 +577,7 @@ func (s *v1) Report(agentID uuid.UUID, status enums.TaskStatus, docs []*core_itf
 
 		handoverDocRecords = append(handoverDocRecords, &input_itf.HandoverDocEntity{
 			Task:              doc.Task,
+			TLDR:              doc.TLDR,
 			Outcome:           doc.Outcome,
 			Blockers:          doc.Blockers,
 			ApprovedDecisions: doc.ApprovedDecisions,
@@ -553,6 +596,7 @@ func (s *v1) Report(agentID uuid.UUID, status enums.TaskStatus, docs []*core_itf
 		AgentID:       agentID,
 		AttemptStatus: report.Status,
 		HandoverDocs:  handoverDocRecords,
+		ContextUsage:  report.ContextUsage,
 		StartedAt:     handle.AssignedAt,
 		CompletedAt:   helpers.NewUTC(),
 		CreatedAt:     helpers.NewUTC(),
@@ -647,11 +691,17 @@ func (s *v1) Status(id uuid.UUID) (*core_itf.SessionStatus, error) {
 	var err error
 	var status *core_itf.SessionStatus
 
+	liveAgents := map[uuid.UUID]uuid.UUID{}
+
 	s.raceSafe(func() {
 		session, found := s.sessions[id]
 		if !found {
 			err = custom_error.Critical("session %v not found", id)
 			return
+		}
+
+		for agentID, handle := range session.agentIDToHandle {
+			liveAgents[handle.TaskID] = agentID
 		}
 
 		tasks := map[uuid.UUID]*core_itf.TaskReport{}
@@ -667,6 +717,7 @@ func (s *v1) Status(id uuid.UUID) (*core_itf.SessionStatus, error) {
 			if reported, found := session.taskIDToReport[taskID]; found {
 				task.FileChanges = append(task.FileChanges, reported.FileChanges...)
 				task.HandoverDocs = append(task.HandoverDocs, reported.HandoverDocs...)
+				task.ContextUsage = reported.ContextUsage
 			}
 
 			tasks[taskID] = task
@@ -683,6 +734,20 @@ func (s *v1) Status(id uuid.UUID) (*core_itf.SessionStatus, error) {
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Outside the lock: reading usage takes the same lock to reach the reader.
+	for taskID, agentID := range liveAgents {
+		task, found := status.Tasks[taskID]
+		if !found {
+			continue
+		}
+
+		if usage := s.readContextUsage(agentID); usage != nil {
+			task.ContextUsage = usage
+		}
+
+		task.Activity = s.readActivity(agentID)
 	}
 
 	return status, nil
@@ -1131,6 +1196,10 @@ func (m *sessionMetadata) keepReport(report *core_itf.TaskReport) {
 	kept.Status = report.Status
 	kept.FileChanges = append(kept.FileChanges, report.FileChanges...)
 	kept.HandoverDocs = append(kept.HandoverDocs, report.HandoverDocs...)
+
+	if report.ContextUsage != nil {
+		kept.ContextUsage = report.ContextUsage
+	}
 }
 
 func makeDir(name, path, fallback string) (string, error) {

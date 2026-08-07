@@ -2,6 +2,7 @@ package core_itf
 
 import (
 	"hexago/internal/helpers/enums"
+	input_itf "hexago/internal/interface/input"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,6 +46,7 @@ type FileChange struct {
 
 type HandoverDoc struct {
 	Task              string
+	TLDR              string
 	Outcome           string
 	Blockers          map[string]string
 	ApprovedDecisions map[string]string
@@ -61,6 +63,8 @@ type TaskReport struct {
 	Status       enums.TaskStatus
 	FileChanges  []*FileChange
 	HandoverDocs []*HandoverDoc
+	ContextUsage *input_itf.ContextUsage
+	Activity     []input_itf.Activity
 }
 
 type SessionProgress struct {
@@ -95,8 +99,18 @@ type TaskReporter interface {
 	Report(agentID uuid.UUID, status enums.TaskStatus, docs []*HandoverDoc) error
 }
 
+// LiveAgentReader reads what an agent has spent of its window, and what it is doing, while it
+// is still alive. AgentManager satisfies it; the session manager takes it separately because
+// the two are wired in a cycle — the agent manager is built on top of the MCP gateway that
+// reports here.
+type LiveAgentReader interface {
+	ContextUsage(agentID uuid.UUID) (*input_itf.ContextUsage, error)
+	Activity(agentID uuid.UUID) ([]input_itf.Activity, error)
+}
+
 type SessionManager interface {
 	TaskReporter
+	TrackLiveAgents(reader LiveAgentReader)
 	NewSession(p *InitSession) (uuid.UUID, error)
 	AddTask(session uuid.UUID, task *AddTask) (uuid.UUID, error)
 	ReadyTasks(session uuid.UUID) ([]*TaskSpec, error)

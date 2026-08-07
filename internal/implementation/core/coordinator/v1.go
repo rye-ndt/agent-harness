@@ -181,6 +181,7 @@ func (c *v1) schedule(session uuid.UUID) {
 		if err := c.agents.Send(agent.ID, buildPrompt(spec, status)); err != nil {
 			_ = c.sessions.Report(agent.ID, enums.TaskFailed, []*core_itf.HandoverDoc{{
 				Task:    spec.Name,
+				TLDR:    "The assistant working on this step stopped running before it could start, so nothing was done.",
 				Outcome: "agent died before reporting: " + err.Error(),
 			}})
 			_ = c.agents.Kill(agent.ID)
@@ -215,6 +216,7 @@ func (c *v1) watch(agentID uuid.UUID, taskName string) {
 
 					_ = c.sessions.Report(agentID, enums.TaskFailed, []*core_itf.HandoverDoc{{
 						Task:    taskName,
+						TLDR:    "The assistant working on this step stopped responding partway through, so the work is unfinished.",
 						Outcome: "agent died before reporting: " + err.Error(),
 					}})
 					_ = c.agents.Kill(agentID)
@@ -287,6 +289,13 @@ func buildPrompt(spec *core_itf.TaskSpec, status *core_itf.SessionStatus) string
 		constances.GatewayLocalServer +
 		"` MCP server exactly once, with status completed or failed and a complete, honest handover doc. " +
 		"After the tool returns, stop.\n")
+
+	b.WriteString("\nOne field of that doc is not for the next agent. `tldr` is read by a person who has " +
+		"not seen this codebase and may not know what this task was for. Write exactly one sentence " +
+		"saying what you did and how you did it, in plain words a non-programmer would follow: no file " +
+		"paths, no function or type names, no jargon, no abbreviations from this project. It has to make " +
+		"sense on its own, to someone who reads nothing else. If you failed, say in that one sentence " +
+		"what you were trying to do and what stopped you.\n")
 
 	return b.String()
 }

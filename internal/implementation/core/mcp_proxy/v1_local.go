@@ -26,7 +26,9 @@ The operator may approve, which returns the option they picked, or reject, which
 const reportToolDescription = `Report the assigned task as finished. Call this exactly once, when the task is done.
 Use status completed when the goal is met, failed when you are blocked and cannot meet it.
 The handover doc you submit here is the only context the next agent gets, so rejected decisions
-and things to avoid matter as much as the outcome itself.`
+and things to avoid matter as much as the outcome itself.
+The tldr is the exception: it is read by a person, not by an agent, so write it for someone
+who has never seen this project.`
 
 const (
 	rejectedWithGuidance = "The operator rejected this and is sending their guidance as a separate message. " +
@@ -80,6 +82,7 @@ type approvalArgs struct {
 type reportArgs struct {
 	Status            string            `json:"status"`
 	Task              string            `json:"task"`
+	TLDR              string            `json:"tldr"`
 	Outcome           string            `json:"outcome"`
 	Blockers          map[string]string `json:"blockers"`
 	ApprovedDecisions map[string]string `json:"approved_decisions"`
@@ -226,6 +229,12 @@ func reportToolSchema() map[string]any {
 					"type":        "string",
 					"description": "Short name of what was worked on.",
 				},
+				"tldr": map[string]any{
+					"type": "string",
+					"description": "Exactly one sentence, written for a person who has not read the code and knows " +
+						"nothing about this project: what you did and how you did it. Use plain words, " +
+						"no file paths, no identifiers, no jargon. It must make sense on its own.",
+				},
 				"outcome": map[string]any{
 					"type":        "string",
 					"description": "What was achieved, or why the task failed.",
@@ -239,7 +248,7 @@ func reportToolSchema() map[string]any {
 				"nuances":            section("Subtleties the next agent needs, keyed by a short name."),
 				"known_gaps":         section("Work knowingly left undone, keyed by a short name."),
 			},
-			"required": []string{"status", "task", "outcome"},
+			"required": []string{"status", "task", "tldr", "outcome"},
 		},
 	}
 }
@@ -311,6 +320,7 @@ func (s *v1) callReport(arguments json.RawMessage, agentID uuid.UUID) *toolResul
 
 	docs := []*core_itf.HandoverDoc{{
 		Task:              args.Task,
+		TLDR:              args.TLDR,
 		Outcome:           args.Outcome,
 		Blockers:          args.Blockers,
 		ApprovedDecisions: args.ApprovedDecisions,

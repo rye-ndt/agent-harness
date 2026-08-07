@@ -111,6 +111,7 @@ var migrations = []string{
 	`ALTER TABLE tasks ADD COLUMN manual_accept_required INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE task_reports ADD COLUMN snapshot_id TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE mcp_credentials ADD COLUMN account TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE task_reports ADD COLUMN context_usage TEXT NOT NULL DEFAULT ''`,
 }
 
 const templateColumns = `id, name, role, task_level, retryable, manual_accept_required, params, system_prompts, created_at, updated_at`
@@ -529,13 +530,13 @@ func (s *taskStore) Find(taskID uuid.UUID) (*input_itf.TaskEntity, error) {
 func (s *taskStore) FindLastImplementRecord(taskID uuid.UUID) *input_itf.TaskReportEntity {
 	r := &input_itf.TaskReportEntity{}
 
-	var id, tID, agentID, attemptStatus, handoverDoc string
+	var id, tID, agentID, attemptStatus, handoverDoc, contextUsage string
 	var startedAt, completedAt, createdAt, updatedAt string
 
-	err := s.db.QueryRow(`SELECT id, task_id, agent_id, attempt_status, handover_doc,
+	err := s.db.QueryRow(`SELECT id, task_id, agent_id, attempt_status, handover_doc, context_usage,
 		started_at, completed_at, created_at, updated_at
 		FROM task_reports WHERE task_id = ? ORDER BY id DESC LIMIT 1`, taskID.String()).
-		Scan(&id, &tID, &agentID, &attemptStatus, &handoverDoc,
+		Scan(&id, &tID, &agentID, &attemptStatus, &handoverDoc, &contextUsage,
 			&startedAt, &completedAt, &createdAt, &updatedAt)
 	if err != nil {
 		return nil
@@ -555,6 +556,15 @@ func (s *taskStore) FindLastImplementRecord(taskID uuid.UUID) *input_itf.TaskRep
 		return nil
 	}
 	r.HandoverDocs = docs
+
+	if contextUsage != "" {
+		usage := &input_itf.ContextUsage{}
+		if err := json.Unmarshal([]byte(contextUsage), usage); err != nil {
+			return nil
+		}
+
+		r.ContextUsage = usage
+	}
 
 	return r
 }
@@ -682,15 +692,27 @@ func saveReport(e execer, r *input_itf.TaskReportEntity) error {
 		return err
 	}
 
+	usage := ""
+
+	if r.ContextUsage != nil {
+		encoded, err := json.Marshal(r.ContextUsage)
+		if err != nil {
+			return err
+		}
+
+		usage = string(encoded)
+	}
+
 	_, err = e.Exec(`INSERT OR REPLACE INTO task_reports
-		(id, task_id, agent_id, attempt_status, handover_doc,
+		(id, task_id, agent_id, attempt_status, handover_doc, context_usage,
 		started_at, completed_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID.String(),
 		r.TaskID.String(),
 		r.AgentID.String(),
 		string(r.AttemptStatus),
 		string(doc),
+		usage,
 		formatTime(r.StartedAt),
 		formatTime(r.CompletedAt),
 		formatTime(r.CreatedAt),

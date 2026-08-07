@@ -158,6 +158,8 @@ func wire(assets fs.FS) (*App, error) {
 		return nil, err
 	}
 
+	sessionManager.TrackLiveAgents(agentManager)
+
 	sessionCoordinator, err := coordinator.InitV1(sessionCfg, sessionManager, agentManager)
 	if err != nil {
 		mcpProxy.Close()

@@ -33,6 +33,7 @@ type FileChangeEntity struct {
 
 type HandoverDocEntity struct {
 	Task              string            `json:"task_name"`
+	TLDR              string            `json:"tldr"`
 	Outcome           string            `json:"outcome"`
 	Blockers          map[string]string `json:"blockers"`
 	ApprovedDecisions map[string]string `json:"approved_decisions"`
@@ -50,6 +51,7 @@ type TaskReportEntity struct {
 	AgentID       uuid.UUID
 	AttemptStatus enums.TaskStatus
 	HandoverDocs  []*HandoverDocEntity
+	ContextUsage  *ContextUsage
 	StartedAt     time.Time
 	CompletedAt   time.Time
 	CreatedAt     time.Time

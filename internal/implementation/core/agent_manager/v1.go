@@ -305,6 +305,15 @@ func (m *agentManagerV1) ContextUsage(agentID uuid.UUID) (*input_itf.ContextUsag
 	return tool.Usage(agentID.String())
 }
 
+func (m *agentManagerV1) Activity(agentID uuid.UUID) ([]input_itf.Activity, error) {
+	tool, err := m.toolForAgent(agentID)
+	if err != nil {
+		return nil, err
+	}
+
+	return tool.Activity(agentID.String())
+}
+
 func (m *agentManagerV1) toolForAgent(agentID uuid.UUID) (input_itf.AgentHarness, error) {
 	var model enums.ModelName
 	var agent *core_itf.Agent

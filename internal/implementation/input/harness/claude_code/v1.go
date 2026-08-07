@@ -29,6 +29,7 @@ import (
 )
 
 const harnessName = "claude-code"
+const maxActivity = 40
 
 var authURLRe = regexp.MustCompile(`https://[A-Za-z0-9._~:/?#&=%+-]+`)
 var claudePermissions = "Read,Edit,Write,Glob,Grep,Bash,WebFetch,WebSearch,mcp__harness"
@@ -98,23 +99,39 @@ type claudeManifest struct {
 }
 
 type agentProc struct {
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	stdinMu   sync.Mutex
-	stdout    io.ReadCloser
-	out       chan string
-	done      chan struct{}
-	exited    chan struct{}
-	lastOut   atomic.Int64
-	ctxWindow int
-	usageMu   sync.Mutex
-	usage     input_itf.ContextUsage
+	cmd         *exec.Cmd
+	stdin       io.WriteCloser
+	stdinMu     sync.Mutex
+	stdout      io.ReadCloser
+	out         chan string
+	done        chan struct{}
+	exited      chan struct{}
+	lastOut     atomic.Int64
+	ctxWindow   int
+	usageMu     sync.Mutex
+	usage       input_itf.ContextUsage
+	activityMu  sync.Mutex
+	activity    []input_itf.Activity
+	activitySeq int
 }
 
-type claudeUsage struct {
+type claudeBlock struct {
+	Type  string `json:"type"`
+	Text  string `json:"text"`
+	Name  string `json:"name"`
+	Input struct {
+		FilePath string `json:"file_path"`
+		Command  string `json:"command"`
+		Pattern  string `json:"pattern"`
+		URL      string `json:"url"`
+	} `json:"input"`
+}
+
+type claudeEvent struct {
 	Type    string `json:"type"`
 	Message struct {
-		Usage struct {
+		Content []claudeBlock `json:"content"`
+		Usage   struct {
 			InputTokens              int `json:"input_tokens"`
 			OutputTokens             int `json:"output_tokens"`
 			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
@@ -123,12 +140,17 @@ type claudeUsage struct {
 	} `json:"message"`
 }
 
-func (a *agentProc) trackUsage(line []byte) {
-	event := &claudeUsage{}
+func (a *agentProc) track(line []byte) {
+	event := &claudeEvent{}
 	if err := json.Unmarshal(line, event); err != nil || event.Type != "assistant" {
 		return
 	}
 
+	a.trackUsage(event)
+	a.trackActivity(event)
+}
+
+func (a *agentProc) trackUsage(event *claudeEvent) {
 	reported := event.Message.Usage
 
 	used := reported.InputTokens +
@@ -161,6 +183,101 @@ func (a *agentProc) snapshotUsage() *input_itf.ContextUsage {
 	snapshot.Total = a.ctxWindow
 
 	return &snapshot
+}
+
+func (a *agentProc) trackActivity(event *claudeEvent) {
+	for _, block := range event.Message.Content {
+		text := digest(&block)
+		if text == "" {
+			continue
+		}
+
+		a.activityMu.Lock()
+		a.activitySeq++
+		a.activity = append(a.activity, input_itf.Activity{
+			Seq:  a.activitySeq,
+			At:   helpers.NewUTC(),
+			Text: text,
+		})
+		if len(a.activity) > maxActivity {
+			a.activity = append(a.activity[:0:0], a.activity[len(a.activity)-maxActivity:]...)
+		}
+		a.activityMu.Unlock()
+	}
+}
+
+func (a *agentProc) snapshotActivity() []input_itf.Activity {
+	a.activityMu.Lock()
+	defer a.activityMu.Unlock()
+
+	return slices.Clone(a.activity)
+}
+
+func digest(block *claudeBlock) string {
+	switch block.Type {
+	case "text":
+		return clip(firstSentence(block.Text), 140)
+	case "tool_use":
+		return toolPhrase(block)
+	default:
+		return ""
+	}
+}
+
+func toolPhrase(block *claudeBlock) string {
+	switch block.Name {
+	case "Read":
+		return "Reading " + shortPath(block.Input.FilePath)
+	case "Edit", "Write":
+		return "Editing " + shortPath(block.Input.FilePath)
+	case "Bash":
+		return "Running " + clip(firstSentence(block.Input.Command), 80)
+	case "Grep", "Glob":
+		return "Searching for " + clip(block.Input.Pattern, 80)
+	case "WebFetch":
+		return "Fetching " + clip(block.Input.URL, 80)
+	default:
+		if block.Name == "" {
+			return ""
+		}
+		return "Using " + block.Name
+	}
+}
+
+func firstSentence(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	for i := range len(line) {
+		if line[i] != '.' {
+			continue
+		}
+		if i+1 == len(line) || line[i+1] == ' ' {
+			return line[:i+1]
+		}
+	}
+	return line
+}
+
+func clip(text string, limit int) string {
+	trimmed := strings.TrimSpace(text)
+	runes := []rune(trimmed)
+	if len(runes) <= limit {
+		return trimmed
+	}
+	return strings.TrimSpace(string(runes[:limit])) + "…"
+}
+
+func shortPath(path string) string {
+	cleaned := strings.Trim(filepath.ToSlash(path), "/")
+	if cleaned == "" {
+		return path
+	}
+
+	parts := strings.Split(cleaned, "/")
+	if len(parts) <= 2 {
+		return cleaned
+	}
+
+	return strings.Join(parts[len(parts)-2:], "/")
 }
 
 type claudeCodeCfg struct {
@@ -671,11 +788,12 @@ func (c *claudeCode) Spawn(
 		sc.Buffer(make([]byte, 64*1024), 8*1024*1024)
 		for sc.Scan() {
 			proc.lastOut.Store(helpers.NewUTCUnix())
-			proc.trackUsage(sc.Bytes())
+			proc.track(sc.Bytes())
 
 			select {
 			case out <- sc.Text():
 			case <-done:
+			default:
 			}
 		}
 		close(out)
@@ -748,6 +866,17 @@ func (c *claudeCode) Usage(id string) (*input_itf.ContextUsage, error) {
 	}
 
 	return a.snapshotUsage(), nil
+}
+
+func (c *claudeCode) Activity(id string) ([]input_itf.Activity, error) {
+	c.mu.Lock()
+	a, ok := c.agents[id]
+	c.mu.Unlock()
+	if !ok {
+		return nil, custom_error.Critical("no running agent with id %s", id)
+	}
+
+	return a.snapshotActivity(), nil
 }
 
 func (c *claudeCode) Listen(id string) (<-chan string, error) {
